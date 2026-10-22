@@ -107,7 +107,7 @@ COPY --link core/__init__.py core/base64url.py core/canonical_json.py core/ident
 COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY --link egress/__init__.py egress/policy.py ./egress/
 COPY --link inference/__init__.py inference/abort.py inference/browser.py inference/client.py inference/config.py inference/errors.py \
-    inference/credential.py inference/model_catalog.json \
+    inference/credential.py inference/memory.py inference/model_catalog.json \
     inference/token.py inference/usage.py ./inference/
 COPY --link integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \
@@ -119,7 +119,7 @@ COPY --link local/assistant/__init__.py local/assistant/api.py local/assistant/e
 COPY --link local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
     local/chat/continuation.py \
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/limit.py \
-    local/chat/pause.py \
+    local/chat/memory.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/
 COPY --link local/routine/__init__.py local/routine/card.py local/routine/replay.py local/routine/contracts.py \

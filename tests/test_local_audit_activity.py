@@ -3,6 +3,7 @@
 import unittest
 from unittest import mock
 
+from inference import memory as inference_memory
 from local import audit as local_audit
 from local.browser import sign_in
 
@@ -62,11 +63,14 @@ class ActivityEventTests(unittest.TestCase):
         activity = {"event_id": "a" * 32, "phase": "requested", "subject": "sign-in"}
         recorded = []
         with mock.patch.object(local_audit, "_append", side_effect=lambda *args: recorded.append(args[0]) or "trace"):
-            for operation in (sign_in.START, sign_in.SAVE, sign_in.CANCEL, sign_in.DELETE, sign_in.EXPIRE):
+            for operation in (
+                *(sign_in.START, sign_in.SAVE, sign_in.CANCEL, sign_in.DELETE, sign_in.EXPIRE),
+                *(inference_memory.REMEMBER, inference_memory.FORGET, inference_memory.EVICTED),
+            ):
                 local_audit.record_activity(
                     operation, result="ok", principal=local_audit.TEAM, team_id="neo", activity=activity
                 )
-            for operation in ("browser-sign-in", "chat", ""):
+            for operation in ("browser-sign-in", "chat-memory", "memory-replace", ""):
                 with self.subTest(operation=operation), self.assertRaises(ValueError):
                     local_audit.record_activity(
                         operation, result="ok", principal=local_audit.TEAM, team_id="neo", activity=activity

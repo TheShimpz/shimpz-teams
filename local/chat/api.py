@@ -8,9 +8,10 @@ from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
-from inference import config as inference_config
+from inference import memory as inference_memory
 from inference import usage as brain_usage
 from local import audit as local_audit
+from local.chat import memory as local_chat_memory
 from local.chat import pause as local_chat_pause
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
@@ -101,25 +102,16 @@ def segment_response(
             paused_batch=segment.paused_batch,
             recording=response.recording,
             model=segment.model,
+            source=response.source,
         )
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
         # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
-        if response.file_ids or terminal.browser is not None or not terminal.memory:
+        if response.file_ids or terminal.browser is not None or not terminal.memory or response.source is None:
             # A turn that consumed selected files or read the web learns nothing: no memory the Brain proposed becomes
-            # lasting knowledge (ADR-0093, ADR-0117).
+            # lasting knowledge (ADR-0093, ADR-0117). Nor does a turn no verified person sent (ADR-0121).
             return
-        # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
-        # nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
-        detail = f"attempt:memory={len(terminal.memory)}"
-        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
-        try:
-            self.inference_store.apply_knowledge(team_id, list(terminal.memory))
-        except inference_config.InferenceConfigError as exc:
-            local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
-            ) from exc
+        local_chat_memory.save(self.inference_store, team_id, terminal.memory, response.source)
 
     def commit(
         terminal: chat_orchestrator.ChatOutcome, body: dict[str, object], spent: brain_usage.Spent | None
@@ -183,8 +175,23 @@ def _timezone(value: object) -> str | None:
     return value
 
 
+def _source(self, team_id: str, identity: dict[str, object]) -> inference_memory.Source | None:
+    """The new turn's author, captured once at its start, or None when no verified person sent it (ADR-0121).
+
+    Every continuation carries it unchanged, so a person who only resumes the turn never becomes its author.
+    """
+    principal = local_audit.human_principal()
+    if principal is None:
+        return None
+    return inference_memory.Source(identity["nonce"], principal, self.assistant_lifecycle._network(team_id).id)
+
+
 def _recording(
-    self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None, tuple, str | None]
+    self,
+    team_id: str,
+    identity: dict[str, object],
+    send: tuple[str, list, str | None, tuple, str | None],
+    source: inference_memory.Source | None,
 ) -> str | None:
     """Open the send of a new turn in the Team's recording span, or None, which ends any span.
 
@@ -192,14 +199,12 @@ def _recording(
     earlier sends in the request's conversation window join the text whose names it matches.
     """
     message, file_ids, timezone, conversation, locale = send
-    principal = local_audit.human_principal()
     now = int(time.time())
-    if principal is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
+    if source is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
         self.routine_recordings.drop(team_id)
         return None
-    incarnation = self.assistant_lifecycle._network(team_id).id
     started = local_routine_recorder.Started(message, tuple(conversation), timezone, locale)
-    return self.routine_recordings.start(team_id, (principal, incarnation), started, now)
+    return self.routine_recordings.start(team_id, (source.actor_id, source.incarnation), started, now)
 
 
 def chat(
@@ -254,7 +259,8 @@ def chat(
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
-        recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation, locale))
+        source = _source(self, team_id, identity)
+        recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation, locale), source)
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,
@@ -280,6 +286,7 @@ def chat(
                 provider,
                 usage=usage,
                 recording=recording,
+                source=source,
             )
         )
 

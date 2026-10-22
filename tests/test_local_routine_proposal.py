@@ -16,6 +16,7 @@ from routine_fixture import KEY
 from action import human as action_human
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import memory as inference_memory
 from local import app as local_app
 from local import audit as local_audit
 from local import authority as local_authority
@@ -377,8 +378,9 @@ class RecordedRoutineTests(RecordingCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             self.chat(service, _body("Liste os registros DNS de shimpz.com"))
+            source = inference_memory.Source("b" * 32, "a" * 32, "c" * 64)
             recording = local_chat_api._recording(
-                service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, (), "pt")
+                service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, (), "pt"), source
             )
             asked = self.chat(service, _body("shimpz.com, a cada 30 segundos, mostrar sempre"))["routine_question"]
         self.assertIsNone(recording)

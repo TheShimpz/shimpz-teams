@@ -18,6 +18,7 @@ from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import memory as inference_memory
 from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
@@ -358,7 +359,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
         decoded = local_chat_continuations.decode(stored_record("human", bindings, payload))
-        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 9)
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 10)
         self.assertEqual(decoded.pending.paused_batch, PAUSED_BATCH)
         self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
         self.assertEqual(decoded.pending, state)
@@ -411,6 +412,29 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             with (
                 self.subTest(value=value),
                 self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "pending recording"),
+            ):
+                local_chat_continuations.decode_parts("integrations", json.dumps(document).encode(), bindings)
+
+    def test_a_paused_turn_keeps_its_authors_source_unchanged(self) -> None:
+        """Whoever resumes the turn, its memory source stays the one captured at its start (ADR-0121)."""
+        requirement = integration_requirement("dns.read")
+        source = inference_memory.Source("a" * 32, "b" * 32, "c" * 64)
+        bindings, payload = local_chat_continuations.encode(
+            "integrations", requirement, dataclasses.replace(pending(), source=source)
+        )
+        self.assertEqual(
+            local_chat_continuations.decode_parts("integrations", payload, bindings).pending.source, source
+        )
+        for value in (
+            {"nonce": "a" * 32, "actor_id": "b" * 32},
+            {"nonce": "A" * 32, "actor_id": "b" * 32, "incarnation": "c" * 64},
+            "b" * 32,
+        ):
+            document = json.loads(payload)
+            document["pending"]["source"] = value
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "pending source"),
             ):
                 local_chat_continuations.decode_parts("integrations", json.dumps(document).encode(), bindings)
 

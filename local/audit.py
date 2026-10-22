@@ -53,7 +53,7 @@ _ACTIVITY_KEYS = frozenset(
     {"event_id", "phase", "subject", "generation", "incarnation", "factor", "initiator_id", "origin", "outcome"}
 )
 _ACTIVITY_PHASES = frozenset({"requested", "completed", "failed"})
-# The closed activity operations: a Team's Sign-in (ADR-0117).
+# The closed activity operations: a Team's Sign-in (ADR-0117) and its learned memory (ADR-0121).
 ACTIVITY_OPERATIONS = frozenset(
     {
         "browser-sign-in-start",
@@ -61,6 +61,9 @@ ACTIVITY_OPERATIONS = frozenset(
         "browser-sign-in-cancel",
         "browser-sign-in-delete",
         "browser-sign-in-expire",
+        "memory-remember",
+        "memory-forget",
+        "memory-evicted",
     }
 )
 _ACTIVITY_TEXT = re.compile(r"^[0-9a-z][0-9a-z-]{0,127}$")

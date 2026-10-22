@@ -13,6 +13,7 @@ from chat import orchestrator as chat_orchestrator
 from core import canonical_json, identifier
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import memory as inference_memory
 from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
@@ -25,7 +26,7 @@ from protocol.http.v1 import strict_json
 from protocol.http.v1 import turn as http_turn
 from routine import plan as routine_plan
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _RECORDING_RE = re.compile(r"[0-9a-f]{32}\Z")
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
@@ -82,6 +83,9 @@ class PendingLocalChat:
     # The model the turn's start ran on, of its provider, which every resume runs and is metered on; a Routine run,
     # which asks no model, carries none.
     model: str | None = None
+    # The chat turn's author, captured at its start and never replaced by whoever resumes it (ADR-0121); a Routine run,
+    # or a turn no verified person sent, carries none.
+    source: inference_memory.Source | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +209,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "paused_batch": pending.paused_batch,
         "recording": pending.recording,
         "model": pending.model,
+        "source": None if pending.source is None else inference_memory.source_record(pending.source),
     }
 
 
@@ -595,6 +600,7 @@ def _pending(value: object) -> PendingLocalChat:
             "paused_batch",
             "recording",
             "model",
+            "source",
         },
         "pending continuation",
     )
@@ -614,8 +620,10 @@ def _pending(value: object) -> PendingLocalChat:
     provider = raw["provider"]
     identity = _identity(raw["identity"])
     if len(identity) == 2:
-        # A frozen Routine run asks no model and reads no file: it names no provider, model, usage, or recording.
-        if provider is not None or file_ids or (raw["usage"], raw["recording"], raw["model"]) != (None, None, None):
+        # A frozen Routine run asks no model, reads no file, and has no author: it names no provider, model, usage,
+        # recording, or source.
+        unnamed = (raw["usage"], raw["recording"], raw["model"], raw["source"])
+        if provider is not None or file_ids or unnamed != (None, None, None, None):
             raise ContinuationCodecError("pending Routine run is malformed")
     elif not isinstance(provider, str) or provider not in inference_config.PROVIDERS:
         raise ContinuationCodecError("pending provider is malformed")
@@ -647,7 +655,17 @@ def _pending(value: object) -> PendingLocalChat:
         paused_batch=raw["paused_batch"],
         recording=recording,
         model=model,
+        source=_source(raw["source"]),
     )
+
+
+def _source(value: object) -> inference_memory.Source | None:
+    if value is None:
+        return None
+    source = inference_memory.canonical_source(value)
+    if source is None:
+        raise ContinuationCodecError("pending source is malformed")
+    return source
 
 
 def _human_response(value: object, ordinal: int) -> action_human.HumanResponse:

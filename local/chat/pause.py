@@ -257,5 +257,6 @@ def continue_paused(
             requests_used,
             usage=pending.usage,
             recording=pending.recording,
+            source=pending.source,
         )
     )

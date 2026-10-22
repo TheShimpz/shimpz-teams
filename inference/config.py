@@ -3,18 +3,20 @@
 import hashlib
 import json
 import re
+import time
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from core import identifier
+from inference import memory as inference_memory
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 SCHEMA = 3
 KNOWLEDGE_SCHEMA = 2
 MAX_CONFIG_BYTES = 4096
-# Well above 32 memories at their field bounds.
+# Well above 32 memories and their provenance at their field bounds.
 MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
@@ -76,8 +78,11 @@ class InferenceConfigStore:
         return validated
 
     def load_knowledge(self, team_id: object) -> list[dict[str, str]]:
-        """The Team's learned memory (ADR-0084); an absent file means nothing is learned yet."""
-        team_id = _team_id(team_id)
+        """The Team's learned memory as a turn carries it: topic and preference, never provenance (ADR-0121)."""
+        return inference_memory.projection(self._memory(_team_id(team_id)))
+
+    def _memory(self, team_id: str) -> list[dict[str, object]]:
+        """The Team's private memory entries (ADR-0084); an absent file means nothing is learned yet."""
         try:
             value = private_state.read_json_record(self._knowledge_path(team_id), MAX_KNOWLEDGE_BYTES)
         except (OSError, ValueError) as exc:
@@ -91,28 +96,33 @@ class InferenceConfigStore:
             or value["team_id"] != team_id
         ):
             raise InferenceConfigError("Team knowledge is invalid")
-        memory = http_payload.canonical_memory(value["memory"])
+        memory = inference_memory.canonical_entries(value["memory"])
         if not memory:
             raise InferenceConfigError("Team knowledge is invalid")
         return memory
 
-    def apply_knowledge(self, team_id: object, changes: object) -> list[dict[str, str]]:
-        """Apply one committed turn's memory changes in one atomic write; nothing learned, no file."""
+    def plan_knowledge(self, team_id: object, changes: object, source: object) -> inference_memory.Plan:
+        """What one committed turn's memory changes leave, stamped with the turn's source; nothing is written yet."""
         team_id = _team_id(team_id)
         admitted = http_payload.canonical_memory_changes(changes)
-        if admitted is None:
+        captured = inference_memory.canonical_source(source)
+        if admitted is None or captured is None:
             raise InferenceConfigError("Team knowledge changes are invalid")
-        memory = http_payload.apply_memory_changes(self.load_knowledge(team_id), admitted)
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        return inference_memory.plan(self._memory(team_id), admitted, captured, since)
+
+    def save_knowledge(self, team_id: object, plan: inference_memory.Plan) -> None:
+        """Keep a planned memory in one atomic write; nothing learned, no file."""
+        team_id = _team_id(team_id)
         target = self._knowledge_path(team_id)
-        if not memory:
+        if not plan.memory:
             self._unlink(target)
-            return memory
-        record = {"schema": KNOWLEDGE_SCHEMA, "team_id": team_id, "memory": memory}
+            return
+        record = {"schema": KNOWLEDGE_SCHEMA, "team_id": team_id, "memory": list(plan.memory)}
         try:
             self._write(target, record, MAX_KNOWLEDGE_BYTES)
         except (OSError, ValueError) as exc:
             raise InferenceConfigError("Team knowledge could not be saved") from exc
-        return memory
 
     def _write(self, target: Path, value: dict[str, object], maximum: int) -> None:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)

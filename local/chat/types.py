@@ -5,6 +5,7 @@ from http import HTTPStatus
 
 from action import human as action_human
 from chat import turn as chat_turn_engine
+from inference import memory as inference_memory
 from inference import usage as brain_usage
 from local.chat import continuation as local_chat_continuations
 from local.errors import ApiProblemError
@@ -35,6 +36,8 @@ class ResponseRequest:
     usage: brain_usage.TurnUsage | None = None
     # The recording of the logical turn, which a Routine card is built from (ADR-0101).
     recording: str | None = None
+    # The logical turn's author, captured at its start, whom its memory changes name (ADR-0121).
+    source: inference_memory.Source | None = None
 
 
 def required_active_assistant(

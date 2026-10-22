@@ -260,7 +260,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
                 continuation._pending(value)
 
     def test_a_frozen_routine_run_names_only_its_network_and_assistants(self) -> None:
-        """A Routine run asks no model: its pending turn names no provider, model, usage, recording, or file."""
+        """A Routine run asks no model: its pending turn names no provider, model, usage, recording, source, or file."""
         chat = pending()
         routine = dataclasses.replace(
             chat, file_ids=(), provider=None, identity=("network-id", chat.identity[2]), usage=None, model=None
@@ -268,7 +268,14 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         payload = continuation._pending_payload(routine)
         self.assertEqual(payload["identity"], {"network_id": "network-id", "assistants": [list(chat.identity[2][0])]})
         self.assertEqual(continuation._pending(payload), routine)
-        for changes in ({"provider": "openai"}, {"file_ids": ["a" * 32]}, {"recording": "a" * 32}, {"model": "x"}):
+        source = {"nonce": "a" * 32, "actor_id": "b" * 32, "incarnation": "c" * 64}
+        for changes in (
+            {"provider": "openai"},
+            {"file_ids": ["a" * 32]},
+            {"recording": "a" * 32},
+            {"model": "x"},
+            {"source": source},
+        ):
             with self.subTest(changes=changes), self.assertRaises(continuation.ContinuationCodecError):
                 continuation._pending({**payload, **changes})
         with self.assertRaises(continuation.ContinuationCodecError):
