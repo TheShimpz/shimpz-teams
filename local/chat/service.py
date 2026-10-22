@@ -33,6 +33,7 @@ from local.routine import proposal as local_routine_proposal
 from local.routine import protection as local_routine_protection
 from local.routine import recorder as local_routine_recorder
 from local.routine import recovery as local_routine_recovery
+from local.routine import refine as local_routine_refine
 from local.routine import replay as local_routine_replay
 from local.routine import run as local_routine_run
 
@@ -263,7 +264,9 @@ class ChatTurnService:
     _relocalized_human = local_chat_human.relocalized
     expire_human_challenges = local_chat_human.expire_human_challenges
     _chat_routines = local_routine_proposal.chat_routines
+    _chat_selected = local_routine_refine.chat_selected
     _routine_record = local_routine_proposal.admit
+    _routine_refine = local_routine_refine.admit
     confirm_routine_proposal = local_routine_proposal.confirm
     revoke_routine_proposal = local_routine_proposal.revoke
     _recover_routine_run = local_routine_recovery.automatic

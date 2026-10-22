@@ -121,6 +121,9 @@ class RuntimeContext:
     # Whether the latest send is exactly the person's pick of one fixed answer to Team's schedule, over-budget, or
     # output question (ADR-0101): the Brain then only records again, offered no Action. Only beside ``routines``.
     routine_settings_answer: bool = False
+    # The one Routine the recording send selects, as ``routine_context.canonical_selected_routine`` admits it, which the
+    # Brain may refine (ADR-0122); None when the send selects none. Only beside ``routines``.
+    routine_selected: Mapping[str, object] | None = None
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
@@ -236,8 +239,9 @@ ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
 # legitimately wait on the model provider.
 # The Brain refuses a request body above this many bytes (brain/runtime_api.py MAX_REQUEST_BYTES).
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
-# A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma.
-_RESULT_KEY_BYTES = 256 + 4
+# A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma; and a
+# recording turn that selects a Routine wraps a traced call's result with its Team handle (ADR-0122).
+_RESULT_KEY_BYTES = 256 + 4 + len('{"call":"c256","result":}')
 CONNECT_TIMEOUT_SECONDS = 5.0
 # Brain answers a turn only when it ends, and a turn's model may legitimately work for minutes; Stop still aborts at
 # once.
@@ -347,6 +351,7 @@ class BrainRuntimeClient:
             "routine_schedule": None if context.routine_schedule is None else dict(context.routine_schedule),
             "routine_output": context.routine_output,
             "routine_settings_answer": context.routine_settings_answer,
+            "routine_selected": None if context.routine_selected is None else dict(context.routine_selected),
             "attachments": [dict(item) for item in context.attachments],
             "browser_available": context.browser,
         }

@@ -39,6 +39,7 @@ from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import pin as routine_pin
 from routine import recording as routine_recording
+from routine import reference as routine_reference
 from routine import trace
 
 SPAN_SECONDS = 15 * 60
@@ -95,6 +96,9 @@ class Span:
     intent: Intent | None = None
     # What each send's turn spent, by send id, for the sends the span still holds.
     receipts: tuple[tuple[str, Receipt], ...] = ()
+    # The one Routine, by id, the person's latest send selected, or an earlier send when the latest named none
+    # (ADR-0122); None when no send selected one, or the latest named several or a Routine the Team does not list.
+    selected: str | None = None
 
     @property
     def recording_id(self) -> str:
@@ -227,10 +231,27 @@ class RecordingBook:
             team_id, recording_id, lambda found: dataclasses.replace(found, protection=found.protection.grow(grown))
         )
 
-    def listed(self, team_id: str, recording_id: str, revisions: Iterable[tuple[str, int]]) -> None:
-        """Keep the Routines, by id and revision, the send's Brain was shown as it started."""
+    def listed(
+        self,
+        team_id: str,
+        recording_id: str,
+        revisions: Iterable[tuple[str, int]],
+        reference: tuple[str, str | None] = (routine_reference.NONE, None),
+    ) -> None:
+        """Keep the Routines, by id and revision, the send's Brain was shown as it started, and the one it selects.
+
+        ``reference`` is what the send says about them (``routine.reference``): a send that names none keeps what an
+        earlier send of the span selected, while that Routine is still listed.
+        """
         shown = tuple(revisions)
-        self._change(team_id, recording_id, lambda found: dataclasses.replace(found, revisions=shown))
+        kind, routine_id = reference
+
+        def keep(found: Span) -> Span:
+            selected = routine_id if kind != routine_reference.NONE else found.selected
+            listed = selected is not None and selected in dict(shown)
+            return dataclasses.replace(found, revisions=shown, selected=selected if listed else None)
+
+        self._change(team_id, recording_id, keep)
 
     def occurred(self, team_id: str, recording_id: str, occurrence: trace.Occurrence) -> None:
         """Keep one successful Action call in the send in progress; a send past its bound refuses the recording."""
@@ -414,12 +435,12 @@ def routine_mode(span: Span | None) -> bool:
     """Whether the Brain should treat this chat as about a Routine: advisory only, and read with no model.
 
     It is when any segment the person wrote in the span states a schedule or asks for a Routine by name, or the span
-    holds a record intent or a pending Team question. The Brain still reads what the current message asks before it
-    acts or records.
+    holds a record intent, a pending Team question, or a selected Routine (ADR-0122). The Brain still reads what the
+    current message asks before it acts or records.
     """
     if span is None:
         return False
-    if span.intent is not None or span.asked is not None:
+    if span.intent is not None or span.asked is not None or span.selected is not None:
         return True
     return any(
         phrase.stated(segment) or phrase.requests_routine(segment) for send in span.sends for segment in send.person
@@ -477,6 +498,22 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
     return shown
 
 
+def labeled(span: Span | None, results: dict[str, object]) -> dict[str, object]:
+    """The Action results a recording send returns to its Brain, each traced call's named by its Team handle.
+
+    Only while the span selects a Routine, which the Brain may refine with this send's traced calls (ADR-0122): the
+    send's k-th traced call is ``c{k}``, and its result reaches the Brain as ``{"call": "c{k}", "result": ...}``. A
+    failed call is never traced, so its result stays as it is; so does every result of a send that selects nothing.
+    """
+    if span is None or span.selected is None:
+        return results
+    handles = {item.interrupt: f"c{place}" for place, item in enumerate(span.sends[-1].occurrences, start=1)}
+    return {
+        interrupt: {"call": handles[interrupt], "result": value} if interrupt in handles else value
+        for interrupt, value in results.items()
+    }
+
+
 class AnsweredRuntime:
     """The runtime of a send Team records itself: it never asks the Brain, and its reply is empty.
 
@@ -523,6 +560,7 @@ def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invok
         action.effect == action_effect.READ_ONLY,
         trace.keep(dict(action_request.input), action.input_schema, protected),
         trace.keep(result, action.output_schema, protected),
+        interrupt=action_request.interrupt_id,
     )
     book.occurred(team_id, recording_id, occurrence)
     return result

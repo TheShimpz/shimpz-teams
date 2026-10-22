@@ -209,8 +209,9 @@ request's stored intent without asking the Brain, and its reply is empty. Every 
 records again; a settings answer (`routine_settings_answer` below) runs no Action
 again and keeps the work its intent selected, and its reply is empty too. A record call whose send ran no Action and
 that replaces exactly what the stored intent replaces continues that intent whatever it names the Routine: it keeps
-the intent's work and the revision its replaced Routine was shown at. A completed turn's `reply` is empty only beside a `routine_proposal`,
-`routine_question`, or `routine_refusal`, which then says everything the person reads.
+the intent's work and the revision its replaced Routine was shown at. A completed turn's `reply` is empty only beside a `routine_proposal`, `routine_refinement`,
+`routine_question`, or `routine_refusal`, which then says everything the person reads. A terminal that refined a
+Routine (ADR-0122) carries `routine_refinement` or `routine_refusal` instead, never a question.
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
 same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
@@ -265,7 +266,20 @@ combination: every field about a recording comes only beside the Routine listing
 (only a send without files records); `routine_question` and `routine_schedule` come only with `routine_mode` true,
 since a pending question or a stated schedule makes the chat about a Routine, and so a settings answer, which answers a
 pending settings question, does too; `routine_rerun` comes only beside a `routine-work-rerun` `routine_question`.
-`routine_output` may come outside Routine mode. `routine_proposal` is
+`routine_output` may come outside Routine mode.
+`routine_selected` (`routine_context.canonical_selected_routine`, ADR-0122) is the one Routine the recording send
+selects, by Team's own match of a Routine's name in the person's words or the body's `refine`, or `null`; it comes
+only beside the listing and with `routine_mode` true. It is exactly `{routine_id, name, description, revision, output,
+steps, last_run}`: each step is the Supervisor's plan projection (`routine.canonical_step`, a literal or run date as its
+bounded preview and a reference by the earlier step's position) beside its revision-scoped `id`; `output` is `{mode,
+step}`, the shown step's id or `null`; and `last_run` is `{revision, steps}` with each position's
+`routine_context.LAST_RUN_STATUSES` outcome in the revision that run executed, or `null` when that evidence is
+unavailable. The whole form is at most `routine_context.MAX_SELECTED_BYTES` bytes. While a send selects a Routine, each
+Action result Team returns to the Brain for a call it traced is `{"call": handle, "result": result}`, the handle
+(`routine_context.CALL_HANDLE_RE`) naming the send's k-th traced call `c{k}`. The agent's `refine`
+(`routine_context.canonical_refine`) is `{routine_id, base_revision, description, edits}`, each edit `{kind, step,
+calls}`: `insert` with 1 or more handles after `step`, `replace` with exactly one, `remove` with none; no step and no
+handle is named twice. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, schedule, timezone,
 timezone_source, output, steps}` (ADR-0101 amendment, 2026-10-16). `replaces` is `null` for a new Routine or the id of
@@ -286,6 +300,19 @@ item's own pointer. A Supervisor answers the card once: `POST /v1/teams/:team_id
 confirms it, which creates or changes the Routine, and `DELETE` on the same path revokes the card; both answer
 `routine_proposal.canonical_proposal_answer`, `{team_id, proposal_id, routine_id, status}` with status `created`, `changed`, or
 `revoked` (whose `routine_id` is `null`). A revoked or already-consumed card is answered as such, never twice applied.
+
+`routine_refinement` (`routine_proposal.canonical_refinement`, ADR-0122) is the card of a refinement: an existing
+Routine's next revision, built from its revision `base_revision` and the agent's edits, and answered through the same
+proposal path (its status is `changed`). It is exactly `{proposal_id, expires_at, routine_id, base_revision, name,
+description, schedule, timezone, timezone_source, output, last_changed, steps, removed}`, within the card's byte bound.
+`schedule`, `timezone`, `timezone_source`, `output`, and `name` are the Routine's own, which a refinement keeps;
+`description` is the resulting one. `steps` is the complete resulting plan, each a recording card's step plus its
+`change` (`kept`, `added`, or `replaced`, `routine_proposal.STEP_CHANGES`) and `base`, its position in the base plan
+(`null` for an added step). `removed` lists, by base position and in order, each base step that does not continue,
+`{position, assistant, action, read_only, change}` with `change` `removed` or `replaced`; every base step is either
+kept, in order, or listed there, and each replaced one beside its replacement. `last_changed` is true when the result a
+run shows, still its last step's, now comes from another step. Confirming it is refused when the Routine's revision
+moved on or one of its runs is live, and keeps the Routine's scheduling state as it is then.
 
 A completed Team chat terminal body may also carry `usage`, what the whole logical turn consumed; Admin relays it on
 the browser `done` frame and keeps it with the reply. It is absent when no model call of the turn reported usage.
@@ -480,7 +507,8 @@ The browser visibly attributes the resumed objective, clears it on Team change, 
 page disposal, or consumption, and never writes it to browser storage.
 
 The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, `conversation`,
-`locale`, `request`, and `timezone` (`payload.CHAT_BODY_FIELDS`). `assistant_ids` names at most
+`locale`, `request`, `timezone`, and `refine` (`payload.CHAT_BODY_FIELDS`). `refine` is the id of the Routine the
+person asked to refine from its panel's Refine entry (`routine.ROUTINE_ID_RE`), or `null` (ADR-0122). `assistant_ids` names at most
 `payload.MAX_CHAT_ASSISTANTS` Assistants, which equals `payload.MAX_TEAM_ASSISTANTS`, the most Assistants one Team may
 have installed. `locale` is one closed interface language (`ar`, `de`, `en`, `es`, `fr`, `ja`, `pt`, `zh`;
 `payload.canonical_locale`) or `null`: Local Admin sends the language selected in its interface, and Routine runs

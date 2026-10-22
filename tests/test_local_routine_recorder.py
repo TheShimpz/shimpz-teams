@@ -562,7 +562,7 @@ class OutcomeTests(unittest.TestCase):
             local_audit.bind_request_principal(local_audit.AuditPrincipal(PRINCIPAL, "human")),
             self.assertRaises(routine_proposal.RefusedError) as caught,
         ):
-            routine_proposal._recording(service, response)
+            routine_proposal.live_recording(service, response)
         self.assertEqual(caught.exception.code, "routine-x")
 
 
@@ -581,7 +581,7 @@ class CurrentTeamTests(unittest.TestCase):
                 _chat_setup=lambda *_args, setup=setup: setup, _chat_identity=lambda *_s, identity=identity: identity
             )
             with self.subTest(setup=setup), self.assertRaises(routine_proposal.RefusedError) as caught:
-                routine_proposal._current(service, response, recording)
+                routine_proposal.turn_assistants(service, response, recording)
             self.assertEqual(caught.exception.code, "team-context-changed")
 
 
@@ -636,7 +636,8 @@ class CardTests(unittest.TestCase):
         )
         self.assertEqual(view["description"], "Lista o DNS.")
         self.assertNotEqual(
-            routine_proposal._digest(candidate, view, None), routine_proposal._digest(candidate, reworded, None)
+            routine_proposal.bound_digest(candidate, view, None),
+            routine_proposal.bound_digest(candidate, reworded, None),
         )
         day, zone = view["steps"][1]["inputs"]
         self.assertEqual(

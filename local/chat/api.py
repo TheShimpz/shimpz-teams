@@ -27,6 +27,7 @@ from local.routine import recorder as local_routine_recorder
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
+from protocol.http.v1 import routine as http_routine
 from routine import schedule as routine_schedule
 
 MAX_CHAT_MESSAGE_CHARS = http_payload.MAX_CHAT_MESSAGE_CHARS
@@ -64,9 +65,12 @@ def _routine_outcome(self, response: _ResponseRequest, routine: object, body: di
     The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101). ``spent`` is the
     turn's own usage, which the Routine's creation counts with its recording's earlier turns.
     """
-    write, fields = self._routine_record(response, routine, spent)
+    # A refinement of the selected Routine names its edits; any other outcome is a record (ADR-0122).
+    admit = self._routine_refine if isinstance(routine, dict) and "edits" in routine else self._routine_record
+    write, fields = admit(response, routine, spent)
     line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
-    if "routine_proposal" in fields and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
+    carded = "routine_proposal" in fields or "routine_refinement" in fields
+    if carded and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
         return (lambda: self.routine_recordings.finish(response.team_id, response.recording)), {
             "routine_refusal": {"code": "routine-proposal-too-large"}
         }
@@ -219,13 +223,18 @@ def chat(
     if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Team chat requires only message, files, assistant_ids, conversation, locale, request, and timezone",
+            "Team chat requires only message, files, assistant_ids, conversation, locale, request, timezone, refine",
             code="invalid-body",
         )
     identity = http_payload.canonical_request_identity(body["request"])
     if identity is None:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request identity is invalid", code="invalid-request")
     timezone = _timezone(body["timezone"])
+    refine = body["refine"]
+    if refine is not None and not http_routine.matches(refine, http_routine.ROUTINE_ID_RE):
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "refine must name one Routine or be null", code="invalid-refine"
+        )
     locale = body["locale"]
     if locale is not None and http_payload.canonical_locale(locale) is None:
         raise ApiProblem(
@@ -274,6 +283,7 @@ def chat(
                 locale=locale,
                 progress=progress or chat_progress.Reporter(),
                 recording=recording,
+                refine=refine,
             )
         )
         return self._segment_response(

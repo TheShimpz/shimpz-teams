@@ -361,6 +361,22 @@ class DiagnosticStore:
                     steps[key] = (sequence, opened)
         return current, {key: item for key, (_sequence, item) in steps.items()}, run
 
+    def latest_run(self, team_id: str, routine_id: str, now: int) -> str | None:
+        """The run of a Routine whose unexpired record is the newest, or None when none is retained (ADR-0122).
+
+        A Routine runs one run at a time, so its newest record is its latest run's.
+        """
+        directory = self._team_dir(validate_team_id(team_id))
+        with self._guard:
+            found = [
+                match["run"]
+                for _name, kind, match, _size in self._entries(directory)
+                if kind in ("step", "run")
+                and match["routine"] == routine_id
+                and int(match["at"]) > now - RETENTION_SECONDS
+            ]
+        return found[-1] if found else None
+
     def _open(self, path: Path, team: str, incarnation: str, name: str, maximum: int) -> dict[str, object] | None:
         """Decrypt one body under the incarnation it names; another incarnation's authentic body is never shown.
 
@@ -620,6 +636,34 @@ def _page_steps(records, run, total: int, offset: int) -> list[dict[str, object]
     """Whole consecutive steps from ``offset``."""
     reached = None if run is None else (run["reached"], run["dispatched"])
     return routine_definition.paged(lambda position: _entry(records, reached, position), offset, total)
+
+
+def last_run(self, team_id: str, routine_id: str, now: int) -> dict[str, object] | None:
+    """A Routine's latest run as a recording send's Brain sees it: the revision it executed and each step's outcome.
+
+    Only the run's own retained records in the Team's current incarnation count, never a reconstruction: a step whose
+    record kept no inputs (its run lost its protection, or they outgrew the record) is ``unavailable``, and evidence
+    that expired, is missing, belongs to another incarnation, or cannot be read is unavailable as a whole, None
+    (ADR-0122).
+    """
+    incarnation = self.assistant_lifecycle._network(team_id).id
+    try:
+        run_id = self.routine_diagnostics.latest_run(team_id, routine_id, now)
+        if run_id is None:
+            return None
+        _token, records, run = self.routine_diagnostics.run_steps(team_id, incarnation, run_id, now, "latest")
+        binding = _binding_of(records, run)
+    except DiagnosticStoreError:
+        return None
+    if binding is None:
+        return None
+    reached = None if run is None else (run["reached"], run["dispatched"])
+    steps = []
+    for position in range(1, binding["total"] + 1):
+        entry = _entry(records, reached, position)
+        kept = entry["status"] in http_routine_run.RUN_STEP_GAPS or entry["inputs"] is not None
+        steps.append({"position": position, "status": entry["status"] if kept else "unavailable"})
+    return {"revision": binding["revision"], "steps": steps}
 
 
 def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: int) -> dict[str, object]:

@@ -393,6 +393,9 @@ for name, admit in (
     ("routine_listing", routine_context.canonical_routine_listings),
     ("routine_rerun", routine_context.canonical_rerun),
     ("routine_proposal_answer", routine_proposal.canonical_proposal_answer),
+    ("routine_selected", routine_context.canonical_selected_routine),
+    ("routine_refine", routine_context.canonical_refine),
+    ("routine_refinement", routine_proposal.canonical_refinement),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
@@ -401,6 +404,9 @@ for name, admit in (
         fail(f"a valid {name} vector was not admitted exactly")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"an invalid {name} vector was admitted")
+
+if routine_context.LAST_RUN_STATUSES != routine_run.RUN_STEP_STATUSES + routine_run.RUN_STEP_GAPS:
+    fail("the latest run's step outcomes differ from a run step's statuses and gaps")
 
 date_words = vectors.get("routine_date_words", [])
 if {case["dated"] for case in date_words} != {True, False}:

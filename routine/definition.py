@@ -79,6 +79,27 @@ def step(plan: Mapping[str, object], permitted: Sequence[Mapping[str, object]], 
     }
 
 
+def selected(value: object, last_run: dict[str, object] | None) -> dict[str, object]:
+    """A Routine as a recording send's Brain sees it once the send selects it (ADR-0122).
+
+    Its description and revision, each step's id beside its plan projection, its output by step id, and the latest
+    run's outcome per step, or None when that evidence is unavailable.
+    """
+    plan = value.plan
+    return {
+        "routine_id": value.routine_id,
+        "name": value.name,
+        "description": value.description,
+        "revision": value.revision,
+        "output": dict(plan["output"]),
+        "steps": [
+            {"id": item["id"], **step(plan, value.permitted, position)}
+            for position, item in enumerate(plan["steps"], start=1)
+        ],
+        "last_run": last_run,
+    }
+
+
 def steps_fit(plan: Mapping[str, object], permitted: Sequence[Mapping[str, object]]) -> bool:
     """Whether every step's projection stays within its own wire bound, so every page of the plan is deliverable."""
     return all(

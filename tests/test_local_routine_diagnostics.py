@@ -569,5 +569,44 @@ class FailureEvidenceTests(unittest.TestCase):
         self.assertIsNone(diagnostics.evidence(ValueError("other"), trace.Protection()))
 
 
+class LastRunTests(StepRecordCase):
+    """A Routine's latest run as a recording send's Brain sees it, from its own records only (ADR-0122)."""
+
+    def last(self, now: int = NOW + 10) -> dict[str, object] | None:
+        return diagnostics.last_run(self.service, "team_1", ROUTINE, now)
+
+    def test_the_latest_run_shows_each_steps_outcome_with_the_revision_it_executed(self) -> None:
+        earlier = dataclasses.replace(BINDING, run_id="e" * 32, revision=1)
+        self.store.record_step("team_1", INCARNATION, _step(1, binding=earlier, recorded_at=NOW - 5), ())
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        self.store.record_step("team_1", INCARNATION, _step(2, "failed", recorded_at=NOW + 1), ())
+        self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 1, True, NOW + 2))
+        steps = [
+            {"position": 1, "status": "done"},
+            {"position": 2, "status": "failed"},
+            {"position": 3, "status": "not_run"},
+            {"position": 4, "status": "not_run"},
+        ]
+        self.assertEqual(self.last(), {"revision": 2, "steps": steps})
+
+    def test_a_step_that_kept_no_inputs_or_no_record_is_unavailable(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1, inputs=None), ())
+        self.store.record_step("team_1", INCARNATION, _step(2, "waiting", duration_ms=None), ())
+        self.assertEqual(
+            [item["status"] for item in self.last()["steps"]], ["unavailable", "waiting", "unavailable", "unavailable"]
+        )
+
+    def test_expired_missing_foreign_or_unreadable_evidence_is_unavailable_as_a_whole(self) -> None:
+        self.assertIsNone(self.last())
+        self.store.record_step("team_1", OTHER_INCARNATION, _step(1), ())
+        self.assertIsNone(self.last())
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        self.assertIsNone(self.last(NOW + diagnostics.RETENTION_SECONDS + 1))
+        self.store.record_step("team_1", INCARNATION, _step(2, binding=dataclasses.replace(BINDING, revision=3)), ())
+        self.assertIsNone(self.last())
+        with mock.patch.object(self.store, "latest_run", side_effect=diagnostics.DiagnosticStoreError("down")):
+            self.assertIsNone(self.last())
+
+
 if __name__ == "__main__":
     unittest.main()

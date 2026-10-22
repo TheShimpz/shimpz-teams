@@ -127,6 +127,7 @@ def chat_body(
     conversation: list[object] | tuple[object, ...] = (),
     locale: object = None,
     timezone: object = None,
+    refine: object = None,
 ) -> dict[str, object]:
     """One complete Local chat request body under the fixed test request identity."""
     return {
@@ -137,6 +138,7 @@ def chat_body(
         "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
         "timezone": timezone,
         "locale": locale,
+        "refine": refine,
     }
 
 

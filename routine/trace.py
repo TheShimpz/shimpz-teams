@@ -187,6 +187,8 @@ class Occurrence:
     read_only: bool
     input: Kept
     result: Kept
+    # The interrupt the call answered, by which Team names it to the Brain with its result (ADR-0122); never compared.
+    interrupt: str = field(default="", compare=False)
     # The encoded size of its kept input and result, derived when it is made.
     size: int = field(init=False)
 

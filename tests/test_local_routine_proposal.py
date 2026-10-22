@@ -172,7 +172,9 @@ class Sends:
         return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
 
-def _body(message: str = MESSAGE, *, files=(), issued_at: int | None = None) -> dict[str, object]:
+def _body(
+    message: str = MESSAGE, *, files=(), issued_at: int | None = None, refine: str | None = None
+) -> dict[str, object]:
     return {
         "message": message,
         "files": list(files),
@@ -181,6 +183,7 @@ def _body(message: str = MESSAGE, *, files=(), issued_at: int | None = None) -> 
         "locale": "pt",
         "request": {"issued_at": int(time.time()) + 1 if issued_at is None else issued_at, "nonce": "c" * 32},
         "timezone": "America/Sao_Paulo",
+        "refine": refine,
     }
 
 

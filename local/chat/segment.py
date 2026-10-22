@@ -29,10 +29,12 @@ from local.routine import diagnostics as routine_diagnostics
 from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
+from protocol.http.v1 import payload as http_payload
 from routine import claim as routine_claim
 from routine import pin as routine_pin
 from routine import provenance as routine_provenance
 from routine import recording as routine_recording
+from routine import reference as routine_reference
 
 # The model a chat turn about a Routine uses on an OpenAI or an Anthropic Team, with the Team's own key; every other
 # turn uses the Team's configured model.
@@ -84,6 +86,8 @@ class SegmentRequest:
     recording: str | None = None
     # The model a chat turn's start ran on; a continuation carries it, so every resume runs and is metered on it.
     model: str | None = None
+    # The Routine a new turn's person asked to refine from its panel, by id (ADR-0122); None otherwise.
+    refine: str | None = None
 
 
 def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -> object:
@@ -222,6 +226,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     # The recording span, read once after the listing kept the Routines this send's Brain is shown.
     span = None if request.recording is None else self.routine_recordings.live(request.team_id, request.recording)
     recorded = span if mutable else None
+    selected = None if recorded is None or recorded.selected is None else self._chat_selected(request.team_id, recorded)
     return brain_runtime_client.RuntimeContext(
         thread_id=scope.thread_id,
         team_name=scope.team_name,
@@ -238,8 +243,9 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_schedule=routine_recorder.stated_schedule(recorded),
         routine_output=routine_recorder.stated_output(recorded),
         routine_settings_answer=routine_recorder.settings_answer(recorded),
+        routine_selected=None if selected is None else selected[0],
         locale=request.locale,
-        turn_clock=_turn_clock(recorded),
+        turn_clock=_turn_clock(recorded, None if selected is None else selected[1]),
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
         # Offered only in an ordinary chat with no attachment content and a usable Browser (ADR-0117 §6).
         browser=(
@@ -252,11 +258,14 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     )
 
 
-def _turn_clock(span: routine_recorder.Span | None) -> tuple[str, str] | None:
-    """The date the person's send started on in the zone a Routine it records would run in, and that zone."""
+def _turn_clock(span: routine_recorder.Span | None, selected: str | None) -> tuple[str, str] | None:
+    """The date the person's send started on in the zone a Routine it records would run in, and that zone.
+
+    A send that selects a Routine reasons in that Routine's own zone, in which a refinement's dates are read (ADR-0122).
+    """
     if span is None:
         return None
-    zone, _source = routine_recording.zone(span.sends)
+    zone = selected or routine_recording.zone(span.sends)[0]
     return routine_provenance.date_at(span.started_at, zone).isoformat(), zone
 
 
@@ -271,10 +280,16 @@ def _turn_model(
 
 
 def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
-    """The Team's Routines for a recording turn's Brain, kept with the recording as the only ones it may replace."""
+    """The Team's Routines for a recording turn's Brain, kept with the recording as the only ones it may replace.
+
+    The recording also keeps the one Routine the send selects: the one its Refine entry names, or the one its person's
+    words name (ADR-0122).
+    """
     routines = self._chat_routines(request.team_id)
     revisions = ((item["routine_id"], item["revision"]) for item in routines)
-    self.routine_recordings.listed(request.team_id, request.recording, revisions)
+    segments = http_payload.authored_segments(request.message or "")
+    reference = routine_reference.referred(routines, segments, request.refine)
+    self.routine_recordings.listed(request.team_id, request.recording, revisions, reference)
     return routines
 
 
@@ -355,6 +370,13 @@ def _run_chat_segment(
         downloaded = [] if browser is None else [str(item["id"]) for item in browser["files"]]
         self._turn_completed(request.team_id, [*request.file_ids, *downloaded])
     return result
+
+
+def _shown_results(self, request: SegmentRequest, results: dict[str, object]) -> dict[str, object]:
+    """A batch's results as the Brain receives them: a recording that selects a Routine names its traced calls."""
+    if request.routine is not None or request.recording is None:
+        return results
+    return routine_recorder.labeled(self.routine_recordings.get(request.team_id, request.recording), results)
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,6 +595,7 @@ def _run_chat_segment_with_metadata(
             human_requirement=human_requirement,
             progress=request.progress,
             run_browser=None if request.routine is not None else _browser_runner(self, request),
+            shown_results=lambda results: _shown_results(self, request, results),
             **({} if request.routine is None else request.routine.runtime.strategy()),
         ),
         message=request.message,

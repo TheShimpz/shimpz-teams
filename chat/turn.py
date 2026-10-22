@@ -87,6 +87,8 @@ class SegmentStrategy:
     record_invoked: bool = True
     # The segment's Browser task runner (ADR-0117); a replayed Routine run has none.
     run_browser: chat_orchestrator.BrowserRunner | None = None
+    # What the Brain receives of a batch's results (ADR-0122).
+    shown_results: Callable[[dict[str, object]], dict[str, object]] = lambda results: results
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +240,7 @@ def drive(
         max_rounds=strategy.max_rounds,
         record_invoked=strategy.record_invoked,
         run_browser=strategy.run_browser,
+        shown_results=strategy.shown_results,
     )
     if continuation is None:
         outcome = chat_orchestrator.run_until_pause(

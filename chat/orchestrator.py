@@ -110,6 +110,8 @@ class ChatStrategy:
     max_rounds: int = MAX_ACTION_ROUNDS
     record_invoked: bool = True
     run_browser: BrowserRunner | None = None
+    # What the Brain receives of a batch's results, by interrupt: a recording turn may name its traced calls (ADR-0122).
+    shown_results: Callable[[dict[str, object]], dict[str, object]] = lambda results: results
 
 
 def _brain_call[T](strategy: ChatStrategy, call: Callable[[], T]) -> T:
@@ -290,7 +292,7 @@ def _drive(
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)
         with strategy.progress.span("model"):
-            resumed = _brain_call(strategy, partial(runtime.resume, context, results))
+            resumed = _brain_call(strategy, partial(runtime.resume, context, strategy.shown_results(results)))
         if resumed.status == "action-required" and not seen_interrupts.isdisjoint(
             request.interrupt_id for request in resumed.actions
         ):

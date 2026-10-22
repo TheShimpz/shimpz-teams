@@ -48,10 +48,13 @@ def _card_input(value: object, position: int) -> bool:
     )
 
 
+_CARD_STEP_FIELDS = frozenset({"position", "assistant", "action", "read_only", "inputs"})
+
+
 def _card_step(value: object, position: int) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"position", "assistant", "action", "read_only", "inputs"}
+        and set(value) == _CARD_STEP_FIELDS
         and value["position"] == position
         and type(value["position"]) is int
         and routine.valid_assistant(value["assistant"])
@@ -93,6 +96,97 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and isinstance(steps, list)
         and 0 < len(steps) <= routine.MAX_ROUTINE_STEPS
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
+        and routine.encoded_bytes(value) <= MAX_PROPOSAL_BYTES
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+# The confirmation card of a refinement (ADR-0122): an existing Routine's next revision, built from its revision
+# ``base_revision`` and the agent's edits. Beside the complete resulting plan, whose every step carries its change
+# (``kept``, ``added``, or ``replaced``) and the position it had in the base plan, it lists the base steps that do not
+# continue (``removed`` or ``replaced``), with their effect. It shows the description, Team's own schedule, zone, and
+# output, which the refinement keeps, and whether the shown result now comes from another step (``last_changed``).
+STEP_CHANGES = ("kept", "added", "replaced")
+REMOVED_CHANGES = ("removed", "replaced")
+_REFINEMENT_FIELDS = frozenset(
+    {
+        "proposal_id",
+        "expires_at",
+        "routine_id",
+        "base_revision",
+        "name",
+        "description",
+        "schedule",
+        "timezone",
+        "timezone_source",
+        "output",
+        "last_changed",
+        "steps",
+        "removed",
+    }
+)
+
+
+def _refined_step(value: object, position: int) -> bool:
+    if not isinstance(value, dict) or set(value) != {*_CARD_STEP_FIELDS, "change", "base"}:
+        return False
+    change, base = value["change"], value["base"]
+    card = {key: value[key] for key in _CARD_STEP_FIELDS}
+    return (
+        change in STEP_CHANGES
+        and (base is None if change == "added" else routine.whole(base, 1, routine.MAX_ROUTINE_STEPS))
+        and _card_step(card, position)
+    )
+
+
+def _removed_step(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"position", "assistant", "action", "read_only", "change"}
+        and routine.whole(value["position"], 1, routine.MAX_ROUTINE_STEPS)
+        and routine.valid_assistant(value["assistant"])
+        and routine.valid_action(value["action"])
+        and type(value["read_only"]) is bool
+        and value["change"] in REMOVED_CHANGES
+    )
+
+
+def _base_positions(steps: list[dict[str, object]], removed: list[dict[str, object]]) -> bool:
+    """Every base step once: a kept one where it was, in order, a replaced one beside its replacement, else removed."""
+    kept = [item["base"] for item in steps if item["change"] == "kept"]
+    replaced = sorted(item["base"] for item in steps if item["change"] == "replaced")
+    gone = [item["position"] for item in removed]
+    total = len(kept) + len(gone)
+    return (
+        kept == sorted(kept)
+        and gone == sorted(gone)
+        and sorted(kept + gone) == list(range(1, total + 1))
+        and replaced == [item["position"] for item in removed if item["change"] == "replaced"]
+    )
+
+
+def canonical_refinement(value: object) -> dict[str, object] | None:
+    """One refinement's confirmation card, within the card's byte bound."""
+    if not isinstance(value, dict) or set(value) != _REFINEMENT_FIELDS:
+        return None
+    steps, removed = value["steps"], value["removed"]
+    valid = (
+        routine.matches(value["proposal_id"], routine.ROUTINE_ID_RE)
+        and routine_notice.instant(value["expires_at"])
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
+        and routine.valid_revision(value["base_revision"])
+        and routine.exact_name(value["name"])
+        and routine.exact_description(value["description"])
+        and routine.exact_schedule(value["schedule"])
+        and routine.zoned(value["timezone"], value["timezone_source"])
+        and value["output"] in routine.OUTPUT_MODES
+        and type(value["last_changed"]) is bool
+        and isinstance(steps, list)
+        and 0 < len(steps) <= routine.MAX_ROUTINE_STEPS
+        and all(_refined_step(item, index) for index, item in enumerate(steps, start=1))
+        and isinstance(removed, list)
+        and all(_removed_step(item) for item in removed)
+        and _base_positions(steps, removed)
         and routine.encoded_bytes(value) <= MAX_PROPOSAL_BYTES
     )
     return copy.deepcopy(value) if valid else None

@@ -94,8 +94,11 @@ MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
 # A chat body carries what direct Routine creation binds (ADR-0092): the fresh request identity Admin issues for every
-# send, and the user's IANA timezone, or null.
-CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale", "request", "timezone"})
+# send, and the user's IANA timezone, or null; and the Routine the person asked to refine from its panel, by id, or null
+# (ADR-0122).
+CHAT_BODY_FIELDS = frozenset(
+    {"message", "files", "assistant_ids", "conversation", "locale", "request", "timezone", "refine"}
+)
 REQUEST_IDENTITY_FIELDS = frozenset({"issued_at", "nonce"})
 # How long a request identity may mutate a Routine after Admin issued it, and how far ahead of Team's clock it may be.
 REQUEST_IDENTITY_SECONDS = 900

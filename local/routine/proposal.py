@@ -64,6 +64,8 @@ class Proposal:
     expires_at: float
     # What the recording that made the card spent, which the created Routine's notice shows; never bound.
     creation: routine_recorder.Creation
+    # Whether the card refines ``replaces`` (ADR-0122): its confirmation keeps the Routine's scheduling state.
+    refines: bool = False
 
 
 class ProposalBook:
@@ -165,7 +167,7 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
     return listed
 
 
-def _recording(self, response: object):
+def live_recording(self, response: object):
     """The turn's recording span, still live, the same person's, usable, and still protected."""
     found = self.routine_recordings.live(response.team_id, response.recording)
     if found is None or found.principal != local_audit.human_principal() or found.protection.lost:
@@ -175,7 +177,7 @@ def _recording(self, response: object):
     return found
 
 
-def _current(self, response: object, recording) -> tuple[object, ...]:
+def turn_assistants(self, response: object, recording) -> tuple[object, ...]:
     """The Team's Assistants exactly as the turn saw them, in the incarnation the recording began in."""
     setup = self._chat_setup(response.team_id, list(response.file_ids), response.provider, response.assistant_ids)
     if self._chat_identity(*setup) != response.segment.identity or setup[1] != recording.incarnation:
@@ -279,8 +281,8 @@ class _AskedError(Exception):
 
 def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple:
     """The candidate Routine a recording defines, admitted against the Team's current contracts and budgets."""
-    recording = _recording(self, response)
-    contracts = routine_contracts.contracts(_current(self, response, recording))
+    recording = live_recording(self, response)
+    contracts = routine_contracts.contracts(turn_assistants(self, response, recording))
     state = routine_state.load(self, response.team_id)
     existing = _replaced(state, intent)
     recorded = _recorded(intent, recording, contracts, existing)
@@ -384,7 +386,7 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
     }
 
 
-def _digest(candidate: record.Routine, view: dict[str, object], expected_revision: int | None) -> str:
+def bound_digest(candidate: record.Routine, view: dict[str, object], expected_revision: int | None) -> str:
     """What a confirmation binds: the exact definition, the card shown, and the revision a replacement saw."""
     bound = {
         "routine_id": candidate.routine_id,
@@ -469,7 +471,7 @@ def admit(
         candidate,
         replaces,
         expected,
-        _digest(candidate, view, expected),
+        bound_digest(candidate, view, expected),
         self.routine_proposals.deadline(),
         routine_recorder.creation(recording, spent),
     )
@@ -528,10 +530,14 @@ def _commit(self, proposal: Proposal, principal: str) -> str:
         "incarnation": proposal.incarnation,
         "confirmed_at": now,
     }
-    value = record.scheduled(dataclasses.replace(proposal.routine, confirmation=confirmation), now)
+    confirmed = dataclasses.replace(proposal.routine, confirmation=confirmation)
+    # A refinement keeps the Routine's scheduling state as its own write finds it; any other card schedules anew.
+    value = confirmed if proposal.refines else record.scheduled(confirmed, now)
 
     def apply(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
+            if proposal.refines:
+                return record.refine(state, value, proposal.expected_revision, now), "changed"
             if proposal.replaces is None:
                 usage, steps = proposal.creation
                 return record.create(state, value, now, usage=usage, steps=steps), "created"
