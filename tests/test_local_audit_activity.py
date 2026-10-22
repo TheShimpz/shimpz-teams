@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from local import audit as local_audit
+from local.browser import sign_in
 
 
 class ActivityEventTests(unittest.TestCase):
@@ -56,6 +57,21 @@ class ActivityEventTests(unittest.TestCase):
                 team_id="neo",
                 activity={"event_id": "a" * 32, "phase": "completed", "origin": "team"},
             )
+
+    def test_only_a_closed_operation_is_an_activity_event(self):
+        activity = {"event_id": "a" * 32, "phase": "requested", "subject": "sign-in"}
+        recorded = []
+        with mock.patch.object(local_audit, "_append", side_effect=lambda *args: recorded.append(args[0]) or "trace"):
+            for operation in (sign_in.START, sign_in.SAVE, sign_in.CANCEL, sign_in.DELETE, sign_in.EXPIRE):
+                local_audit.record_activity(
+                    operation, result="ok", principal=local_audit.TEAM, team_id="neo", activity=activity
+                )
+            for operation in ("browser-sign-in", "chat", ""):
+                with self.subTest(operation=operation), self.assertRaises(ValueError):
+                    local_audit.record_activity(
+                        operation, result="ok", principal=local_audit.TEAM, team_id="neo", activity=activity
+                    )
+        self.assertEqual(set(recorded), local_audit.ACTIVITY_OPERATIONS)
 
 
 if __name__ == "__main__":

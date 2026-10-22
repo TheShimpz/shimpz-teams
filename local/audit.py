@@ -53,6 +53,16 @@ _ACTIVITY_KEYS = frozenset(
     {"event_id", "phase", "subject", "generation", "incarnation", "factor", "initiator_id", "origin", "outcome"}
 )
 _ACTIVITY_PHASES = frozenset({"requested", "completed", "failed"})
+# The closed activity operations: a Team's Sign-in (ADR-0117).
+ACTIVITY_OPERATIONS = frozenset(
+    {
+        "browser-sign-in-start",
+        "browser-sign-in-save",
+        "browser-sign-in-cancel",
+        "browser-sign-in-delete",
+        "browser-sign-in-expire",
+    }
+)
 _ACTIVITY_TEXT = re.compile(r"^[0-9a-z][0-9a-z-]{0,127}$")
 # An activity event's origin: the verified Admin Origin a person's request came from, or Team's own work.
 MAX_ACTIVITY_ORIGIN_CHARS = 255
@@ -347,7 +357,7 @@ def record_activity(
     operation: str, *, result: str, principal: AuditPrincipal, team_id: str, activity: dict[str, object]
 ) -> str:
     """Append one activity event (ADR-0120): who changed a Team's protected state, and its phase and subject."""
-    if not _admissible_activity(activity):
+    if operation not in ACTIVITY_OPERATIONS or not _admissible_activity(activity):
         raise ValueError("invalid Local activity event")
     return _append(operation, result, principal, {"team_id": team_id, "activity": activity})
 
