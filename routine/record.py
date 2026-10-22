@@ -340,36 +340,46 @@ def definition_valid(value: Routine) -> bool:
     )
 
 
-def _admitted(value: Routine, revision: int = 1) -> Routine:
-    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted.
+def _defined(value: Routine, revision: int) -> Routine:
+    """A copy of a Routine revision's definition in the closed contract, within its budget; anything else is refused.
 
-    A new revision is scheduled from its anchor; later claims and sweeps move its next firing on.
+    A definition that changed clears a scope hold and starts a fresh failure streak and output comparison.
     """
-    canonical = http_routine.canonical_schedule(value.schedule)
-    if not definition_valid(dataclasses.replace(value, revision=revision)) or (
-        value.next_run_at != first_run(dataclasses.replace(value, schedule=canonical))
-    ):
+    if not definition_valid(dataclasses.replace(value, revision=revision)):
         raise RoutineStateError("routine-invalid")
     # Every page of what a Supervisor inspects is deliverable, and the definition fits its own budget (scale).
     if not routine_definition.fits(value):
         raise RoutineStateError("routine-too-large")
     return dataclasses.replace(
         value,
-        schedule=canonical,
+        schedule=http_routine.canonical_schedule(value.schedule),
         plan=copy.deepcopy(value.plan),
         permitted=tuple(copy.deepcopy(item) for item in value.permitted),
         revision=revision,
         needs_reconfirm=False,
         deleting=False,
+        failures=0,
+        output_digest="",
+    )
+
+
+def _admitted(value: Routine, revision: int = 1) -> Routine:
+    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted.
+
+    A new revision is scheduled from its anchor; later claims and sweeps move its next firing on.
+    """
+    defined = _defined(value, revision)
+    if value.next_run_at != first_run(defined):
+        raise RoutineStateError("routine-invalid")
+    return dataclasses.replace(
+        defined,
         gap_started_at=0,
         missed=0,
         reported_missed=0,
-        failures=0,
         rollup_minute=0,
         rollup_runs=0,
         rollup_usage=None,
         run_requested=0,
-        output_digest="",
     )
 
 
@@ -440,6 +450,37 @@ def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int
         rollup_runs=current.rollup_runs,
         rollup_usage=current.rollup_usage,
     )
+    state = replace_routine(state, changed)
+    return put_notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, {}))
+
+
+def refine(state: TeamRoutines, value: Routine, expected_revision: int, now: int) -> TeamRoutines:
+    """Replace a Routine's definition by its confirmed refinement as its next revision, with its changed notice.
+
+    Only the revision the card was built from changes, never while a run is live or it is being deleted (ADR-0122). A
+    refinement changes what each run does and nothing about when it runs: the Routine keeps its name, schedule, zone,
+    and its scheduling state as it is at this write (its anchor and next firing, its pause, missed firings, minute
+    rollup, and a requested run), so a run that ended while the card was open is neither repeated nor skipped. Its
+    budgets are checked again.
+    """
+    current = routine(state, value.routine_id)
+    if current.deleting:
+        raise RoutineStateError("routine-not-found")
+    if current.revision != expected_revision:
+        raise RoutineStateError("routine-revision-changed")
+    if any(item.routine_id == current.routine_id for item in live_runs(state)):
+        raise RoutineStateError("routine-busy")
+    if value.timezone != current.timezone:
+        raise RoutineStateError("routine-invalid")
+    definition = {
+        "description": value.description,
+        "assistants": value.assistants,
+        "plan": value.plan,
+        "permitted": value.permitted,
+        "confirmation": value.confirmation,
+    }
+    changed = _defined(dataclasses.replace(current, **definition), current.revision + 1)
+    _budgets(tuple(item for item in state.routines if item.routine_id != current.routine_id), changed)
     state = replace_routine(state, changed)
     return put_notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, {}))
 

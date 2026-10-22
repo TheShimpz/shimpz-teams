@@ -64,8 +64,8 @@ def record(
     if kept is None and not _chosen_used(context, work):
         raise routine_recording.RecordingError("routine-record-again")
     if kept is None:
-        permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
-        kept = routine_recording.Recorded(document, origins, permitted, when, context.zone[1])
+        allowed = permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
+        kept = routine_recording.Recorded(document, origins, allowed, when, context.zone[1])
     # A question Team still asks about the plan, such as its interval over the budget, keeps what the span settled.
     return dataclasses.replace(kept, chosen=_settled(context), repair_from=repair_from)
 
@@ -110,7 +110,7 @@ def _settled(
     return tuple(kept.values())
 
 
-def _permitted(
+def permitted(
     actions: list[tuple[str, str]], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
 ) -> tuple[dict[str, object], ...]:
     return tuple(
@@ -168,14 +168,14 @@ def _kept(
     """
     steps = [dict(step) for step in existing.plan["steps"]]
     origins = {
-        step["id"]: {member: _kept_origin(source, context.known) for member, source in step["input"].items()}
+        step["id"]: {member: kept_origin(source, context.known) for member, source in step["input"].items()}
         for step in steps
     }
     document = _document(steps, steps[-1]["id"], mode, context.zone[0])
     _admitted(document, context.contracts)
     when = _schedule(context.sends, existing)
     actions = [(step["assistant"], step["action"]) for step in steps]
-    return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, context.zone[1])
+    return routine_recording.Recorded(document, origins, permitted(actions, context.contracts), when, context.zone[1])
 
 
 def _document(steps: list[dict[str, object]], last: str, mode: str, timezone: str) -> dict[str, object]:
@@ -198,7 +198,7 @@ def _admitted(
         raise routine_recording.RecordingError(exc.code) from exc
 
 
-def _kept_origin(source: Mapping[str, object], known: routine_recording.Known) -> str:
+def kept_origin(source: Mapping[str, object], known: routine_recording.Known) -> str:
     """How the card names a kept input's origin, as a recording would now."""
     if source["kind"] == "literal":
         return "request" if known.names(source["value"]) else "assistant"
@@ -213,7 +213,7 @@ def _plan(
     """The plan document and each step's input origins, from the work and every source it needs."""
     if not work:
         raise routine_recording.RecordingError("routine-recording-empty")
-    _classes(context)
+    source_classes(context)
     nodes = _closure(context, work)
     order = _ordered(context, nodes)
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
@@ -260,7 +260,7 @@ def _named(source: dict[str, object], names: dict[int, str]) -> dict[str, object
     return {"kind": "step_output", "step": names[source["node"]], **named}
 
 
-def _classes(context: routine_recording.Context) -> None:
+def source_classes(context: routine_recording.Context) -> None:
     """Each call's source: its earliest read-only twin (same Action, input, and result) with no change between."""
     open_sources: list[routine_recording.Call] = []
     for call in context.calls:
