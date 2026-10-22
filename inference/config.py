@@ -12,9 +12,9 @@ from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 SCHEMA = 3
-KNOWLEDGE_SCHEMA = 1
+KNOWLEDGE_SCHEMA = 2
 MAX_CONFIG_BYTES = 4096
-# Well above 32 memories and 8 sixteen-step skills at their field bounds.
+# Well above 32 memories at their field bounds.
 MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
@@ -75,48 +75,44 @@ class InferenceConfigStore:
         self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)}, MAX_CONFIG_BYTES)
         return validated
 
-    def load_knowledge(self, team_id: object) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
-        """The Team's learned memory and skills (ADR-0084, ADR-0085); an absent file means nothing is learned yet."""
+    def load_knowledge(self, team_id: object) -> list[dict[str, str]]:
+        """The Team's learned memory (ADR-0084); an absent file means nothing is learned yet."""
         team_id = _team_id(team_id)
         try:
             value = private_state.read_json_record(self._knowledge_path(team_id), MAX_KNOWLEDGE_BYTES)
         except (OSError, ValueError) as exc:
             raise InferenceConfigError("Team knowledge is unavailable") from exc
         if value is None:
-            return [], []
+            return []
         if (
             not isinstance(value, dict)
-            or set(value) != {"schema", "team_id", "memory", "skills"}
+            or set(value) != {"schema", "team_id", "memory"}
             or value["schema"] != KNOWLEDGE_SCHEMA
             or value["team_id"] != team_id
         ):
             raise InferenceConfigError("Team knowledge is invalid")
         memory = http_payload.canonical_memory(value["memory"])
-        skills = http_payload.canonical_skills(value["skills"])
-        if memory is None or skills is None or not (memory or skills):
+        if not memory:
             raise InferenceConfigError("Team knowledge is invalid")
-        return memory, skills
+        return memory
 
-    def apply_knowledge(
-        self, team_id: object, changes: object, skill: object
-    ) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
-        """Apply one committed turn's memory changes and new skill in one atomic write; nothing learned, no file."""
+    def apply_knowledge(self, team_id: object, changes: object) -> list[dict[str, str]]:
+        """Apply one committed turn's memory changes in one atomic write; nothing learned, no file."""
         team_id = _team_id(team_id)
         admitted = http_payload.canonical_memory_changes(changes)
-        learned = None if skill is None else http_payload.canonical_skill(skill)
-        if admitted is None or (skill is not None and learned is None):
+        if admitted is None:
             raise InferenceConfigError("Team knowledge changes are invalid")
-        memory, skills = http_payload.apply_knowledge(*self.load_knowledge(team_id), admitted, learned)
+        memory = http_payload.apply_memory_changes(self.load_knowledge(team_id), admitted)
         target = self._knowledge_path(team_id)
-        if not (memory or skills):
+        if not memory:
             self._unlink(target)
-            return memory, skills
-        record = {"schema": KNOWLEDGE_SCHEMA, "team_id": team_id, "memory": memory, "skills": skills}
+            return memory
+        record = {"schema": KNOWLEDGE_SCHEMA, "team_id": team_id, "memory": memory}
         try:
             self._write(target, record, MAX_KNOWLEDGE_BYTES)
         except (OSError, ValueError) as exc:
             raise InferenceConfigError("Team knowledge could not be saved") from exc
-        return memory, skills
+        return memory
 
     def _write(self, target: Path, value: dict[str, object], maximum: int) -> None:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)

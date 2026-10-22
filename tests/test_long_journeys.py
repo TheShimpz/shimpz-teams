@@ -1,7 +1,4 @@
-"""Long journeys learn whole procedures and keep a Team's skills bounded, fresh, and contract-bound (ADR-0085).
-
-A multi-round, multi-Assistant task paused for a human and resumed after a restart still learns every step.
-"""
+"""A long multi-round, multi-Assistant task paused for a human and resumed after a restart keeps every step it ran."""
 
 import dataclasses
 import unittest
@@ -10,13 +7,11 @@ from test_chat_orchestrator import FakeRuntime, completed, strategy
 from test_local_chat_continuations import pending
 
 from action import human as action_human
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
-from protocol.http.v1 import payload as http_payload
 from tests import human_request_fixtures
 
 _OBJECT = {"type": "object", "additionalProperties": False}
@@ -64,7 +59,6 @@ def _context(*assistants: brain_runtime_client.RuntimeAssistant) -> brain_runtim
         model="gpt-6-luna",
         api_key="sk-journey-0123456789",
         memories=(),
-        skills=(),
     )
 
 
@@ -99,7 +93,7 @@ class LongJourneyTests(unittest.TestCase):
         )
         return local_chat_continuations.decode(stored).pending.continuation
 
-    def test_a_paused_and_resumed_journey_learns_every_step_of_its_procedure(self):
+    def test_a_paused_and_resumed_journey_keeps_every_step_it_ran(self):
         approved = False
 
         def invoke(request):
@@ -122,64 +116,10 @@ class LongJourneyTests(unittest.TestCase):
         )
         self.assertIsInstance(outcome, chat_orchestrator.ChatOutcome)
 
-        skill = chat_knowledge.learned_skill(outcome.actions)
         self.assertEqual(
-            [(step["assistant_id"], step["action"], step["inputs"]) for step in skill["steps"]],
-            [(assistant, action, sorted(values)) for assistant, action, values in JOURNEY],
+            [(action.assistant_id, action.action) for action in outcome.actions],
+            [(assistant, action) for assistant, action, _values in JOURNEY],
         )
-        self.assertEqual(
-            skill["contracts"],
-            {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in (DNS, SEARCH)},
-        )
-        # Repeated searches stay: they were both part of what worked.
-        self.assertEqual([step["action"] for step in skill["steps"]].count("search-web"), 2)
-        self.assertNotIn("198.51.100.7", repr(skill))
-
-    def test_many_tasks_keep_the_newest_procedures_and_repeating_one_refreshes_it(self):
-        def journey_skill(*actions: str) -> dict[str, object]:
-            invoked = tuple(
-                chat_orchestrator.InvokedAction("shimpz-exa", action, ("query",), "sha256:" + "e" * 64)
-                for action in actions
-            )
-            return chat_knowledge.learned_skill(invoked)
-
-        first = journey_skill("search-web", "read-pages")
-        memory, skills = http_payload.apply_knowledge([], [], [], first)
-        for index in range(http_payload.MAX_SKILLS - 1):
-            memory, skills = http_payload.apply_knowledge(
-                memory, skills, [], journey_skill(*["search-web"] * (index + 2), "read-pages")
-            )
-        self.assertEqual(len(skills), http_payload.MAX_SKILLS)
-        self.assertEqual(skills[0]["key"], first["key"])
-        # Doing the first task again makes it the newest, so the next new task evicts the second oldest instead.
-        _memory, skills = http_payload.apply_knowledge(memory, skills, [], first)
-        second_oldest = skills[0]["key"]
-        _memory, skills = http_payload.apply_knowledge(memory, skills, [], journey_skill("read-pages", "read-pages"))
-        self.assertIn(first["key"], {skill["key"] for skill in skills})
-        self.assertNotIn(second_oldest, {skill["key"] for skill in skills})
-        self.assertEqual(len(skills), http_payload.MAX_SKILLS)
-
-    def test_a_journey_too_long_to_learn_and_a_changed_assistant_are_handled_safely(self):
-        long_journey = tuple(
-            chat_orchestrator.InvokedAction("shimpz-exa", "search-web", ("query",), "sha256:" + "e" * 64)
-            for _step in range(http_payload.MAX_SKILL_STEPS + 1)
-        )
-        self.assertIsNone(chat_knowledge.learned_skill(long_journey))
-        learned = chat_knowledge.learned_skill(
-            tuple(
-                chat_orchestrator.InvokedAction(
-                    assistant,
-                    action,
-                    tuple(sorted(values)),
-                    brain_runtime_client.contract_digest(DNS if assistant == DNS.id else SEARCH),
-                )
-                for assistant, action, values in JOURNEY
-            )
-        )
-        changed = dataclasses.replace(SEARCH, genesis="Research the web, now with a new contract.")
-        self.assertEqual([skill["usable"] for skill in chat_knowledge.turn_skills([learned], (DNS, SEARCH))], [True])
-        self.assertEqual([skill["usable"] for skill in chat_knowledge.turn_skills([learned], (DNS, changed))], [False])
-        self.assertEqual([skill["usable"] for skill in chat_knowledge.turn_skills([learned], (DNS,))], [False])
 
 
 if __name__ == "__main__":

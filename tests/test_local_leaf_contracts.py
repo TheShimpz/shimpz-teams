@@ -67,7 +67,7 @@ class LocalLeafContractTests(unittest.TestCase):
                 types.SimpleNamespace(provider="openai", model="model"),
             ),
             _chat_identity=lambda *_args: ("identity",),
-            inference_store=types.SimpleNamespace(load_knowledge=lambda _team_id: ([], [])),
+            inference_store=types.SimpleNamespace(load_knowledge=lambda _team_id: []),
             team_names=types.SimpleNamespace(load=lambda _team_id, _network_id: None),
             _chat_routines=lambda _team_id: (),
             _active_assistant_genesis=lambda _active: "genesis",
@@ -147,7 +147,7 @@ class LocalLeafContractTests(unittest.TestCase):
             self.assertRaisesRegex(ApiProblemError, "metadata is unavailable"),
         ):
             chat_segment._run_chat_segment_with_metadata(controller, request, None)
-        controller.inference_store = types.SimpleNamespace(load_knowledge=lambda _team_id: ([], []))
+        controller.inference_store = types.SimpleNamespace(load_knowledge=lambda _team_id: [])
 
         with (
             mock.patch.object(chat_segment.chat_turn_engine, "run_segment", side_effect=prepare_only),

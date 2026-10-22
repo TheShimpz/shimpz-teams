@@ -11,7 +11,6 @@ from action import result as action_result
 from chat import attachments as chat_attachments
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
-from protocol.http.v1 import payload as http_payload
 
 # A chat turn's Action rounds; a replayed Routine run has one round per step of its plan (ADR-0092 amendment,
 # 2026-10-05, scale), so a resumed continuation admits the larger of the two and each turn enforces its own.
@@ -31,11 +30,6 @@ class ChatStoppedError(ChatOrchestrationError):
 class InvokedAction:
     assistant_id: str
     action: str
-    # What a learned skill keeps of a succeeded Action (ADR-0085): its input names and its contract fingerprint.
-    # An Action whose input names a skill cannot hold is not learnable, so no procedure is saved incompletely.
-    inputs: tuple[str, ...]
-    contract: str
-    learnable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,8 +105,8 @@ class ChatStrategy:
     cancelled: CancellationCheck = lambda: False
     validate_context: ContextCheck = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
-    # The turn's own Action round limit, and whether it keeps what each Action was for chat Skill learning; a replayed
-    # run has a round per step and learns nothing, so its continuation never grows with completed steps.
+    # The turn's own Action round limit, and whether it keeps each Action it ran; a replayed run has a round per step
+    # and keeps none, so its continuation never grows with completed steps.
     max_rounds: int = MAX_ACTION_ROUNDS
     record_invoked: bool = True
     run_browser: BrowserRunner | None = None
@@ -210,7 +204,6 @@ def _admit_batch(
 def _run_batch(
     strategy: ChatStrategy,
     batch: tuple[brain_runtime_client.ActionRequest, ...],
-    contracts: Mapping[str, str],
     checkpoint: ChatContinuation,
 ) -> tuple[dict[str, object], list[InvokedAction]] | ChatHumanSuspension:
     """Run one admitted batch in order: its results by interrupt, and what it invoked, unless a person must answer."""
@@ -234,15 +227,7 @@ def _run_batch(
         results[request.interrupt_id] = result
         if not strategy.record_invoked:
             continue
-        batch_invoked.append(
-            InvokedAction(
-                assistant_id=request.assistant_id,
-                action=request.action,
-                inputs=tuple(sorted(name for name in request.input if http_payload.SKILL_INPUT_RE.fullmatch(name))),
-                contract=contracts[request.assistant_id],
-                learnable=all(http_payload.SKILL_INPUT_RE.fullmatch(name) for name in request.input),
-            )
-        )
+        batch_invoked.append(InvokedAction(assistant_id=request.assistant_id, action=request.action))
     return results, batch_invoked
 
 
@@ -258,7 +243,6 @@ def _drive(
     file_actions = continuation.file_actions
     # While attachment content is in the turn, only authorizing Actions are declared to it (ADR-0093).
     declared = chat_attachments.admitted_actions(context)
-    contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
     browser: dict[str, object] | None = None
     for _round in range(continuation.round_index, strategy.max_rounds + 1):
@@ -298,7 +282,7 @@ def _drive(
             if strategy.pause_before_batch(batch):
                 return ChatSuspension(continuation=checkpoint, requests=batch)
             strategy.prepare_batch(batch)
-        ran = _run_batch(strategy, batch, contracts, checkpoint)
+        ran = _run_batch(strategy, batch, checkpoint)
         if isinstance(ran, ChatHumanSuspension):
             return ran
         results, batch_invoked = ran

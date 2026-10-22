@@ -102,8 +102,6 @@ class RuntimeContext:
     api_key: str = field(repr=False)
     # The Team's learned memory (ADR-0084), already validated by its store; None withholds the Brain's memory tool.
     memories: tuple[dict[str, str], ...] | None = None
-    # The learned skills usable in this turn (ADR-0085); None where learning is unavailable.
-    skills: tuple[dict[str, object], ...] | None = None
     # The Team's Routines as data (ADR-0086); None withholds the Brain's Routine tool.
     routines: tuple[dict[str, object], ...] | None = None
     # The question Team asked about the recording this chat continues (ADR-0101), ``{code, options, value}``, which
@@ -342,7 +340,6 @@ class BrainRuntimeClient:
                 "api_key": context.api_key,
             },
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
-            "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
             "routine_question": None if context.routine_question is None else dict(context.routine_question),
             "routine_mode": context.routine_mode,

@@ -192,12 +192,7 @@ class LocalTurnUsageTests(LocalContractCase):
             self.assertEqual(paused_again["status"], "human-required")
             carried = service.human_challenges.current("team_1").payload.usage
             self.assertEqual(carried, brain_usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 318, 38),)))
-            # Two Actions would teach a skill; that save is audited under a request principal this unit has not.
-            with (
-                brain_usage.metered(),
-                _clock(50_000),
-                mock.patch.object(local_chat_api.chat_knowledge, "learned_skill", return_value=None),
-            ):
+            with brain_usage.metered(), _clock(50_000):
                 completed = approve(paused_again)
 
         self.assertNotIn("usage", paused)
@@ -249,11 +244,7 @@ class LocalTurnUsageTests(LocalContractCase):
                 paused = service.chat("team_1", body, "openai", "sk-test-0123456789")
             later[0] = local_routine_recorder.SPAN_SECONDS + 1
             answer = {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True}
-            with (
-                brain_usage.metered(),
-                _clock(50_000),
-                mock.patch.object(local_chat_api.chat_knowledge, "learned_skill", return_value=None),
-            ):
+            with brain_usage.metered(), _clock(50_000):
                 completed = service.resume_chat_human("team_1", answer, "openai", "sk-test-0123456789")
 
         sol = local_segment.ROUTINE_MODELS["openai"]

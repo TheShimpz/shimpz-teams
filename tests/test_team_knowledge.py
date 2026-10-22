@@ -1,4 +1,4 @@
-"""Learned Team knowledge: memory (ADR-0084) and structure-only skills (ADR-0085), saved only when a reply commits."""
+"""Learned Team memory (ADR-0084), saved only when a reply commits."""
 
 import dataclasses
 import json
@@ -12,7 +12,6 @@ from unittest import mock
 
 from test_brain_runtime_client import RuntimeClientCase, _Response, context
 
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
@@ -25,15 +24,10 @@ from protocol.http.v1 import payload as http_payload
 LANGUAGE = {"topic": "language", "preference": "Answer in Brazilian Portuguese."}
 FORMAT = {"topic": "format", "preference": "Use short lists."}
 REMEMBER_LANGUAGE = {"op": "remember", **LANGUAGE}
-CONTRACT = "sha256:" + "c" * 64
-
-
-def _invoked(action: str, *inputs: str, assistant_id: str = "shimpz-cloudflare", contract: str = CONTRACT):
-    return chat_orchestrator.InvokedAction(assistant_id, action, tuple(inputs), contract)
-
-
-ZONE_THEN_RECORD = (_invoked("list-zones"), _invoked("ensure-dns-record", "content", "name", "type", "zone_id"))
-SKILL = chat_knowledge.learned_skill(ZONE_THEN_RECORD)
+ZONE_THEN_RECORD = (
+    chat_orchestrator.InvokedAction("shimpz-cloudflare", "list-zones"),
+    chat_orchestrator.InvokedAction("shimpz-cloudflare", "ensure-dns-record"),
+)
 
 
 class ContractTests(unittest.TestCase):
@@ -45,16 +39,13 @@ class ContractTests(unittest.TestCase):
             [dict(LANGUAGE, preference="")],
             [{"topic": "language"}],
             [LANGUAGE, dict(LANGUAGE, preference="Other.")],
-            [dict(LANGUAGE, topic="procedure-0123456789ab")],
             [{"topic": f"t{index}", "preference": "x"} for index in range(http_payload.MAX_MEMORIES + 1)],
         ):
             with self.subTest(value=value):
                 self.assertIsNone(http_payload.canonical_memory(value))
         forget = {"op": "forget", "topic": "format", "preference": ""}
-        forget_skill = {"op": "forget", "topic": SKILL["key"], "preference": ""}
         self.assertEqual(
-            http_payload.canonical_memory_changes([REMEMBER_LANGUAGE, forget, forget_skill]),
-            [REMEMBER_LANGUAGE, forget, forget_skill],
+            http_payload.canonical_memory_changes([REMEMBER_LANGUAGE, forget]), [REMEMBER_LANGUAGE, forget]
         )
         for value in (
             None,
@@ -62,63 +53,12 @@ class ContractTests(unittest.TestCase):
             [dict(forget, preference="x")],
             [dict(forget, op="replace")],
             [dict(REMEMBER_LANGUAGE, topic="Bad Topic")],
-            [dict(REMEMBER_LANGUAGE, topic=SKILL["key"])],
             [dict(REMEMBER_LANGUAGE, evidence="x")],
             [dict(REMEMBER_LANGUAGE, op=[])],
             ["remember"],
         ):
             with self.subTest(value=value):
                 self.assertIsNone(http_payload.canonical_memory_changes(value))
-
-    def test_a_skill_is_structure_bound_to_its_contracts(self):
-        self.assertEqual(SKILL["contracts"], {"shimpz-cloudflare": CONTRACT})
-        self.assertEqual([step["action"] for step in SKILL["steps"]], ["list-zones", "ensure-dns-record"])
-        self.assertEqual(SKILL["key"], http_payload.skill_key(SKILL["contracts"], SKILL["steps"]))
-        # Repeated steps are kept: two searches can both be essential.
-        search = _invoked("search-web", "query", assistant_id="shimpz-exa")
-        self.assertEqual(len(chat_knowledge.learned_skill((search, search))["steps"]), 2)
-        self.assertIsNone(chat_knowledge.learned_skill(ZONE_THEN_RECORD[:1]))
-        self.assertIsNone(chat_knowledge.learned_skill((_invoked("list-zones"),) * 17))
-        drifted = (ZONE_THEN_RECORD[0], _invoked("ensure-dns-record", contract="sha256:" + "d" * 64))
-        self.assertIsNone(chat_knowledge.learned_skill(drifted))
-        unlearnable = (ZONE_THEN_RECORD[0], dataclasses.replace(ZONE_THEN_RECORD[1], learnable=False))
-        self.assertIsNone(chat_knowledge.learned_skill(unlearnable))
-        step = SKILL["steps"][0]
-        for broken in (
-            dict(SKILL, extra=1),
-            dict(SKILL, contracts=[]),
-            dict(SKILL, steps=SKILL["steps"][:1]),
-            dict(SKILL, steps=["list-zones", "ensure-dns-record"]),
-            dict(SKILL, steps=[dict(step, inputs=["b", "a"]), SKILL["steps"][1]]),
-            dict(SKILL, steps=[dict(step, action="Bad Action"), SKILL["steps"][1]]),
-            dict(SKILL, contracts={"other-assistant": CONTRACT}),
-            dict(SKILL, contracts={"shimpz-cloudflare": "sha256:short"}),
-        ):
-            with self.subTest(broken=broken):
-                self.assertIsNone(http_payload.canonical_skill(broken))
-        for value in (None, [SKILL, SKILL], [dict(SKILL, key="procedure-000000000000")], "skills"):
-            with self.subTest(value=value):
-                self.assertIsNone(http_payload.canonical_skills(value))
-
-    def test_every_stored_skill_reaches_brain_marked_usable_only_under_its_contracts(self):
-        assistant = brain_runtime_client.RuntimeAssistant("shimpz-cloudflare", "DNS.", ())
-        digest = brain_runtime_client.contract_digest(assistant)
-        current = chat_knowledge.learned_skill(
-            tuple(dataclasses.replace(action, contract=digest) for action in ZONE_THEN_RECORD)
-        )
-        self.assertEqual(
-            chat_knowledge.turn_skills([SKILL, current], (assistant,)),
-            ({**SKILL, "usable": False}, {**current, "usable": True}),
-        )
-
-    def test_a_skill_forgotten_in_a_turn_is_not_relearned_by_it_and_only_eight_are_kept(self):
-        forget = [{"op": "forget", "topic": SKILL["key"], "preference": ""}]
-        self.assertEqual(http_payload.apply_knowledge([], [SKILL], forget, SKILL), ([], []))
-        many = [chat_knowledge.learned_skill((_invoked(f"a{index}"), _invoked("b"))) for index in range(10)]
-        kept = []
-        for skill in many:
-            _memory, kept = http_payload.apply_knowledge([], kept, [], skill)
-        self.assertEqual(kept, many[-http_payload.MAX_SKILLS :])
 
 
 class StoreTests(unittest.TestCase):
@@ -128,21 +68,19 @@ class StoreTests(unittest.TestCase):
         self.root = Path(directory.name) / "inference"
         self.store = inference_config.InferenceConfigStore(self.root)
 
-    def test_memory_and_skills_change_together_and_the_file_goes_when_nothing_is_left(self):
-        self.assertEqual(self.store.load_knowledge("team_1"), ([], []))
+    def test_memory_changes_in_order_and_the_file_goes_when_nothing_is_left(self):
+        self.assertEqual(self.store.load_knowledge("team_1"), [])
         self.assertEqual(
-            self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE, {"op": "remember", **FORMAT}], SKILL),
-            ([LANGUAGE, FORMAT], [SKILL]),
+            self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE, {"op": "remember", **FORMAT}]), [LANGUAGE, FORMAT]
         )
         [stored] = self.root.glob("*.knowledge.json")
         self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
         changed = {"op": "remember", "topic": "language", "preference": "Answer in English."}
-        memory, skills = self.store.apply_knowledge("team_1", [changed], None)
+        memory = self.store.apply_knowledge("team_1", [changed])
         self.assertEqual(memory, [FORMAT, {"topic": "language", "preference": "Answer in English."}])
-        self.assertEqual(skills, [SKILL])
-        self.assertEqual(self.store.load_knowledge("team_2"), ([], []))
-        forget = [{"op": "forget", "topic": topic, "preference": ""} for topic in ("format", "language", SKILL["key"])]
-        self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+        self.assertEqual(self.store.load_knowledge("team_2"), [])
+        forget = [{"op": "forget", "topic": topic, "preference": ""} for topic in ("format", "language")]
+        self.assertEqual(self.store.apply_knowledge("team_1", forget), [])
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
 
     def test_forgetting_the_last_entry_commits_the_removal_or_reports_failure(self):
@@ -154,36 +92,35 @@ class StoreTests(unittest.TestCase):
             synced.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
 
         forget = [{"op": "forget", "topic": "language", "preference": ""}]
-        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE])
         with mock.patch.object(os, "fsync", side_effect=observe):
-            self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+            self.assertEqual(self.store.apply_knowledge("team_1", forget), [])
         self.assertEqual(synced, [True])
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
 
-        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE])
         with (
             mock.patch.object(os, "fsync", side_effect=OSError("directory sync")),
             self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
         ):
-            self.store.apply_knowledge("team_1", forget, None)
+            self.store.apply_knowledge("team_1", forget)
         # A retry of the unconfirmed forget finds the record gone and still commits its directory entry.
         synced.clear()
         with mock.patch.object(os, "fsync", side_effect=observe):
-            self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+            self.assertEqual(self.store.apply_knowledge("team_1", forget), [])
         self.assertEqual(synced, [True])
 
-    def test_invalid_changes_skills_and_team_ids_are_refused(self):
-        for team_id, changes, skill in (
-            ("team_1", [{"op": "remember", "topic": "Bad", "preference": "x"}], None),
-            ("team_1", "not a list", None),
-            ("team_1", [], dict(SKILL, key="procedure-000000000000")),
-            ("../team", [REMEMBER_LANGUAGE], None),
+    def test_invalid_changes_and_team_ids_are_refused(self):
+        for team_id, changes in (
+            ("team_1", [{"op": "remember", "topic": "Bad", "preference": "x"}]),
+            ("team_1", "not a list"),
+            ("../team", [REMEMBER_LANGUAGE]),
         ):
-            with self.subTest(changes=changes, skill=skill), self.assertRaises(inference_config.InferenceConfigError):
-                self.store.apply_knowledge(team_id, changes, skill)
+            with self.subTest(changes=changes), self.assertRaises(inference_config.InferenceConfigError):
+                self.store.apply_knowledge(team_id, changes)
 
     def test_a_failed_write_leaves_the_saved_knowledge_untouched(self):
-        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE])
         [stored] = self.root.glob("*.knowledge.json")
         before = stored.read_bytes()
         for failing in ("fchmod", "fsync"):
@@ -192,23 +129,23 @@ class StoreTests(unittest.TestCase):
                 mock.patch.object(os, failing, side_effect=OSError("disk")),
                 self.assertRaises(inference_config.InferenceConfigError),
             ):
-                self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}], SKILL)
+                self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}])
             self.assertEqual(stored.read_bytes(), before)
             self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
         self.assertEqual([path.name for path in self.root.iterdir()], [stored.name])
 
     def test_a_corrupt_or_foreign_file_fails_closed(self):
-        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE])
         [stored] = self.root.glob("*.knowledge.json")
-        record = {"schema": 1, "team_id": "team_1", "memory": [LANGUAGE], "skills": []}
+        record = {"schema": inference_config.KNOWLEDGE_SCHEMA, "team_id": "team_1", "memory": [LANGUAGE]}
         for raw in (
             b"not json",
             b"\xff",
             json.dumps({**record, "team_id": "team_2"}).encode(),
-            json.dumps({**record, "schema": 2}).encode(),
+            json.dumps({**record, "schema": inference_config.KNOWLEDGE_SCHEMA + 1}).encode(),
             json.dumps({**record, "memory": []}).encode(),
-            json.dumps({**record, "skills": [dict(SKILL, key="procedure-000000000000")]}).encode(),
-            json.dumps({"schema": 1, "team_id": "team_1", "memory": [LANGUAGE]}).encode(),
+            json.dumps({**record, "memory": [dict(LANGUAGE, topic="Language")]}).encode(),
+            json.dumps({**record, "extra": []}).encode(),
             json.dumps(["not", "an", "object"]).encode(),
         ):
             stored.write_bytes(raw)
@@ -222,10 +159,10 @@ class StoreTests(unittest.TestCase):
 
     def test_team_deletion_and_space_reset_remove_knowledge_and_keep_foreign_files(self):
         self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
-        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], SKILL)
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE])
         self.store.delete("team_1")
         self.assertEqual(list(self.root.iterdir()), [])
-        self.store.apply_knowledge("orphan_team", [REMEMBER_LANGUAGE], None)
+        self.store.apply_knowledge("orphan_team", [REMEMBER_LANGUAGE])
         (self.root / f".{'a' * 64}.knowledge.json.{'b' * 16}.tmp").write_text("partial", encoding="utf-8")
         foreign = ["notes.txt", f".{'c' * 64}.json", f"{'c' * 64}.json.{'d' * 16}.tmp"]
         for name in foreign:
@@ -244,35 +181,26 @@ class StoreTests(unittest.TestCase):
             self.store.delete("team_1")
         inference_config.InferenceConfigStore(self.root / "absent").delete_all()
 
-    def test_one_turn_forgets_every_memory_and_every_skill_together(self):
+    def test_one_turn_forgets_every_memory_together(self):
         memory = [{"op": "remember", "topic": f"t{index}", "preference": "x"} for index in range(32)]
-        self.store.apply_knowledge("team_1", memory, None)
-        for count in range(http_payload.MAX_SKILLS):
-            self.store.apply_knowledge("team_1", [], chat_knowledge.learned_skill(_steps(count)))
-        memories, skills = self.store.load_knowledge("team_1")
-        self.assertEqual((len(memories), len(skills)), (http_payload.MAX_MEMORIES, http_payload.MAX_SKILLS))
-        forget = _forget_all(memories, skills)
+        self.store.apply_knowledge("team_1", memory)
+        memories = self.store.load_knowledge("team_1")
+        self.assertEqual(len(memories), http_payload.MAX_MEMORIES)
+        forget = _forget_all(entry["topic"] for entry in memories)
         self.assertEqual(len(forget), http_payload.MAX_MEMORY_CHANGES)
-        self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+        self.assertEqual(self.store.apply_knowledge("team_1", forget), [])
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
         with self.assertRaises(inference_config.InferenceConfigError):
-            self.store.apply_knowledge("team_1", [*forget, dict(forget[0], topic="extra")], None)
+            self.store.apply_knowledge("team_1", [*forget, dict(forget[0], topic="extra")])
 
 
-def _steps(count: int) -> tuple[chat_orchestrator.InvokedAction, ...]:
-    return (*(_invoked("search-web", "query", assistant_id="shimpz-exa") for _ in range(count + 1)), _invoked("read"))
-
-
-def _forget_all(memories: list[dict[str, str]], skills: list[dict[str, object]]) -> list[dict[str, str]]:
-    topics = [entry["topic"] for entry in memories] + [str(skill["key"]) for skill in skills]
+def _forget_all(topics) -> list[dict[str, str]]:
     return [{"op": "forget", "topic": topic, "preference": ""} for topic in topics]
 
 
 class ClientTests(RuntimeClientCase):
-    def test_a_completed_turn_may_forget_every_memory_and_skill_but_no_more(self):
-        topics = [f"t{index}" for index in range(http_payload.MAX_MEMORIES)]
-        skills = [{"key": f"procedure-{index:012x}"} for index in range(http_payload.MAX_SKILLS)]
-        forget = _forget_all([{"topic": topic} for topic in topics], skills)
+    def test_a_completed_turn_may_forget_every_memory_but_no_more(self):
+        forget = _forget_all(f"t{index}" for index in range(http_payload.MAX_MEMORIES))
         payload = {"status": "completed", "reply": "Ok.", "actions": [], "clarification": None}
         client, _connection = self.client(_Response({**payload, "memory": forget}))
         self.assertEqual(client.start(context(self.secret), "Oi", conversation=()).memory, tuple(forget))
@@ -283,16 +211,12 @@ class ClientTests(RuntimeClientCase):
     def test_the_turn_carries_knowledge_and_only_a_completed_turn_may_change_memory(self):
         payload = {"status": "completed", "reply": "Ok.", "actions": [], "clarification": None}
         client, connection = self.client(_Response({**payload, "memory": [REMEMBER_LANGUAGE]}))
-        turn = client.start(
-            dataclasses.replace(context(self.secret), memories=(LANGUAGE,), skills=(SKILL,)), "Oi", conversation=()
-        )
+        turn = client.start(dataclasses.replace(context(self.secret), memories=(LANGUAGE,)), "Oi", conversation=())
         self.assertEqual(turn.memory, (REMEMBER_LANGUAGE,))
-        sent = json.loads(connection.requests[0][2])
-        self.assertEqual((sent["memories"], sent["skills"]), ([LANGUAGE], [SKILL]))
+        self.assertEqual(json.loads(connection.requests[0][2])["memories"], [LANGUAGE])
         client, connection = self.client(_Response(payload))
         client.start(context(self.secret), "Oi", conversation=())
-        sent = json.loads(connection.requests[0][2])
-        self.assertEqual((sent["memories"], sent["skills"]), (None, None))
+        self.assertIsNone(json.loads(connection.requests[0][2])["memories"])
         suspended = {
             "status": "action-required",
             "reply": "",
@@ -338,15 +262,15 @@ class CommitTests(unittest.TestCase):
         with self.service._exclusive_chat_turn("team_1") as token:
             reply = self._complete(token, (REMEMBER_LANGUAGE,), ZONE_THEN_RECORD, file_ids=("a" * 32,))
         self.assertEqual(reply["reply"], "Ok.")
-        self.assertEqual(self.store.load_knowledge("team_1"), ([], []))
+        self.assertEqual(self.store.load_knowledge("team_1"), [])
 
-    def test_memory_and_the_learned_skill_are_saved_exactly_when_the_reply_commits(self):
+    def test_memory_is_saved_exactly_when_the_reply_commits(self):
         with self.service._exclusive_chat_turn("team_1") as token:
             self.assertEqual(self._complete(token, (REMEMBER_LANGUAGE,), ZONE_THEN_RECORD)["reply"], "Ok.")
-        self.assertEqual(self.store.load_knowledge("team_1"), ([LANGUAGE], [SKILL]))
+        self.assertEqual(self.store.load_knowledge("team_1"), [LANGUAGE])
         with self.service._exclusive_chat_turn("team_1") as token:
-            self._complete(token, (), ZONE_THEN_RECORD[:1])
-        self.assertEqual(self.store.load_knowledge("team_1"), ([LANGUAGE], [SKILL]))
+            self._complete(token, (), ZONE_THEN_RECORD)
+        self.assertEqual(self.store.load_knowledge("team_1"), [LANGUAGE])
 
     def test_a_stopped_turn_changes_nothing(self):
         with self.service._exclusive_chat_turn("team_1") as token:
@@ -355,10 +279,10 @@ class CommitTests(unittest.TestCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self._complete(token, (REMEMBER_LANGUAGE,), ZONE_THEN_RECORD)
         self.assertEqual(caught.exception.code, "chat-stopped")
-        self.assertEqual(self.store.load_knowledge("team_1"), ([], []))
+        self.assertEqual(self.store.load_knowledge("team_1"), [])
 
     def test_a_failed_audit_fails_the_turn_before_knowledge_changes(self):
-        self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}], None)
+        self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}])
         with (
             mock.patch.object(local_audit, "record_request", side_effect=RuntimeError("audit down")),
             self.service._exclusive_chat_turn("team_1") as token,
@@ -366,10 +290,10 @@ class CommitTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "audit down"):
                 self._complete(token, (REMEMBER_LANGUAGE,), ZONE_THEN_RECORD)
             self.assertEqual(self.service._active_chat_tokens.get("team_1"), token)
-        self.assertEqual(self.store.load_knowledge("team_1"), ([FORMAT], []))
+        self.assertEqual(self.store.load_knowledge("team_1"), [FORMAT])
 
     def test_a_failed_save_whose_error_audit_also_fails_changes_nothing(self):
-        self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}], None)
+        self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}])
         events = []
 
         def record(operation, **fields):
@@ -388,11 +312,11 @@ class CommitTests(unittest.TestCase):
         self.assertEqual(
             events,
             [
-                ("chat-memory", "ok", "attempt:memory=1,skill=1"),
+                ("chat-memory", "ok", "attempt:memory=1"),
                 ("chat-memory", "error", "save-failed"),
             ],
         )
-        self.assertEqual(self.store.load_knowledge("team_1"), ([FORMAT], []))
+        self.assertEqual(self.store.load_knowledge("team_1"), [FORMAT])
 
     def test_a_failed_save_fails_the_turn_and_keeps_it_uncommitted(self):
         self.service.inference_store = SimpleNamespace(

@@ -5,7 +5,6 @@ import time
 from http import HTTPStatus
 
 from chat import contract as assistant_chat
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -106,19 +105,16 @@ def segment_response(
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
         # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
-        if response.file_ids or terminal.browser is not None:
-            # A turn that consumed selected files or read the web learns nothing: neither a memory the Brain proposed
-            # nor the Action path it took becomes lasting knowledge (ADR-0093, ADR-0117).
-            return
-        skill = chat_knowledge.learned_skill(terminal.actions)
-        if not terminal.memory and skill is None:
+        if response.file_ids or terminal.browser is not None or not terminal.memory:
+            # A turn that consumed selected files or read the web learns nothing: no memory the Brain proposed becomes
+            # lasting knowledge (ADR-0093, ADR-0117).
             return
         # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
         # nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
-        detail = f"attempt:memory={len(terminal.memory)},skill={int(skill is not None)}"
+        detail = f"attempt:memory={len(terminal.memory)}"
         local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
         try:
-            self.inference_store.apply_knowledge(team_id, list(terminal.memory), skill)
+            self.inference_store.apply_knowledge(team_id, list(terminal.memory))
         except inference_config.InferenceConfigError as exc:
             local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
             raise ApiProblem(

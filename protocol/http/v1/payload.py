@@ -40,15 +40,7 @@ MAX_CLARIFICATION_OPTIONS = turn.MAX_CLARIFICATION_OPTIONS
 MAX_MEMORIES = turn.MAX_MEMORIES
 MAX_MEMORY_PREFERENCE_CHARS = turn.MAX_MEMORY_PREFERENCE_CHARS
 MEMORY_TOPIC_RE = turn.MEMORY_TOPIC_RE
-MAX_SKILLS = turn.MAX_SKILLS
 MAX_MEMORY_CHANGES = turn.MAX_MEMORY_CHANGES
-MIN_SKILL_STEPS = turn.MIN_SKILL_STEPS
-MAX_SKILL_STEPS = turn.MAX_SKILL_STEPS
-MAX_SKILL_INPUTS = turn.MAX_SKILL_INPUTS
-SKILL_KEY_PREFIX = turn.SKILL_KEY_PREFIX
-SKILL_KEY_RE = turn.SKILL_KEY_RE
-SKILL_INPUT_RE = turn.SKILL_INPUT_RE
-skill_key = turn.skill_key
 
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -648,8 +640,7 @@ def render_clarification(clarification: dict[str, object]) -> str:
 
 
 def _memory_entry(topic: object, preference: object, *, empty: bool = False) -> dict[str, str]:
-    # Skill keys are reserved: only `forget` may name one, and no preference is ever stored under one.
-    if not isinstance(topic, str) or MEMORY_TOPIC_RE.fullmatch(topic) is None or topic.startswith(SKILL_KEY_PREFIX):
+    if not isinstance(topic, str) or MEMORY_TOPIC_RE.fullmatch(topic) is None:
         raise _ClarificationShapeError
     return {"topic": topic, "preference": _clarification_text(preference, MAX_MEMORY_PREFERENCE_CHARS, empty=empty)}
 
@@ -676,7 +667,7 @@ def canonical_memory(value: object) -> list[dict[str, str]] | None:
 def canonical_memory_changes(value: object) -> list[dict[str, str]] | None:
     """Return one completed turn's exact memory changes, or None: `remember` carries a preference, `forget` none.
 
-    At most 40 changes, enough to forget all 32 memories and all 8 skills in one turn.
+    At most 32 changes, enough to forget every memory in one turn.
     """
     if not isinstance(value, list) or len(value) > MAX_MEMORY_CHANGES:
         return None
@@ -689,9 +680,6 @@ def canonical_memory_changes(value: object) -> list[dict[str, str]] | None:
             forget = op == "forget"
             if not isinstance(op, str) or op not in {"remember", "forget"} or forget != (change["preference"] == ""):
                 raise _ClarificationShapeError
-            if forget and isinstance(change["topic"], str) and SKILL_KEY_RE.fullmatch(change["topic"]):
-                changes.append({"op": "forget", "topic": change["topic"], "preference": ""})
-                continue
             changes.append({"op": change["op"], **_memory_entry(change["topic"], change["preference"], empty=forget)})
     except _ClarificationShapeError:
         return None
@@ -709,84 +697,6 @@ def apply_memory_changes(memory: list[dict[str, str]], changes: list[dict[str, s
         if change["op"] == "remember":
             entries[change["topic"]] = change["preference"]
     return [{"topic": topic, "preference": preference} for topic, preference in entries.items()][-MAX_MEMORIES:]
-
-
-def _skill(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != {"key", "contracts", "steps"}:
-        raise _ClarificationShapeError
-    contracts, raw_steps = value["contracts"], value["steps"]
-    if (
-        not isinstance(contracts, dict)
-        or not isinstance(raw_steps, list)
-        or not MIN_SKILL_STEPS <= len(raw_steps) <= MAX_SKILL_STEPS
-    ):
-        raise _ClarificationShapeError
-    steps = []
-    for step in raw_steps:
-        if not isinstance(step, dict) or set(step) != {"assistant_id", "action", "inputs"}:
-            raise _ClarificationShapeError
-        inputs = step["inputs"]
-        if (
-            canonical_assistant_id(step["assistant_id"]) is None
-            or canonical_action_id(step["action"]) is None
-            or not isinstance(inputs, list)
-            or len(inputs) > MAX_SKILL_INPUTS
-            or any(not isinstance(name, str) or SKILL_INPUT_RE.fullmatch(name) is None for name in inputs)
-            or inputs != sorted(set(inputs))
-        ):
-            raise _ClarificationShapeError
-        steps.append({"assistant_id": step["assistant_id"], "action": step["action"], "inputs": list(inputs)})
-    if set(contracts) != {step["assistant_id"] for step in steps} or any(
-        canonical_source_digest(digest) is None for digest in contracts.values()
-    ):
-        raise _ClarificationShapeError
-    ordered = dict(sorted(contracts.items()))
-    if value["key"] != skill_key(ordered, steps):
-        raise _ClarificationShapeError
-    return {"key": value["key"], "contracts": ordered, "steps": steps}
-
-
-def canonical_skill(value: object) -> dict[str, object] | None:
-    """Return one exact learned skill, or None (ADR-0085).
-
-    A skill is structure only: 2 to 16 ordered steps naming an Assistant, an Action, and the sorted input names it
-    used, the `sha256:` contract fingerprint of every Assistant it names, and the content key derived from both. It
-    holds no argument value or text and grants no authority.
-    """
-    try:
-        return _skill(value)
-    except _ClarificationShapeError:
-        return None
-
-
-def canonical_skills(value: object) -> list[dict[str, object]] | None:
-    """Return a Team's exact skills, at most 8 with distinct keys, or None."""
-    if not isinstance(value, list) or len(value) > MAX_SKILLS:
-        return None
-    skills = [canonical_skill(item) for item in value]
-    if any(skill is None for skill in skills) or len({skill["key"] for skill in skills}) != len(skills):
-        return None
-    return skills
-
-
-def apply_knowledge(
-    memory: list[dict[str, str]],
-    skills: list[dict[str, object]],
-    changes: list[dict[str, str]],
-    skill: dict[str, object] | None,
-) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
-    """Apply one committed turn: memory changes in order (a skill key forgets that skill), then its new skill.
-
-    A skill that is learned again becomes the newest, and the oldest skills give way beyond the 8-skill bound; a skill
-    the same turn forgets is not learned again.
-    """
-    forgotten = {change["topic"] for change in changes if SKILL_KEY_RE.fullmatch(change["topic"])}
-    entries = apply_memory_changes(memory, [change for change in changes if change["topic"] not in forgotten])
-    kept = [item for item in skills if item["key"] not in forgotten]
-    # The user's forget wins over relearning the same procedure in the same turn.
-    if skill is not None and skill["key"] not in forgotten:
-        kept = [item for item in kept if item["key"] != skill["key"]] + [skill]
-    return entries, kept[-MAX_SKILLS:]
 
 
 def canonical_source_digest(value: object) -> str | None:

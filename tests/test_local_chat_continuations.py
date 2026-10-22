@@ -49,7 +49,7 @@ def pending(
         continuation=chat_orchestrator.ChatContinuation(
             turn=TURN,
             seen_interrupts=("older-action",),
-            invoked=(chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("query",), "sha256:" + "d" * 64),),
+            invoked=(chat_orchestrator.InvokedAction("demo-assistant", "lookup"),),
             round_index=1,
         ),
         assistant_ids=("demo-assistant",),
@@ -132,22 +132,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.pending, state)
         # A frozen Routine run keeps the same parts in its own store and decodes them identically.
         self.assertEqual(local_chat_continuations.decode_parts(kind, payload, bindings), decoded)
-
-    def test_rejects_an_invoked_action_whose_skill_structure_is_malformed(self) -> None:
-        requirements = integration_requirement("dns.read")
-        for invoked in (
-            chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("b", "a"), "sha256:" + "d" * 64),
-            chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("query",), "not-a-digest"),
-            chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("query",), "sha256:" + "d" * 64, "yes"),
-        ):
-            base = pending()
-            broken = dataclasses.replace(base, continuation=dataclasses.replace(base.continuation, invoked=(invoked,)))
-            with (
-                self.subTest(invoked=invoked),
-                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "invoked Action is malformed"),
-            ):
-                # Encoding verifies its own round trip, so a malformed invoked Action never reaches storage.
-                local_chat_continuations.encode("integrations", requirements, broken)
 
     def test_round_trips_the_integration_suspension(self) -> None:
         requirements = integration_requirement("dns.read", "zone.read")

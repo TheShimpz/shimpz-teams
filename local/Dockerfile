@@ -101,7 +101,7 @@ COPY --link local/install/__init__.py local/install/admission.py local/install/a
 COPY --link assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/details.py \
     assistant/effect.py assistant/genesis.py assistant/language.py assistant/manifest.py assistant/spec.py \
     ./assistant/
-COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
+COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/orchestrator.py chat/progress.py \
     chat/turn.py ./chat/
 COPY --link core/__init__.py core/base64url.py core/canonical_json.py core/identifier.py core/instant.py core/text.py ./core/
 COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/

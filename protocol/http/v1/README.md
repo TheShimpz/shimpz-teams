@@ -3,9 +3,9 @@
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin.
 `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
-sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory and skill
-changes, a skill's content key, the reply, the Action requests one suspension carries, capability planning, intent
-routing, and the attachment content of a turn) and the opaque thread, interrupt, and model id grammar Team and the
+sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory changes, the
+reply, the Action requests one suspension carries, capability planning, intent routing, and the attachment content of
+a turn) and the opaque thread, interrupt, and model id grammar Team and the
 Brain exchange (`SAFE_ID_RE`); `payload.py` re-exports all three, and the Brain
 consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
 definition here or in `payload.py`, never to a copied literal.
@@ -300,18 +300,11 @@ it. `payload.canonical_turn_usage` validates it; a consumer refuses a terminal w
 presentation metadata only: it carries no price, prompt, reply, or credential and authorizes nothing.
 
 A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
-line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry at most 40 changes
-(`payload.canonical_memory_changes`), enough to forget every memory and every skill at once: `remember` with a
+line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry at most 32 changes
+(`payload.canonical_memory_changes`), enough to forget every memory at once: `remember` with a
 preference replaces its topic and becomes newest, `forget` with an empty preference removes it, and
 `payload.apply_memory_changes` applies them in order, dropping the oldest entries beyond the bound. A Brain refuses a
 proposal that would exceed the bound instead of truncating, and Team refuses a longer change list whole. Memory has no browser route; it carries no Action authority.
-
-A Team's learned skills (ADR-0085) are structure only (`payload.canonical_skills`, at most 8): each has 2 to 16
-ordered steps naming an Assistant, an Action, and the sorted input names it used, the `sha256:` contract fingerprint
-of every Assistant it names, and a `procedure-` content key derived from both. No argument value or text is kept.
-`payload.apply_knowledge` applies one committed turn: its memory changes (a `forget` of a skill key removes that
-skill), then its new skill, which becomes the newest while the oldest give way beyond the bound; a skill the same turn
-forgets is not learned again.
 
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `daily` at `HH:MM`, `weekly` on a
 weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an IANA timezone name

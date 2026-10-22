@@ -12,7 +12,6 @@ from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from chat import attachments as chat_attachments
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -103,7 +102,7 @@ def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -
 
 
 def _runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
-    """The Assistant exactly as a Brain turn sees it; its contract digest pins skills and Routines."""
+    """The Assistant exactly as a Brain turn sees it; its contract digest pins Routines."""
     return brain_runtime_client.RuntimeAssistant(
         id=active.spec.assistant_id,
         genesis=genesis,
@@ -185,7 +184,7 @@ def _invocation_evidence(
     return action_execution.ActionInvocationEvidence(private_inputs, transcript, operation_id)
 
 
-def _knowledge(self, team_id: str) -> tuple[object, object]:
+def _knowledge(self, team_id: str) -> list[dict[str, str]]:
     try:
         return self.inference_store.load_knowledge(team_id)
     except inference_config.InferenceConfigError as exc:
@@ -213,7 +212,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     routine = request.routine
     # A replayed Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
     # Brain keeps what a logical turn started with across resumes.
-    memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
+    memories = () if routine is not None else _knowledge(self, request.team_id)
     runtime_assistants = tuple(
         _runtime_assistant(active, scope.genesis_by_id[active.spec.assistant_id]) for active in scope.assistants
     )
@@ -232,7 +231,6 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         model="" if config is None else _turn_model(request, config, span),
         api_key=request.api_key,
         memories=None if routine is not None else tuple(memories),
-        skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
         routines=routines,
         routine_question=None if recorded is None or recorded.asked is None else recorded.asked.wire,
         routine_mode=routine_recorder.routine_mode(recorded),

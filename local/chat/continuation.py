@@ -190,7 +190,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "continuation": {
             "turn": _turn_payload(pending.continuation.turn),
             "seen_interrupts": list(pending.continuation.seen_interrupts),
-            "invoked": [{**asdict(item), "inputs": list(item.inputs)} for item in pending.continuation.invoked],
+            "invoked": [asdict(item) for item in pending.continuation.invoked],
             "round_index": pending.continuation.round_index,
             "file_actions": pending.continuation.file_actions,
         },
@@ -487,23 +487,11 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
         raise ContinuationCodecError("seen Brain interrupts are malformed")
     invoked: list[chat_orchestrator.InvokedAction] = []
     for item in _sequence(raw["invoked"], MAX_INVOKED_ACTIONS, "invoked Actions"):
-        entry = _mapping(item, {"assistant_id", "action", "inputs", "contract", "learnable"}, "invoked Action")
-        inputs = entry["inputs"]
-        if (
-            not isinstance(inputs, list)
-            or any(not isinstance(name, str) or http_payload.SKILL_INPUT_RE.fullmatch(name) is None for name in inputs)
-            or inputs != sorted(set(inputs))
-            or http_payload.canonical_source_digest(entry["contract"]) is None
-            or type(entry["learnable"]) is not bool
-        ):
-            raise ContinuationCodecError("invoked Action is malformed")
+        entry = _mapping(item, {"assistant_id", "action"}, "invoked Action")
         invoked.append(
             chat_orchestrator.InvokedAction(
                 _component_id(entry["assistant_id"], "invoked Action Assistant", http_payload.canonical_assistant_id),
                 _component_id(entry["action"], "invoked Action", http_payload.canonical_action_id),
-                tuple(inputs),
-                entry["contract"],
-                entry["learnable"],
             )
         )
     round_index = raw["round_index"]

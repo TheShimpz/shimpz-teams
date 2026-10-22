@@ -35,7 +35,6 @@ CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", "
 TURN_CONTEXT = {
     "team_name": "Demo Team",
     "memories": [],
-    "skills": [],
     "routines": None,
     "routine_question": None,
     "routine_mode": False,

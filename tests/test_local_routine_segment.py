@@ -94,8 +94,8 @@ class RoutineSegmentTests(LocalContractCase):
         (chat,) = brain.contexts
         expected_thread = f"local:local-space:team_1:{network}:routine-{RUN}"
         self.assertEqual(
-            (context.thread_id, context.routines, context.memories, context.skills, context.api_key),
-            (expected_thread, None, None, None, ""),
+            (context.thread_id, context.routines, context.memories, context.api_key),
+            (expected_thread, None, None, ""),
         )
         # Only a recorded new turn sees the Team's Routines and the Routine tool.
         self.assertEqual(chat.routines, ())

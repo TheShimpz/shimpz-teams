@@ -200,17 +200,7 @@ class ChatOrchestratorTests(unittest.TestCase):
         self.assertEqual(invoked, [("hello-pulse", "hello", {"name": "Ada"})])
         self.assertEqual(runtime.resumes, [{"interrupt-1": {"message": "Hello, Ada."}}])
         self.assertEqual(outcome.reply, "Hello, Ada.")
-        self.assertEqual(
-            outcome.actions,
-            (
-                chat_orchestrator.InvokedAction(
-                    assistant_id="hello-pulse",
-                    action="hello",
-                    inputs=("name",),
-                    contract=brain_runtime_client.contract_digest(context().assistants[0]),
-                ),
-            ),
-        )
+        self.assertEqual(outcome.actions, (chat_orchestrator.InvokedAction("hello-pulse", "hello"),))
 
     def test_pause_happens_after_full_validation_and_before_any_side_effect(self):
         requests = (
