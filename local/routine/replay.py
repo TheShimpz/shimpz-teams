@@ -152,7 +152,7 @@ class ReplayRuntime:
         return f"routine-step-{index}"
 
     def strategy(self) -> dict[str, object]:
-        """How the turn loop drives this run: one Action round per step, keeping no invoked Actions in its continuation."""
+        """How the turn loop drives this run: one Action round per step, keeping no invoked Actions."""
         return {"max_rounds": len(self._plan.steps), "record_invoked": False}
 
     def _turn(self) -> brain_runtime_client.RuntimeTurn:
