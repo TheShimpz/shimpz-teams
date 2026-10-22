@@ -88,6 +88,11 @@ class EditTests(unittest.TestCase):
         self.assertEqual(refined.origins["s2"], {"page": "assistant", "q": "assistant"})
         self.assertEqual(refined.origins["s4"], {"zone_id": "selector"})
 
+    def test_inserted_calls_keep_their_traced_order_whatever_order_the_edit_names(self) -> None:
+        refined = _refined(_insert("s3", "c2", "c1"))
+        queries = [step["input"]["q"]["value"] for step in refined.document["steps"][3:]]
+        self.assertEqual(queries, ["dns", "zones"])
+
     def test_edits_apply_in_plan_order_whatever_order_they_are_given_in(self) -> None:
         later = _refined(_insert("s3", "c2"), _insert("s1", "c1"))
         self.assertEqual(

@@ -315,10 +315,11 @@ def _edit(value: object) -> bool:
     if not isinstance(value, dict) or set(value) != {"kind", "step", "calls"} or value["kind"] not in REFINE_KINDS:
         return False
     calls = value["calls"]
+    if not isinstance(calls, list):
+        return False
     counted = {"insert": 0 < len(calls) <= routine.MAX_ROUTINE_STEPS, "replace": len(calls) == 1, "remove": not calls}
     return (
         routine.matches(value["step"], ROUTINE_STEP_ID_RE)
-        and isinstance(calls, list)
         and all(routine.matches(item, CALL_HANDLE_RE) for item in calls)
         and counted[value["kind"]]
     )

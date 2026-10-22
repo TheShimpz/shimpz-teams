@@ -364,18 +364,20 @@ class DiagnosticStore:
     def latest_run(self, team_id: str, routine_id: str, now: int) -> str | None:
         """The run of a Routine whose unexpired record is the newest, or None when none is retained (ADR-0122).
 
-        A Routine runs one run at a time, so its newest record is its latest run's.
+        A Routine runs one run at a time, so its newest record is its latest run's; records name whole seconds, so
+        when the newest second holds records of several runs, which is latest is unknown and none is named.
         """
         directory = self._team_dir(validate_team_id(team_id))
         with self._guard:
             found = [
-                match["run"]
+                (int(match["at"]), match["run"])
                 for _name, kind, match, _size in self._entries(directory)
                 if kind in ("step", "run")
                 and match["routine"] == routine_id
                 and int(match["at"]) > now - RETENTION_SECONDS
             ]
-        return found[-1] if found else None
+        newest = {run for at, run in found if at == max(at for at, _run in found)} if found else set()
+        return newest.pop() if len(newest) == 1 else None
 
     def _open(self, path: Path, team: str, incarnation: str, name: str, maximum: int) -> dict[str, object] | None:
         """Decrypt one body under the incarnation it names; another incarnation's authentic body is never shown.

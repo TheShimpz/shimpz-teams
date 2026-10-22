@@ -589,6 +589,16 @@ class LastRunTests(StepRecordCase):
         ]
         self.assertEqual(self.last(), {"revision": 2, "steps": steps})
 
+    def test_records_of_two_runs_in_the_newest_second_name_no_latest_run(self) -> None:
+        other = dataclasses.replace(BINDING, run_id="e" * 32)
+        self.store.record_step("team_1", INCARNATION, _step(1, binding=other), ())
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        self.assertIsNone(self.last())
+        self.store.record_step("team_1", INCARNATION, _step(2, recorded_at=NOW + 1), ())
+        self.assertEqual(
+            self.last()["steps"][:2], [{"position": 1, "status": "done"}, {"position": 2, "status": "done"}]
+        )
+
     def test_a_step_that_kept_no_inputs_or_no_record_is_unavailable(self) -> None:
         self.store.record_step("team_1", INCARNATION, _step(1, inputs=None), ())
         self.store.record_step("team_1", INCARNATION, _step(2, "waiting", duration_ms=None), ())

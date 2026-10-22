@@ -94,7 +94,9 @@ def refine(
         if kind == "replace":
             entries.append(_new(context, _call(calls, edit["calls"][0]), "replaced", position))
         if kind == "insert":
-            entries.extend(_new(context, _call(calls, handle), "added", None) for handle in edit["calls"])
+            # The inserted calls run in the order this send traced them, whatever order the edit names them in.
+            traced = sorted(edit["calls"], key=lambda handle: int(handle[1:]))
+            entries.extend(_new(context, _call(calls, handle), "added", None) for handle in traced)
     if not entries:
         raise routine_recording.RecordingError(INVALID)
     document = _numbered(base, entries)

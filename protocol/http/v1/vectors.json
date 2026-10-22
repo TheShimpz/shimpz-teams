@@ -7921,6 +7921,9 @@
       {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "remove", "step": "s2", "calls": []}]}
     ],
     "invalid": [
+      {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "remove", "step": "s1", "calls": null}]},
+      {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "remove", "step": "s1", "calls": 3}]},
+      {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "remove", "step": "s1", "calls": true}]},
       {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "insert", "step": "s2", "calls": ["c2", "c3"]}, {"kind": "replace", "step": "s1", "calls": ["c1"]}, {"kind": "remove", "step": "s2", "calls": []}]},
       {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "insert", "step": "s2", "calls": ["c2", "c3"]}, {"kind": "replace", "step": "s1", "calls": ["c2"]}]},
       {"routine_id": "11111111111111111111111111111111", "base_revision": 2, "description": "Lista os registros DNS de shimpz.com e envia um resumo.", "edits": [{"kind": "insert", "step": "s2", "calls": ["c2", "c3"]}, {"kind": "replace", "step": "s1", "calls": ["c1", "c4"]}]},
