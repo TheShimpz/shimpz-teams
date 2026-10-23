@@ -47,14 +47,15 @@ class ThreadTests(unittest.TestCase):
         self.assertEqual(thread.memory, "V101: R$ 9.500\nV102: R$ 7.000")
         self.assertEqual(len(thread.folded), 1)
 
-    def test_a_fold_without_a_memory_keeps_the_old_one_and_names_the_gap_while_it_fits(self):
-        thread = browser_thread.Thread(memory="V101: R$ 9.500", steps=[_entry("x"), _entry("y")])
-        thread.fold(1, None)
-        self.assertEqual(thread.memory, "V101: R$ 9.500\n" + browser_thread.omitted_note(1, 1))
+    def test_a_fold_without_a_memory_keeps_the_old_one_and_counts_its_steps_as_unnoted(self):
+        # Even a full memory never hides that pages left with nothing kept: the count lives beside it.
         full = "m" * browser_protocol.MAX_MEMORY_BYTES
-        thread = browser_thread.Thread(memory=full, steps=[_entry("x"), _entry("y")])
-        thread.fold(1, None)
-        self.assertEqual(thread.memory, full)
+        thread = browser_thread.Thread(memory=full, steps=[_entry("x"), _entry("y"), _entry("z")])
+        thread.fold(2, None)
+        self.assertEqual((thread.memory, thread.unnoted), (full, 2))
+        thread.fold(1, "V101: R$ 9.500")
+        self.assertEqual((thread.memory, thread.unnoted), ("V101: R$ 9.500", 2))
+        self.assertEqual(browser_protocol.canonical_thread(thread.wire()), thread.wire())
 
     def test_an_append_past_the_bound_drops_the_oldest_folded_lines(self):
         lines = browser_protocol.MAX_FOLDED_BYTES // browser_protocol.record_bytes(_record("n" * 300))

@@ -283,9 +283,10 @@ def request_text_bytes(objective: str, thread: dict[str, object], observation: s
 def canonical_thread(value: object) -> dict[str, object] | None:
     """A task's thread, oldest first: folded step records, the agent's task memory, and unfolded steps.
 
-    The dropped folded records are counted; each part stays within its bound and the history within MAX_HISTORY_BYTES.
+    The dropped folded records are counted, and so are the folded steps whose pages left with no memory rewritten
+    (`unnoted`); each part stays within its bound and the history within MAX_HISTORY_BYTES.
     """
-    if not isinstance(value, dict) or set(value) != {"folded", "folded_omitted", "memory", "steps"}:
+    if not isinstance(value, dict) or set(value) != {"folded", "folded_omitted", "memory", "unnoted", "steps"}:
         return None
     folded, memory, steps = value["folded"], value["memory"], value["steps"]
     if (
@@ -293,6 +294,7 @@ def canonical_thread(value: object) -> dict[str, object] | None:
         or not isinstance(steps, list)
         or len(folded) + len(steps) > MAX_STEPS
         or not _count(value["folded_omitted"])
+        or not _count(value["unnoted"])
         or not isinstance(memory, str)
         or (memory != "" and canonical_memory(memory) != memory)
     ):
@@ -301,7 +303,13 @@ def canonical_thread(value: object) -> dict[str, object] | None:
     entries = [_entry(item) for item in steps]
     if any(item is None for item in (*records, *entries)):
         return None
-    thread = {"folded": records, "folded_omitted": value["folded_omitted"], "memory": memory, "steps": entries}
+    thread = {
+        "folded": records,
+        "folded_omitted": value["folded_omitted"],
+        "memory": memory,
+        "unnoted": value["unnoted"],
+        "steps": entries,
+    }
     if sum(record_bytes(record) for record in records) > MAX_FOLDED_BYTES or history_bytes(thread) > MAX_HISTORY_BYTES:
         return None
     return thread

@@ -451,7 +451,7 @@ for kind, admit in admit_browser.items():
         fail(f"an invalid Browser {kind} vector was admitted")
 # Each bound, one past it: too large to write out as a vector.
 wait = {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "about:blank", "title": ""}}
-empty = {"folded": [], "folded_omitted": 0, "memory": "", "steps": []}
+empty = {"folded": [], "folded_omitted": 0, "memory": "", "unnoted": 0, "steps": []}
 page_step = {**wait, "text": "a" * browser.MAX_OBSERVATION_BYTES, "downloads": None, "screenshot": False}
 lines = browser.MAX_FOLDED_BYTES // browser.record_bytes(wait)
 long_title = {"url": "about:blank", "title": "a" * (browser.MAX_TITLE_CHARS + 1)}
@@ -464,6 +464,7 @@ over_bounds = (
     (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
     (browser.canonical_thread, {**empty, "folded": [wait] * (lines + 1)}),
     (browser.canonical_thread, {**empty, "memory": None}),
+    (browser.canonical_thread, {**empty, "unnoted": browser.MAX_STEPS * browser.MAX_STEPS + 1}),
     (browser.canonical_thread, {**empty, "memory": "a" * (browser.MAX_MEMORY_BYTES + 1)}),
     (browser.canonical_thread, {**empty, "steps": [page_step] * 6}),
     (browser.canonical_step, {"kind": "read", "refs": [f"p1:{n}" for n in range(browser.MAX_READ_REFS + 1)]}),

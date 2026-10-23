@@ -3,9 +3,10 @@
 Each step sends the Brain operation `browser-step` the objective, the language, the task's thread (`thread.py`), the
 current bounded observation, its downloads, and at most one screenshot; admits exactly one step from the closed set;
 checks a targeted ref against the observation it was chosen from; executes it; and appends the step and its outcome to
-the thread, folding the oldest steps into the agent's own notes (`browser-fold`) before an entry would pass the
-history's bound. Before every Brain call and every page action the task proves it may continue: no Stop, time and spend
-left, and the Browser still on the egress process it started on. No call outlives the task's deadline.
+the thread, folding the oldest steps and having the agent rewrite its task memory (`browser-fold`) before an entry
+would pass the history's bound. Before every Brain call and every page action the task proves it may continue: no
+Stop, time and spend left, and the Browser still on the egress process it started on. No call outlives the task's
+deadline.
 
 Spend is a ceiling of reservations: before each Brain call Team reserves every provider attempt at its worst case and
 settles only the attempts whose usage the Brain reports. The last FINISH_SECONDS and FINISH_SHARE of the spend are kept
@@ -34,7 +35,9 @@ MAX_SECONDS = 30 * 60.0
 # US$0.50 in millionths of a cent: a token count times a catalog price in cents per million tokens.
 MAX_SPEND = 50 * 1_000_000
 FINISH_SECONDS = 60.0
-FINISH_SHARE = 10
+# The share kept for finishing covers a final answer from a thread at every bound, each attempt at the dearest Browser
+# model's price, and the completeness check after it.
+FINISH_SHARE = 16
 # A request's input bound beyond its text: a screenshot of the fixed 1280x800 window on either provider, and the Brain's
 # system prompt, step schema, and the instruction a fold, check, or final answer adds.
 IMAGE_TOKENS = 3_000

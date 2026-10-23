@@ -5,7 +5,6 @@ import time
 import unittest
 
 from browser import cua, read, screen, task
-from browser import thread as browser_thread
 from protocol.http.v1 import browser as browser_protocol
 
 PNG = cua.PNG_SIGNATURE + b"pixels"
@@ -400,6 +399,19 @@ class BrowserTaskTests(unittest.TestCase):
         outcome, _ = _run(FakeSession(), failing, budget=budget)
         self.assertEqual((outcome.summary, calls), ("Parcial.", ["browser-step", "browser-final"]))
 
+    def test_the_finishing_share_covers_a_final_answer_and_its_check_at_every_bound(self):
+        from inference import config
+
+        price_in, price_out = max(
+            config.PRICES[provider][model]
+            for provider, model in (("openai", "gpt-6-luna"), ("anthropic", "claude-haiku-5-5"))
+        )
+        output = browser_protocol.MAX_CALL_OUTPUT_TOKENS * price_out
+        final = browser_protocol.MAX_REQUEST_TEXT_BYTES + task.IMAGE_TOKENS + task.PROMPT_TOKENS
+        check = 4 * browser_protocol.MAX_OBJECTIVE_CHARS + browser_protocol.MAX_SUMMARY_BYTES + task.PROMPT_TOKENS
+        needed = sum((bound * price_in + output) * browser_protocol.MAX_CALL_ATTEMPTS for bound in (final, check))
+        self.assertGreaterEqual(task.MAX_SPEND * task.FINISH_SHARE // 100, needed)
+
     def test_screening_a_malformed_answer_stays_linear(self):
         started = time.monotonic()
         screen.urls("](https://a" * (browser_protocol.MAX_SUMMARY_BYTES // 11) * 8)
@@ -522,14 +534,12 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual(browser_protocol.canonical_thread(thread), thread)
         for request in brain.requests():
             self.assertLessEqual(browser_protocol.history_bytes(request["thread"]), browser_protocol.MAX_HISTORY_BYTES)
-        # A fold whose memory could not be written keeps the memory it had and names the gap; the bounds still hold.
+        # A fold whose memory could not be written keeps the memory it had and counts the steps that left unnoted.
         brain = Brain(*([{"kind": "wait"}] * 12), DONE, memory=task.StepFailedError("down"))
         _run(Long(), brain)
-        first = brain.requests("browser-fold")[0]
-        self.assertEqual(
-            brain.requests()[-1]["thread"]["memory"].splitlines()[0],
-            browser_thread.omitted_note(first["first"], first["last"]),
-        )
+        folded = sum(fold["last"] - fold["first"] + 1 for fold in brain.requests("browser-fold"))
+        last = brain.requests()[-1]["thread"]
+        self.assertEqual((last["memory"], last["unnoted"]), ("", folded))
 
     def test_an_answer_citing_an_unshown_url_goes_back_twice_then_says_so(self):
         cited = "Prazo: 30/11 (https://example.com/edital)."

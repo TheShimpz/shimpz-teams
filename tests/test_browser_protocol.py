@@ -100,7 +100,7 @@ class BrowserProtocolTests(unittest.TestCase):
         page = {"url": "https://example.com/edital", "title": "Edital"}
         record = {"step": step, "outcome": "returned", "page": page}
         entry = {**record, "text": "url: https://example.com/edital", "downloads": None, "screenshot": True}
-        empty = {"folded": [], "folded_omitted": 0, "memory": "", "steps": []}
+        empty = {"folded": [], "folded_omitted": 0, "memory": "", "unnoted": 0, "steps": []}
         thread = {**empty, "folded": [record], "folded_omitted": 2, "memory": "V101: R$ 9.500", "steps": [entry]}
         self.assertEqual(browser.canonical_thread(thread), thread)
         page_entry = {**entry, "text": "a" * browser.MAX_OBSERVATION_BYTES}
@@ -116,6 +116,7 @@ class BrowserProtocolTests(unittest.TestCase):
             {**empty, "memory": "two\x07"},
             {**empty, "memory": "x" * (browser.MAX_MEMORY_BYTES + 1)},
             {**empty, "folded_omitted": -1},
+            {**empty, "unnoted": -1},
             {**empty, "steps": [{**entry, "screenshot": 1}]},
             {**empty, "steps": [{key: value for key, value in entry.items() if key != "downloads"}]},
             {**empty, "steps": [page_entry] * 6},
@@ -136,7 +137,7 @@ class BrowserProtocolTests(unittest.TestCase):
             "downloads": None,
             "screenshot": False,
         }
-        thread = {"folded": [], "folded_omitted": 0, "memory": "memory", "steps": [entry]}
+        thread = {"folded": [], "folded_omitted": 0, "memory": "memory", "unnoted": 0, "steps": [entry]}
         one = browser.history_bytes(thread)
         self.assertGreaterEqual(one, browser.entry_bytes(entry) + len(b"memory"))
         total = browser.request_text_bytes("Objective", thread, "current page", None)

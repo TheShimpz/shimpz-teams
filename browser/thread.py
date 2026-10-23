@@ -4,8 +4,9 @@ Team keeps it in memory for the task only: each unfolded step's observation, the
 admitted step, and its outcome; the folded steps' records; and the agent's task memory. Entries are appended as
 outcomes arrive and never rewritten, so the conversation the Brain renders from consecutive requests only grows at its
 end. When an entry would push the history past its bound, the oldest unfolded steps fold (their pages, read records,
-and screenshots discarded) and the agent rewrites its whole memory, which replaces the one before; the oldest folded
-lines go first when even that does not fit, counted.
+and screenshots discarded) and the agent rewrites its whole memory, which replaces the one before (a fold whose rewrite
+failed keeps the old memory and counts its steps as unnoted); the oldest folded lines go first when even that does not
+fit, counted.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class Thread:
     folded: list[dict[str, object]] = field(default_factory=list)
     folded_omitted: int = 0
     memory: str = ""
+    unnoted: int = 0
     steps: list[dict[str, object]] = field(default_factory=list)
 
     def wire(self) -> dict[str, object]:
@@ -31,6 +33,7 @@ class Thread:
             "folded": list(self.folded),
             "folded_omitted": self.folded_omitted,
             "memory": self.memory,
+            "unnoted": self.unnoted,
             "steps": list(self.steps),
         }
 
@@ -61,17 +64,14 @@ class Thread:
     def fold(self, count: int, memory: str | None) -> None:
         """Move the oldest `count` unfolded steps into folded records; `memory` replaces the agent's memory.
 
-        Without a new memory, the old one stays and says which steps' pages left with nothing kept, while that fits.
+        Without a new memory, the old one stays and the steps whose pages left unnoted are counted.
         """
-        first, last = self.number(0), self.number(count - 1)
         moved, self.steps = self.steps[:count], self.steps[count:]
         self.folded.extend(_record(entry) for entry in moved)
         if memory is not None:
             self.memory = memory
         else:
-            gap = "\n".join(part for part in (self.memory, omitted_note(first, last)) if part)
-            if len(gap.encode()) <= browser_protocol.MAX_MEMORY_BYTES:
-                self.memory = gap
+            self.unnoted += count
         while sum(map(browser_protocol.record_bytes, self.folded)) > browser_protocol.MAX_FOLDED_BYTES:
             self.folded.pop(0)
             self.folded_omitted += 1
@@ -86,8 +86,3 @@ class Thread:
 
 def _record(entry: dict[str, object]) -> dict[str, object]:
     return {key: entry[key] for key in ("step", "outcome", "page")}
-
-
-def omitted_note(first: int, last: int) -> str:
-    """The fixed line a fold adds to the memory when the agent's own rewrite could not be written."""
-    return f"(no notes kept for steps {first} to {last})"
