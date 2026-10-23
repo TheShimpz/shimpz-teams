@@ -394,6 +394,7 @@ class BrowserTaskTests(unittest.TestCase):
         # A Markdown link's destination is taken as written.
         self.assertEqual(checked.unscreened("[vaga](https://example.com/job!)"), ["https://example.com/job!"])
         self.assertEqual(checked.unscreened("[vaga](https://example.com/job)."), [])
+        self.assertEqual(screen.urls("[v](https://example.com/job(1).html)"), ["https://example.com/job(1).html"])
 
     def test_no_step_is_taken_past_the_soft_cutoff_and_stop_during_finishing_wins(self):
         now = [0.0]

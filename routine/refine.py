@@ -159,8 +159,18 @@ def _placed(
     if any(anchor[owner[node]] > anchor[sid] for sid, nodes in closures.items() for node in nodes):
         raise routine_recording.RecordingError(INVALID)
     # One data-dependency order over every new step, which each edit keeps for its own.
-    order = routine_compose.ordered(context, {node: context.calls[node] for node in owner})
-    return {sid: [node for node in order if owner[node] == sid] for sid in closures}
+    nodes = {node: context.calls[node] for node in owner}
+    order = routine_compose.ordered(context, nodes)
+    groups = {sid: [node for node in order if owner[node] == sid] for sid in closures}
+    # The plan runs the groups in their anchors' order: every read and every change barrier must still hold there.
+    placed = {
+        node: rank
+        for rank, node in enumerate(node for sid in sorted(groups, key=anchor.__getitem__) for node in groups[sid])
+    }
+    for source, targets in routine_compose.edges(context, nodes).items():
+        if any(placed[source] > placed[target] for target in targets):
+            raise routine_recording.RecordingError(INVALID)
+    return groups
 
 
 def _new(context: routine_recording.Context, node: int, change: str, base: int | None) -> _Entry:

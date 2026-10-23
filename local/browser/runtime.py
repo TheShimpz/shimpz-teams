@@ -214,11 +214,13 @@ class BrowserRuntime:
         mode: str = AGENT,
         url: str | None = None,
         capsule: Iterable[bytes] | None = None,
+        deadline: float | None = None,
     ) -> Lease:
         """Create this task's Browser on a fresh egress generation; the caller releases the returned lease.
 
         A person's sign-in starts at `url`; a signed-in Browser, and a person's when the Team has a Sign-in, restores
-        the capsule's chunks before Chromium starts.
+        the capsule's chunks before Chromium starts. With a `deadline`, no Browser is created once it has passed, even
+        after an image pull that outlasted it.
         """
         if (
             self._image is None
@@ -236,7 +238,7 @@ class BrowserRuntime:
                 self.clean()
             self._prove_clean()
             egress = self._fresh_egress()
-            lease = self._create(team_id, language, egress, mode, url, capsule)
+            lease = self._create(team_id, language, egress, mode, url, capsule, deadline)
         except BaseException:
             self._dirty = True
             self._slot.release()
@@ -432,6 +434,7 @@ class BrowserRuntime:
         mode: str,
         url: str | None,
         capsule: Iterable[bytes] | None,
+        deadline: float | None = None,
     ) -> Lease:
         # The egress has its outbound network too; the Browser reaches it only on the Browser network.
         proxy = _network_address((self._egress().attrs.get("NetworkSettings") or {}).get("Networks") or {})
@@ -444,6 +447,8 @@ class BrowserRuntime:
             image = self._pull()
         except DockerException as exc:
             raise BrowserError("browser-unavailable") from exc
+        if deadline is not None and self._clock() >= deadline:
+            raise BrowserError("browser-unavailable")
         try:
             container = self._client.containers.create(
                 image=self._image,

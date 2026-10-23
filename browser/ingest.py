@@ -91,8 +91,9 @@ def ingest(
 ) -> Ingested:
     """Store at most 8 downloads of at most 25 MiB each, one at a time; give every other one its reason.
 
-    `put` marks each file as from the web as it stores it, and refuses with StoppedError once the turn was stopped; no
-    further file is then read or stored.
+    `put` marks each file as from the web as it stores it, and refuses with StoppedError once the turn was stopped, or
+    with ReadLostError once the task's time ran out (that file and every later one are lost); no further file is then
+    read or stored.
     """
     named, refused, skipped = _entries(listing)
     kept: list[dict[str, object]] = []
@@ -118,6 +119,10 @@ def ingest(
         try:
             stored = put(name, data, media_type)
         except StoppedError:
+            break
+        except ReadLostError:
+            # The task's time ran out before the file was stored: it and every later file are lost.
+            lost.extend({"name": later, "reason": "browser-lost"} for later, _size in named[index:])
             break
         except team_storage.StorageQuotaError:
             lost.append({"name": name, "reason": "quota-exceeded"})

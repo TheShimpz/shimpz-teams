@@ -168,6 +168,18 @@ class InputTests(unittest.TestCase):
             routine_refine.INVALID,
         )
 
+    def test_changes_placed_against_the_order_they_ran_in_are_refused(self) -> None:
+        enable = ("reports/post", {"text": "enable"}, {"result": []})
+        disable = ("reports/post", {"text": "disable"}, {"result": []})
+        message = 'Também envie "enable" e depois "disable"'
+        kept = _refined(_insert("s1", "c1"), _insert("s3", "c2"), calls=(enable, disable), message=message)
+        posts = [step["input"]["text"]["value"] for step in kept.document["steps"] if step["action"] == "post"]
+        self.assertEqual(posts, ["enable", "disable"])
+        reversed_anchors = (_insert("s3", "c1"), _insert("s1", "c2"))
+        self.assertEqual(
+            _code(self, *reversed_anchors, calls=(enable, disable), message=message), routine_refine.INVALID
+        )
+
     def test_a_value_the_person_named_is_a_literal(self) -> None:
         records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": []})
         refined = _refined(_insert("s3", "c1"), calls=(records,), message=f"Inclua a zona {SHIMPZ_ID}")

@@ -289,27 +289,27 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
     )
 
 
-def _edges(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> dict[int, set[int]]:
+def edges(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> dict[int, set[int]]:
     """Each plan call's successors: what reads it, and every call on the far side of a changing call."""
-    edges: dict[int, set[int]] = {node: set() for node in nodes}
+    successors: dict[int, set[int]] = {node: set() for node in nodes}
     for node in nodes:
         for source in context.inputs[node][0].values():
             if "node" in source:
-                edges[source["node"]].add(node)
+                successors[source["node"]].add(node)
     for changing in (node for node, call in nodes.items() if not call.read_only):
         for other in nodes:
             if other < changing:
-                edges[other].add(changing)
+                successors[other].add(changing)
             elif other > changing:
-                edges[changing].add(other)
-    return edges
+                successors[changing].add(other)
+    return successors
 
 
 def ordered(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> list[int]:
     """The plan calls in data-dependency order, earliest first, every changing call where it ran; refuses a cycle."""
-    edges = _edges(context, nodes)
+    successors = edges(context, nodes)
     incoming = dict.fromkeys(nodes, 0)
-    for targets in edges.values():
+    for targets in successors.values():
         for target in targets:
             incoming[target] += 1
     ready = [node for node, count in incoming.items() if count == 0]
@@ -318,7 +318,7 @@ def ordered(context: routine_recording.Context, nodes: dict[int, routine_recordi
     while ready:
         node = heapq.heappop(ready)
         order.append(node)
-        for target in edges[node]:
+        for target in successors[node]:
             incoming[target] -= 1
             if incoming[target] == 0:
                 heapq.heappush(ready, target)

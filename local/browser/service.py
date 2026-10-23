@@ -174,7 +174,7 @@ class BrowserService:
         # One absolute deadline from before the Browser starts, through its Watch view and the task, to its ingest.
         deadline = time.monotonic() + browser_task.MAX_SECONDS
         try:
-            lease = self._runtime.acquire(turn.team_id, page_language)
+            lease = self._runtime.acquire(turn.team_id, page_language, deadline=deadline)
         except BrowserError as exc:
             local_audit.record_request("browser-task", result="denied", team_id=turn.team_id, detail=exc.code)
             return _result(browser_task.Outcome("failed", reason=exc.code), None), _terminal(None)
@@ -319,6 +319,9 @@ class BrowserService:
                 held = self._running.get(turn.team_id)
                 if turn.cancelled() or held is None or held[0] != turn.token:
                     raise browser_ingest.StoppedError(name)
+                # Nothing is stored at or past the task's deadline, however long detecting its type took.
+                if time.monotonic() >= deadline:
+                    raise browser_ingest.ReadLostError(name)
                 return self._storage.put(turn.team_id, name, data, media_type, web=True)
 
         return browser_ingest.ingest(self._runtime.files(lease, deadline), read, put, turn.cancelled)
