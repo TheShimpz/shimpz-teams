@@ -500,7 +500,7 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual(outcome, task.Outcome("budget"))
         # A failed call keeps its whole reservation.
         budget = task.Budget()
-        _run(FakeSession(), Brain(task.StepFailedError("down")), budget=budget)
+        _run(FakeSession(), Brain(task.StepFailedError("down"), task.StepFailedError("down")), budget=budget)
         self.assertGreater(budget.spent, 0)
 
     def test_stop_budgets_and_failures_end_the_task_with_their_closed_reason(self):
@@ -509,10 +509,10 @@ class BrowserTaskTests(unittest.TestCase):
             _run(FakeSession(fail_observe=True), Brain(DONE))[0],
             task.Outcome("failed", reason="browser-lost", cause="observe/tool-failed"),
         )
-        self.assertEqual(
-            _run(FakeSession(), Brain(task.StepFailedError("down")))[0],
-            task.Outcome("failed", reason="model-unavailable"),
-        )
+        down = task.StepFailedError("down")
+        self.assertEqual(_run(FakeSession(), Brain(down, down))[0], task.Outcome("failed", reason="model-unavailable"))
+        # One failure is asked again: a model answers outside its form now and then.
+        self.assertEqual(_run(FakeSession(), Brain(down, DONE))[0], _done("Prazo: 30/11.", 1))
         self.assertEqual(
             _run(FakeSession(), Brain({"kind": "run_script"}))[0],
             task.Outcome("failed", reason="step-invalid", steps=1),

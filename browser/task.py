@@ -272,7 +272,13 @@ class Task:
         try:
             raw = self._ask("browser-step", request, finishing=False)
         except StepFailedError:
-            return self._unanswered(index, request)
+            # A model answers outside its form now and then: the step is asked once more, under its own reservation.
+            if self._halted(index) is not None or self._finishing():
+                return self._unanswered(index, request)
+            try:
+                raw = self._ask("browser-step", request, finishing=False)
+            except StepFailedError:
+                return self._unanswered(index, request)
         # The soft cutoff passed while the Brain answered: no step is taken past it.
         ended = self._halted(index + 1) or (self._final(index + 1, request) if self._finishing() else None)
         if ended is not None:
