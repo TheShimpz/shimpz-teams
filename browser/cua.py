@@ -84,6 +84,8 @@ class Observation:
     text: str
     refs: dict[str, frozenset[str]]
     screenshot: bytes | None = None
+    # The offered links, in page order: each ref with role `link` offered for click, and its name.
+    links: tuple[tuple[str, str], ...] = ()
 
 
 def _clean(value: object, limit: int) -> str:
@@ -186,12 +188,12 @@ class CuaSession:
         url = _clean(page.get("url"), browser_protocol.MAX_URL_CHARS)
         title = _clean(page.get("title"), browser_protocol.MAX_TITLE_CHARS)
         head = f"url: {url}\ntitle: {title}\nactions:\n"
-        refs, lines = _refs(state.get("refs"), MAX_OBSERVATION_BYTES - len(head.encode()) - len(b"\npage:\n"))
+        refs, lines, links = _refs(state.get("refs"), MAX_OBSERVATION_BYTES - len(head.encode()) - len(b"\npage:\n"))
         outline = state.get("outline") if isinstance(state.get("outline"), str) else ""
         text = head + "\n".join(lines) + "\npage:\n"
         room = MAX_OBSERVATION_BYTES - len(text.encode())
         text += outline.encode()[:room].decode(errors="ignore")
-        return Observation(url, title, text, refs, state.get("_screenshot") if screenshot else None)
+        return Observation(url, title, text, refs, state.get("_screenshot") if screenshot else None, links)
 
     def navigate(self, url: str) -> None:
         self._act("browser_navigate", {**self._tab(), "url": url})
@@ -290,13 +292,14 @@ def _refused(structured: dict[str, object]) -> bool:
     return structured.get("effect") == "refused" or structured.get("status") == "refused"
 
 
-def _refs(entries: object, budget: int) -> tuple[dict[str, frozenset[str]], list[str]]:
-    """The refs the observation offers and their lines, within `budget` UTF-8 bytes: only a ref shown is offered.
+def _refs(entries: object, budget: int) -> tuple[dict[str, frozenset[str]], list[str], tuple[tuple[str, str], ...]]:
+    """The refs the observation offers, their lines, and its offered links, within `budget` UTF-8 bytes.
 
-    A ref outside the protocol's form is never offered, since no step could name it.
+    Only a ref shown is offered; a ref outside the protocol's form is never offered, since no step could name it.
     """
     refs: dict[str, frozenset[str]] = {}
     lines: list[str] = []
+    links: list[tuple[str, str]] = []
     for entry in entries if isinstance(entries, list) else ():
         if len(refs) >= MAX_REFS or not isinstance(entry, dict):
             break
@@ -315,7 +318,9 @@ def _refs(entries: object, budget: int) -> tuple[dict[str, frozenset[str]], list
         budget -= cost
         refs[ref] = admitted
         lines.append(line)
-    return refs, lines
+        if role == "link" and "click" in admitted:
+            links.append((ref, name))
+    return refs, lines, tuple(links)
 
 
 def _screenshot(content: object) -> bytes | None:

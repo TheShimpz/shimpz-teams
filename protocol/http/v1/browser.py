@@ -8,6 +8,7 @@ step for its kind or refuses.
 
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import urlsplit
 
@@ -24,14 +25,34 @@ MAX_URL_CHARS = 2_048
 # A step's note: what the agent read on the page that the objective needs, kept in its history.
 MAX_NOTE_CHARS = 300
 MAX_TITLE_CHARS = 300
-MAX_HISTORY = 40
 MAX_OBSERVATION_BYTES = 24 * 1024
+# A task's step ceiling; a thread never holds more steps (ADR-0117, 2026-10-22 amendment).
+MAX_STEPS = 300
+# A read step opens at most this many links of its page in turn.
+MAX_READ_REFS = 10
+# The thread a step request carries: its history (the earlier-steps message plus the unfolded steps) within
+# MAX_HISTORY_BYTES; one fold note, all notes, and the folded step lines each within their own bound.
+MAX_HISTORY_BYTES = 48 * 1024
+MAX_FOLD_NOTE_BYTES = 8 * 1024
+MAX_NOTES_BYTES = 16 * 1024
+MAX_FOLDED_LINE_BYTES = 300
+MAX_FOLDED_BYTES = 8 * 1024
+# Each thread entry's rendering adds at most this much to its fields' bytes (headings, markers, its step record).
+ENTRY_OVERHEAD_BYTES = 512
+# The whole text a request renders to: its history, its current page, its objective, and their framing.
+MAX_REQUEST_TEXT_BYTES = 88 * 1024
+# What one Brain call of a Browser task may cost, so Team reserves its worst case before sending it: the provider
+# attempts the Brain makes (its SDK retries included), the input it admits, and the output it lets a model write.
+MAX_CALL_ATTEMPTS = 3
+MAX_CALL_INPUT_TOKENS = 100_000
+MAX_CALL_OUTPUT_TOKENS = 4_096
 LANGUAGES = frozenset({"en", "pt-BR"})
 REASONS = ("sign-in", "captcha", "payment", "confirmation", "blocked")
 DIRECTIONS = ("up", "down")
-# A step's outcome: done, refused with no effect, a navigation whose page did not load for a network error, or an action
-# under way when the Driver session failed, whose effect is unknown.
-OUTCOMES = ("ok", "refused", "navigation-failed", "interrupted")
+# A step's outcome: done, refused with no effect, a navigation whose page did not load for a network error, an action
+# under way when the Driver session failed, whose effect is unknown, or a done answer Team returned to the agent with a
+# note of what it still needs.
+OUTCOMES = ("ok", "refused", "navigation-failed", "interrupted", "returned")
 REF_RE = re.compile(r"p[0-9]{1,6}:[0-9]{1,6}")
 # Every field each step kind carries besides `kind`.
 FIELDS = {
@@ -41,10 +62,11 @@ FIELDS = {
     "scroll": ("direction",),
     "wait": (),
     "screenshot": (),
+    "read": ("refs",),
     "done": ("summary",),
     "needs_person": ("reason", "sentence"),
 }
-ALL_FIELDS = ("url", "ref", "text", "direction", "summary", "reason", "sentence")
+ALL_FIELDS = ("url", "ref", "refs", "text", "direction", "summary", "reason", "sentence")
 
 
 def _nullable(schema: dict[str, object]) -> dict[str, object]:
@@ -59,6 +81,7 @@ STEP_SCHEMA: dict[str, object] = {
         "kind": {"type": "string", "enum": list(FIELDS)},
         "url": _nullable({"type": "string", "maxLength": MAX_URL_CHARS}),
         "ref": _nullable({"type": "string", "maxLength": 16}),
+        "refs": _nullable({"type": "array", "maxItems": MAX_READ_REFS, "items": {"type": "string", "maxLength": 16}}),
         "text": _nullable({"type": "string", "maxLength": MAX_TEXT_CHARS}),
         "direction": _nullable({"type": "string", "enum": list(DIRECTIONS)}),
         "summary": _nullable({"type": "string", "maxLength": MAX_SUMMARY_BYTES}),
@@ -100,6 +123,13 @@ def _ref(value: object) -> str | None:
     return value if isinstance(value, str) and REF_RE.fullmatch(value) else None
 
 
+def _refs(value: object) -> list[str] | None:
+    """One to ten distinct refs, in the order the step names them."""
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_READ_REFS or len(set(map(str, value))) != len(value):
+        return None
+    return list(value) if all(_ref(ref) is not None for ref in value) else None
+
+
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) and len(value) <= MAX_TEXT_CHARS and value.isprintable() else None
 
@@ -121,6 +151,7 @@ def _member(choices: tuple[str, ...]):
 FIELD_CHECKS = {
     "url": canonical_url,
     "ref": _ref,
+    "refs": _refs,
     "text": _text,
     "direction": _member(DIRECTIONS),
     "summary": _summary,
@@ -172,20 +203,118 @@ def _page(value: object) -> dict[str, str] | None:
     return {"url": url, "title": title}
 
 
-def canonical_history(value: object) -> list[dict[str, object]] | None:
-    """At most 40 earlier steps, each with its closed outcome and the page it was chosen on."""
-    if not isinstance(value, list) or len(value) > MAX_HISTORY:
+def canonical_record(value: object) -> dict[str, object] | None:
+    """One earlier step: the admitted step, its closed outcome, and the page it was chosen on."""
+    if not isinstance(value, dict) or set(value) != {"step", "outcome", "page"} or value["outcome"] not in OUTCOMES:
         return None
-    history = []
-    for entry in value:
-        if not isinstance(entry, dict) or set(entry) != {"step", "outcome", "page"} or entry["outcome"] not in OUTCOMES:
-            return None
-        step = canonical_step(entry["step"])
-        page = _page(entry["page"])
-        if step is None or step != entry["step"] or step["kind"] in {"done", "needs_person"} or page is None:
-            return None
-        history.append({"step": step, "outcome": entry["outcome"], "page": page})
-    return history
+    step = canonical_step(value["step"])
+    page = _page(value["page"])
+    if step is None or step != value["step"] or step["kind"] in {"done", "needs_person"} or page is None:
+        return None
+    return {"step": step, "outcome": value["outcome"], "page": page}
+
+
+def _entry(value: object) -> dict[str, object] | None:
+    """One unfolded step: its record, the observation it was chosen on, the downloads, and whether a screenshot came.
+
+    Only the current page carries the image itself.
+    """
+    if not isinstance(value, dict) or set(value) != {"step", "outcome", "page", "text", "downloads", "screenshot"}:
+        return None
+    record = canonical_record({key: value[key] for key in ("step", "outcome", "page")})
+    downloads = value["downloads"]
+    if (
+        record is None
+        or canonical_observation(value["text"]) is None
+        or (downloads is not None and canonical_downloads(downloads) != downloads)
+        or type(value["screenshot"]) is not bool
+    ):
+        return None
+    return {**record, "text": value["text"], "downloads": downloads, "screenshot": value["screenshot"]}
+
+
+def _count(value: object) -> bool:
+    return type(value) is int and 0 <= value <= MAX_STEPS * MAX_STEPS
+
+
+def _bytes(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+
+
+def entry_bytes(entry: dict[str, object]) -> int:
+    """At most what one unfolded step renders to."""
+    page = entry["page"]
+    return (
+        len(str(entry["text"]).encode())
+        + _bytes(entry["step"])
+        + len(str(page["url"]).encode())
+        + len(str(page["title"]).encode())
+        + _bytes(entry["downloads"])
+        + ENTRY_OVERHEAD_BYTES
+    )
+
+
+def history_bytes(thread: dict[str, object]) -> int:
+    """At most what a thread's history renders to: its folded lines, its notes, and its unfolded steps."""
+    folded = len(thread["folded"]) * (MAX_FOLDED_LINE_BYTES + 1)
+    notes = sum(len(str(note).encode()) + 2 for note in thread["notes"])
+    return ENTRY_OVERHEAD_BYTES + folded + notes + sum(entry_bytes(entry) for entry in thread["steps"])
+
+
+def request_text_bytes(objective: str, thread: dict[str, object], observation: str, downloads: object) -> int:
+    """At most the text a step request renders to; a fold, check, or final request adds its own instruction."""
+    return (
+        len(objective.encode())
+        + history_bytes(thread)
+        + len(observation.encode())
+        + _bytes(downloads)
+        + ENTRY_OVERHEAD_BYTES
+    )
+
+
+def canonical_thread(value: object) -> dict[str, object] | None:
+    """A task's thread, oldest first: folded step records, fold notes, and unfolded steps, each within its bound.
+
+    Each list's dropped items are counted; the history stays within MAX_HISTORY_BYTES.
+    """
+    keys = {"folded", "folded_omitted", "notes", "notes_omitted", "steps"}
+    if not isinstance(value, dict) or set(value) != keys:
+        return None
+    folded, notes, steps = value["folded"], value["notes"], value["steps"]
+    if (
+        not isinstance(folded, list)
+        or not isinstance(notes, list)
+        or not isinstance(steps, list)
+        or len(folded) + len(steps) > MAX_STEPS
+        or not _count(value["folded_omitted"])
+        or not _count(value["notes_omitted"])
+    ):
+        return None
+    records = [canonical_record(item) for item in folded]
+    entries = [_entry(item) for item in steps]
+    if any(item is None for item in (*records, *entries)) or not all(canonical_note(note) == note for note in notes):
+        return None
+    thread = {
+        "folded": records,
+        "folded_omitted": value["folded_omitted"],
+        "notes": list(notes),
+        "notes_omitted": value["notes_omitted"],
+        "steps": entries,
+    }
+    if (
+        len(records) * (MAX_FOLDED_LINE_BYTES + 1) > MAX_FOLDED_BYTES
+        or sum(len(note.encode()) for note in notes) > MAX_NOTES_BYTES
+        or history_bytes(thread) > MAX_HISTORY_BYTES
+    ):
+        return None
+    return thread
+
+
+def canonical_note(value: object) -> str | None:
+    """One fold note: the agent's own plain-text record of pages leaving its view, untrusted like the pages."""
+    if not _plain(value, MAX_FOLD_NOTE_BYTES, multiline=True) or len(str(value).encode()) > MAX_FOLD_NOTE_BYTES:
+        return None
+    return str(value)
 
 
 def canonical_observation(value: object) -> str | None:
@@ -193,6 +322,24 @@ def canonical_observation(value: object) -> str | None:
     if not isinstance(value, str) or len(value.encode()) > MAX_OBSERVATION_BYTES:
         return None
     return value
+
+
+# A finished task's completeness as the Brain's advisory check judged it, or not checked at all.
+COMPLETENESS = ("complete", "incomplete", "not-checked")
+# A task result lists at most this many cited URLs that provenance screening could not match, and counts the rest.
+MAX_UNSCREENED_URLS = 20
+
+
+def canonical_check(value: object) -> dict[str, object] | None:
+    """The completeness check's verdict: complete, or incomplete with one sentence, or null when not checked."""
+    if not isinstance(value, dict) or set(value) != {"complete", "missing"}:
+        return None
+    complete, missing = value["complete"], value["missing"]
+    if complete is True or complete is None:
+        return {"complete": complete, "missing": None} if missing is None else None
+    if complete is False and _sentence(missing) is not None:
+        return {"complete": False, "missing": missing}
+    return None
 
 
 # The downloads a step sees: at most this many completed file names, and at most this many still downloading counted.

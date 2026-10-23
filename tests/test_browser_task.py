@@ -1,27 +1,51 @@
-"""One Browser task's loop: closed steps, refs checked against their observation, budgets, Stop, and failures."""
+"""One Browser task's loop: closed steps, its thread, reads, folds, finishing, spend, Stop, and failures."""
 
+import itertools
 import unittest
 
 from browser import cua, task
+from browser import thread as browser_thread
+from protocol.http.v1 import browser as browser_protocol
 
 PNG = cua.PNG_SIGNATURE + b"pixels"
+DONE = {"kind": "done", "summary": "Prazo: 30/11."}
+COMPLETE = {"complete": True, "missing": None}
+
+
+def _counts(**fields):
+    return {
+        "model_calls": 1,
+        "provider_requests": 1,
+        "failed_calls": 0,
+        "unreported_calls": 0,
+        "input_tokens": 1_000,
+        "output_tokens": 100,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        **fields,
+    }
 
 
 class FakeSession:
-    def __init__(self, refs=None, *, fail_observe=False, refuse=(), fatal=(), unloaded=()):
+    def __init__(self, refs=None, *, fail_observe=False, refuse=(), fatal=(), unloaded=(), links=(), url=None):
         self.refs = refs if refs is not None else {"p1:0": frozenset({"type"}), "p1:1": frozenset({"click"})}
         self.fail_observe, self.refuse, self.fatal = fail_observe, set(refuse), set(fatal)
         self.unloaded = set(unloaded)
+        self.links = tuple(links)
+        self.url = url or "https://example.com"
         self.calls, self.screenshots, self.observed = [], [], 0
+
+    def page(self, screenshot):
+        return cua.Observation(
+            self.url, "Example", f"url: {self.url}", self.refs, PNG if screenshot else None, self.links
+        )
 
     def observe(self, *, screenshot=False):
         self.observed += 1
         if self.fail_observe:
             raise cua.CuaError("tool-failed")
         self.screenshots.append(screenshot)
-        return cua.Observation(
-            "https://example.com", "Example", "url: https://example.com", self.refs, PNG if screenshot else None
-        )
+        return self.page(screenshot)
 
     def _act(self, name, *arguments):
         self.calls.append((name, *arguments))
@@ -34,6 +58,7 @@ class FakeSession:
 
     def navigate(self, url):
         self._act("navigate", url)
+        self.url = url
 
     def click(self, ref):
         self._act("click", ref)
@@ -45,52 +70,73 @@ class FakeSession:
         self._act("scroll", direction)
 
 
-def _steps(*steps, tokens=1000, seconds=None):
-    requests = []
-    answers = iter(steps)
+class Brain:
+    """Answers each step in turn, checks with `verdicts`, folds with `note`, and finishes with `final`."""
 
-    def step(request, left):
-        requests.append(request)
-        if seconds is not None:
-            seconds.append(left)
-        answer = next(answers)
+    def __init__(self, *steps, verdicts=(), note="Fatos.", final=None, counts=None, seconds=None):
+        self.steps, self.verdicts = iter(steps), iter(verdicts)
+        self.note, self.final, self.counts = note, final, counts or _counts()
+        self.calls, self.seconds = [], seconds
+
+    def __call__(self, operation, request, left):
+        self.calls.append((operation, request))
+        if self.seconds is not None:
+            self.seconds.append(left)
+        answer = {
+            "browser-step": lambda: next(self.steps),
+            "browser-check": lambda: next(self.verdicts, COMPLETE),
+            "browser-fold": lambda: self.note,
+            "browser-final": lambda: self.final,
+        }[operation]()
         if isinstance(answer, BaseException):
             raise answer
-        return answer, tokens
+        if operation == "browser-fold" and not isinstance(answer, dict):
+            answer = {"note": answer}
+        return answer, self.counts, "gpt-6-luna"
 
-    return step, requests
+    def requests(self, operation="browser-step"):
+        return [request for name, request in self.calls if name == operation]
 
 
-def _run(session, step, **options):
+def _run(session, brain, **options):
     sleeps = []
-    clock = options.pop("clock", lambda: 0.0)
     outcome = task.Task(
         "Veja o prazo.",
         "pt-BR",
         session,
-        step,
+        brain,
+        lambda _model: (10, 50),
         options.pop("cancelled", lambda: False),
         options.pop("intact", lambda: True),
-        clock=clock,
+        clock=options.pop("clock", lambda: 0.0),
         sleep=sleeps.append,
         **options,
     ).run()
     return outcome, sleeps
 
 
+def _done(summary, steps, **fields):
+    return task.Outcome("done", summary=summary, steps=steps, completeness="complete", **fields)
+
+
+def _after(calls):
+    count = iter(range(1, 10_000))
+    return lambda: next(count) >= calls
+
+
 class BrowserTaskTests(unittest.TestCase):
-    def test_a_task_executes_each_closed_step_then_ends_with_the_agents_summary(self):
+    def test_a_task_executes_each_closed_step_and_the_agents_checked_answer_stands(self):
         session = FakeSession()
-        step, requests = _steps(
+        brain = Brain(
             {"kind": "navigate", "url": "https://example.com/editais"},
             {"kind": "type", "ref": "p1:0", "text": "ia"},
             {"kind": "click", "ref": "p1:1"},
             {"kind": "scroll", "direction": "down"},
             {"kind": "wait"},
-            {"kind": "done", "summary": "Prazo: 30/11."},
+            DONE,
         )
-        outcome, sleeps = _run(session, step)
-        self.assertEqual(outcome, task.Outcome("done", summary="Prazo: 30/11.", steps=6))
+        outcome, sleeps = _run(session, brain)
+        self.assertEqual(outcome, _done("Prazo: 30/11.", 6))
         self.assertEqual(
             session.calls,
             [
@@ -101,150 +147,278 @@ class BrowserTaskTests(unittest.TestCase):
             ],
         )
         self.assertEqual(sleeps, [task.WAIT_SECONDS])
-        self.assertEqual(requests[0]["history"], [])
-        # Each step is recorded with the page it was chosen on, so the agent never returns to recall it.
+        requests = brain.requests()
+        self.assertEqual(requests[0]["thread"]["steps"], [])
+        # Each step joins the thread with the page it was chosen on, that page's text, and what it saw.
         self.assertEqual(
-            requests[-1]["history"][-1],
-            {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "https://example.com", "title": "Example"}},
+            requests[-1]["thread"]["steps"][-1],
+            {
+                "step": {"kind": "wait"},
+                "outcome": "ok",
+                "page": {"url": "https://example.com/editais", "title": "Example"},
+                "text": "url: https://example.com/editais",
+                "downloads": None,
+                "screenshot": False,
+            },
         )
         self.assertEqual(
             (requests[0]["objective"], requests[0]["language"], requests[0]["screenshot"]),
             ("Veja o prazo.", "pt-BR", None),
         )
+        # Each request extends the one before it: earlier entries are never rewritten.
+        for earlier, later in itertools.pairwise(requests):
+            steps = earlier["thread"]["steps"]
+            self.assertEqual(later["thread"]["steps"][: len(steps)], steps)
+        self.assertEqual(brain.requests("browser-check")[0]["summary"], "Prazo: 30/11.")
 
     def test_a_navigation_that_did_not_load_is_an_outcome_the_agent_sees_after_looking_again(self):
-        session = FakeSession(unloaded={"navigate"})
-        step, requests = _steps(
-            {"kind": "navigate", "url": "https://www.python.org"},
-            {"kind": "done", "summary": "Não carregou."},
+        brain = Brain(
+            {"kind": "navigate", "url": "https://www.python.org"}, {"kind": "done", "summary": "Não carregou."}
         )
-        outcome, _ = _run(session, step)
-        self.assertEqual(outcome, task.Outcome("done", summary="Não carregou.", steps=2))
-        self.assertEqual(requests[-1]["history"][0]["outcome"], "navigation-failed")
-        # The next step was chosen on a fresh observation, as after any step.
-        self.assertEqual(len(session.screenshots), 2)
+        outcome, _ = _run(FakeSession(unloaded={"navigate"}), brain)
+        self.assertEqual(outcome, _done("Não carregou.", 2))
+        self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "navigation-failed")
+
+    def test_an_error_page_sends_the_browser_back_to_the_last_page_that_loaded_and_says_so(self):
+        class Failing(FakeSession):
+            def page(self, screenshot):
+                if self.url == "https://down.example/":
+                    return cua.Observation("chrome-error://chromewebdata/", "down.example", "url: chrome-error", {})
+                return super().page(screenshot)
+
+        session = Failing()
+        brain = Brain({"kind": "navigate", "url": "https://down.example/"}, DONE)
+        _run(session, brain)
+        self.assertEqual(session.calls[-1], ("navigate", "https://example.com"))
+        observation = brain.requests()[-1]["observation"]
+        self.assertTrue(observation.startswith("The last page you opened (down.example) did not load"))
 
     def test_a_ref_not_offered_for_its_action_and_a_refused_page_action_are_outcomes_not_failures(self):
-        session = FakeSession(refuse={"navigate"})
-        step, requests = _steps(
+        brain = Brain(
             {"kind": "click", "ref": "p1:0"},
             {"kind": "type", "ref": "p9:9", "text": "x"},
             {"kind": "navigate", "url": "https://example.com"},
             {"kind": "needs_person", "reason": "sign-in", "sentence": "O site pede login."},
         )
-        outcome, _ = _run(session, step)
+        session = FakeSession(refuse={"navigate"})
+        outcome, _ = _run(session, brain)
         self.assertEqual(
             outcome, task.Outcome("needs-person", reason="sign-in", sentence="O site pede login.", steps=4)
         )
-        self.assertEqual([entry["outcome"] for entry in requests[-1]["history"]], ["refused", "refused", "refused"])
+        outcomes = [entry["outcome"] for entry in brain.requests()[-1]["thread"]["steps"]]
+        self.assertEqual(outcomes, ["refused", "refused", "refused"])
         self.assertEqual(session.calls, [("navigate", "https://example.com")])
 
-    def test_screenshots_are_rationed_to_one_every_three_steps(self):
+    def test_screenshots_are_rationed_and_only_the_current_page_carries_the_image(self):
         session = FakeSession()
-        step, requests = _steps(
+        brain = Brain(
             {"kind": "screenshot"},
             {"kind": "screenshot"},
             {"kind": "wait"},
             {"kind": "wait"},
             {"kind": "screenshot"},
-            {"kind": "done", "summary": "ok"},
+            DONE,
         )
-        _run(session, step)
+        _run(session, brain)
         self.assertEqual(session.screenshots, [False, True, False, False, False, True])
+        requests = brain.requests()
         self.assertIsNotNone(requests[1]["screenshot"])
-        self.assertEqual([entry["outcome"] for entry in requests[-1]["history"]], ["ok", "refused", "ok", "ok", "ok"])
+        self.assertIsNone(requests[2]["screenshot"])
+        entries = requests[-1]["thread"]["steps"]
+        self.assertEqual([entry["outcome"] for entry in entries], ["ok", "refused", "ok", "ok", "ok"])
+        self.assertEqual([entry["screenshot"] for entry in entries], [False, True, False, False, False])
+
+    def test_a_read_opens_offered_links_in_turn_and_shows_their_pages_next_step(self):
+        links = (("p1:4", "Vaga A"), ("p1:5", "Vaga B"), ("p1:6", "Vaga C"))
+
+        class Listing(FakeSession):
+            def click(self, ref):
+                super().click(ref)
+                self.url = {"p1:4": "https://jobs.example/a", "p1:5": "https://jobs.example/b"}[ref]
+
+            def page(self, screenshot):
+                observation = super().page(screenshot)
+                if self.url.startswith("https://jobs.example/"):
+                    text = f"url: {self.url}\ntitle: Vaga\nactions:\n\npage:\nSalário R$ 9.500"
+                    return cua.Observation(self.url, "Vaga", text, {})
+                return observation
+
+        session = Listing(links=links, url="https://example.com/busca")
+        brain = Brain({"kind": "read", "refs": ["p1:5", "p1:4", "p9:9"]}, DONE)
+        outcome, _ = _run(session, brain)
+        self.assertEqual(outcome.status, "done")
+        self.assertEqual(
+            session.calls,
+            [
+                ("click", "p1:5"),
+                ("navigate", "https://example.com/busca"),
+                ("click", "p1:4"),
+                ("navigate", "https://example.com/busca"),
+            ],
+        )
+        shown = brain.requests()[1]["observation"]
+        self.assertIn("Pages you read last step:", shown)
+        self.assertIn("--- read https://jobs.example/b | Vaga ---\nSalário R$ 9.500", shown)
+        self.assertLessEqual(len(shown.encode()), browser_protocol.MAX_OBSERVATION_BYTES)
+        # A read naming no offered link has nothing to open.
+        brain = Brain({"kind": "read", "refs": ["p1:1"]}, DONE)
+        _run(FakeSession(links=links), brain)
+        self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "refused")
+
+    def test_a_read_stops_when_the_page_it_returns_to_changed(self):
+        links = (("p1:4", "Vaga A"), ("p1:5", "Vaga B"))
+
+        class Shifting(FakeSession):
+            def click(self, ref):
+                super().click(ref)
+                self.links = (("p1:4", "Outra"), ("p1:5", "Vaga B"))
+
+        session = Shifting(links=links)
+        brain = Brain({"kind": "read", "refs": ["p1:4", "p1:5"]}, DONE)
+        _run(session, brain)
+        self.assertEqual([call[0] for call in session.calls], ["click", "navigate"])
+        self.assertIn("(1 links not read", brain.requests()[1]["observation"])
+
+    def test_a_thread_past_its_bound_folds_its_oldest_steps_into_the_agents_note(self):
+        class Long(FakeSession):
+            def page(self, screenshot):
+                observation = super().page(screenshot)
+                return cua.Observation(observation.url, "Long", "x" * 20_000, {}, observation.screenshot)
+
+        brain = Brain(*([{"kind": "wait"}] * 6), DONE, note="V101: R$ 9.500")
+        outcome, _ = _run(Long(), brain)
+        self.assertEqual(outcome.status, "done")
+        folds = brain.requests("browser-fold")
+        self.assertEqual([(fold["first"], fold["last"]) for fold in folds], [(1, 2), (3, 4)])
+        thread = brain.requests()[-1]["thread"]
+        self.assertEqual(thread["notes"], ["V101: R$ 9.500"] * 2)
+        self.assertEqual(len(thread["folded"]), 4)
+        self.assertEqual(browser_protocol.canonical_thread(thread), thread)
+        for request in brain.requests():
+            self.assertLessEqual(browser_protocol.history_bytes(request["thread"]), browser_protocol.MAX_HISTORY_BYTES)
+        # A fold whose note could not be written keeps its fixed note, and the bounds still hold.
+        brain = Brain(*([{"kind": "wait"}] * 6), DONE, note=task.StepFailedError("down"))
+        _run(Long(), brain)
+        self.assertEqual(brain.requests()[-1]["thread"]["notes"][0], browser_thread.omitted_note(1, 2))
+
+    def test_an_answer_citing_an_unshown_url_goes_back_twice_then_says_so(self):
+        cited = "Prazo: 30/11 (https://example.com/edital)."
+        brain = Brain({**DONE, "summary": cited}, {**DONE, "summary": cited}, {**DONE, "summary": cited})
+        outcome, _ = _run(FakeSession(), brain)
+        self.assertEqual(outcome, _done(cited, 3, unscreened=("https://example.com/edital",)))
+        returned = brain.requests()[-1]["thread"]["steps"]
+        self.assertEqual([entry["outcome"] for entry in returned], ["returned", "returned"])
+        self.assertTrue(returned[0]["step"]["note"].startswith(task.UNSCREENED_NOTE))
+        # A cited page the task observed is screened.
+        brain = Brain({**DONE, "summary": "Fonte: https://example.com/."})
+        self.assertEqual(_run(FakeSession(), brain)[0].unscreened, ())
+
+    def test_an_incomplete_answer_goes_back_four_times_then_travels_with_what_is_missing(self):
+        missing = {"complete": False, "missing": "Faltam 3 vagas."}
+        brain = Brain(*([DONE] * 5), verdicts=[missing] * 5)
+        outcome, _ = _run(FakeSession(), brain)
+        expected = task.Outcome(
+            "done", summary=DONE["summary"], steps=5, completeness="incomplete", missing="Faltam 3 vagas."
+        )
+        self.assertEqual(outcome, expected)
+        notes = [entry["step"]["note"] for entry in brain.requests()[-1]["thread"]["steps"]]
+        self.assertEqual(len(notes), 4)
+        self.assertTrue(all(note.startswith("Not finished.") for note in notes))
+        # A check that failed or answered outside its form is reported as not checked, never as complete.
+        for verdict in (task.StepFailedError("down"), {"complete": "yes"}, {"complete": None, "missing": None}):
+            with self.subTest(verdict=verdict):
+                outcome, _ = _run(FakeSession(), Brain(DONE, verdicts=[verdict]))
+                self.assertEqual(outcome.completeness, "not-checked")
+
+    def test_past_the_soft_cutoff_the_brain_answers_from_the_thread_and_never_takes_another_step(self):
+        final = {"summary": "Encontrei 7 de 10 vagas."}
+        brain = Brain({"kind": "wait"}, final=final)
+        ticks = iter([0.0] + [task.MAX_SECONDS - 30.0] * 50)
+        outcome, _ = _run(FakeSession(), brain, clock=lambda: next(ticks))
+        self.assertEqual(outcome, task.Outcome("done", summary=final["summary"], steps=0, completeness="not-checked"))
+        self.assertEqual([name for name, _ in brain.calls], ["browser-final"])
+        # The steps run out the same way, and a final answer that could not be written ends with the budget.
+        outcome, _ = _run(FakeSession(), Brain({"kind": "wait"}, final=final), budget=task.Budget(steps=1))
+        self.assertEqual(outcome.summary, final["summary"])
+        outcome, _ = _run(FakeSession(), Brain({"kind": "wait"}, final=None), budget=task.Budget(steps=1))
+        self.assertEqual(outcome, task.Outcome("budget", steps=1))
+
+    def test_spend_is_a_ceiling_of_worst_case_reservations_settled_by_reported_usage(self):
+        reported = _counts(input_tokens=10_000, output_tokens=1_000)
+        brain = Brain({"kind": "wait"}, DONE, counts=reported)
+        budget = task.Budget()
+        _run(FakeSession(), brain, budget=budget)
+        # Three calls (two steps and the check), each settled at the model's price.
+        self.assertEqual(budget.spent, 3 * (10_000 * 10 + 1_000 * 50))
+        # Attempts whose usage the Brain did not report keep their worst-case reservation.
+        unreported = _counts(provider_requests=3, input_tokens=10_000, output_tokens=1_000)
+        budget = task.Budget()
+        _run(FakeSession(), Brain(DONE, counts=unreported), budget=budget)
+        self.assertGreater(
+            budget.spent, 2 * (10_000 * 10 + 1_000 * 50) + 2 * browser_protocol.MAX_CALL_OUTPUT_TOKENS * 50
+        )
+        # A step the normal share cannot reserve finishes the task instead of taking it.
+        outcome, _ = _run(FakeSession(), Brain(DONE, final=None), budget=task.Budget(spend=1_000))
+        self.assertEqual(outcome, task.Outcome("budget"))
+        # A failed call keeps its whole reservation.
+        budget = task.Budget()
+        _run(FakeSession(), Brain(task.StepFailedError("down")), budget=budget)
+        self.assertGreater(budget.spent, 0)
 
     def test_stop_budgets_and_failures_end_the_task_with_their_closed_reason(self):
-        done = {"kind": "done", "summary": "ok"}
-        wait = {"kind": "wait"}
-        self.assertEqual(_run(FakeSession(), _steps(done)[0], cancelled=lambda: True)[0], task.Outcome("stopped"))
-        ticks = iter([0.0, task.MAX_SECONDS])
-        self.assertEqual(_run(FakeSession(), _steps(done)[0], clock=lambda: next(ticks))[0], task.Outcome("budget"))
-        # Each step is asked only while its own request's bound, at least the fixed prompt's, still fits the budget.
-        spent = task.Budget(input_tokens=24_000)
-        outcome, _ = _run(FakeSession(), _steps(wait, wait, done, tokens=10_000)[0], budget=spent)
-        self.assertEqual(outcome, task.Outcome("budget", steps=2))
-        outcome, _ = _run(FakeSession(), _steps(wait, wait)[0], budget=task.Budget(steps=2))
-        self.assertEqual(outcome, task.Outcome("budget", steps=2))
+        self.assertEqual(_run(FakeSession(), Brain(DONE), cancelled=lambda: True)[0], task.Outcome("stopped"))
         self.assertEqual(
-            _run(FakeSession(fail_observe=True), _steps(done)[0])[0],
+            _run(FakeSession(fail_observe=True), Brain(DONE))[0],
             task.Outcome("failed", reason="browser-lost", cause="observe/tool-failed"),
         )
         self.assertEqual(
-            _run(FakeSession(), _steps(task.StepFailedError("down"))[0])[0],
+            _run(FakeSession(), Brain(task.StepFailedError("down")))[0],
             task.Outcome("failed", reason="model-unavailable"),
         )
         self.assertEqual(
-            _run(FakeSession(), _steps({"kind": "run_script"})[0])[0],
+            _run(FakeSession(), Brain({"kind": "run_script"}))[0],
             task.Outcome("failed", reason="step-invalid", steps=1),
         )
         self.assertEqual(
-            _run(FakeSession(fatal={"click"}), _steps({"kind": "click", "ref": "p1:1"})[0])[0],
+            _run(FakeSession(fatal={"click"}), Brain({"kind": "click", "ref": "p1:1"}))[0],
             task.Outcome("failed", reason="browser-lost", steps=1, cause="act/tool-failed"),
         )
 
     def test_every_call_and_action_waits_for_proof_that_the_task_may_continue(self):
-        navigate = {"kind": "navigate", "url": "https://example.com"}
-
-        def after(calls):
-            count = iter(range(1, 100))
-            return lambda: next(count) >= calls
-
-        # Stop after the Brain answered: its step never reaches the page.
+        navigate = {"kind": "navigate", "url": "https://example.com/a"}
+        # Stop arrives while the Brain answers: its step never reaches the page.
         session = FakeSession()
-        outcome, _ = _run(session, _steps(navigate)[0], cancelled=after(3))
+        stopped = []
+
+        def answering(operation, request, left):
+            stopped.append(True)
+            return navigate, _counts(), "gpt-6-luna"
+
+        outcome, _ = _run(session, answering, cancelled=lambda: bool(stopped))
         self.assertEqual((outcome, session.calls), (task.Outcome("stopped", steps=1), []))
-        # Stop while the page was observed: no Brain call is made.
-        step, requests = _steps(navigate)
-        outcome, _ = _run(FakeSession(), step, cancelled=after(2))
-        self.assertEqual((outcome, requests), (task.Outcome("stopped"), []))
+
         # Stop aborts the Brain request in flight: the task was stopped, not failed.
-        outcome, _ = _run(FakeSession(), _steps(task.StepFailedError("aborted"))[0], cancelled=after(3))
+        def aborted(operation, request, left):
+            stopped.append(True)
+            raise task.StepFailedError("aborted")
+
+        stopped.clear()
+        outcome, _ = _run(FakeSession(), aborted, cancelled=lambda: bool(stopped))
         self.assertEqual(outcome, task.Outcome("stopped"))
-        # The deadline passed while the Brain answered, or the step spent more than the budget left.
-        ticks = iter([0.0, 0.0, 0.0, 0.0, task.MAX_SECONDS])
-        session = FakeSession()
-        outcome, _ = _run(session, _steps(navigate)[0], clock=lambda: next(ticks))
-        self.assertEqual((outcome, session.calls), (task.Outcome("budget", steps=1), []))
-        session = FakeSession()
-        outcome, _ = _run(session, _steps(navigate, tokens=task.MAX_INPUT_TOKENS + 1)[0])
-        self.assertEqual((outcome, session.calls), (task.Outcome("budget", steps=1), []))
-        # The Browser left the egress process it started on.
-        outcome, _ = _run(FakeSession(), _steps(navigate)[0], intact=lambda: False)
+        # The Browser left the egress process it started on, before or while the Brain answered.
+        outcome, _ = _run(FakeSession(), Brain(navigate), intact=lambda: False)
         self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost", cause="runtime/not-intact"))
+        lost = []
+
+        def losing(operation, request, left):
+            lost.append(True)
+            return navigate, _counts(), "gpt-6-luna"
+
         session = FakeSession()
-        lost = after(3)
-        outcome, _ = _run(session, _steps(navigate)[0], intact=lambda: not lost())
+        outcome, _ = _run(session, losing, intact=lambda: not lost)
         self.assertEqual(
             (outcome, session.calls),
             (task.Outcome("failed", reason="browser-lost", steps=1, cause="runtime/not-intact"), []),
-        )
-
-    def test_a_final_step_counts_only_if_the_task_could_still_act_on_it(self):
-        done = {"kind": "done", "summary": "ok"}
-
-        def after(calls):
-            count = iter(range(1, 100))
-            return lambda: next(count) >= calls
-
-        self.assertEqual(_run(FakeSession(), _steps(done)[0], cancelled=after(3))[0], task.Outcome("stopped", steps=1))
-        lost = after(3)
-        self.assertEqual(
-            _run(FakeSession(), _steps(done)[0], intact=lambda: not lost())[0],
-            task.Outcome("failed", reason="browser-lost", steps=1, cause="runtime/not-intact"),
-        )
-        self.assertEqual(
-            _run(FakeSession(), _steps(done, tokens=task.MAX_INPUT_TOKENS + 1)[0])[0],
-            task.Outcome("budget", steps=1),
-        )
-
-    def test_a_requests_input_bound_counts_its_bytes_its_screenshot_and_the_prompt(self):
-        request = {"objective": "é", "language": "pt-BR", "history": [], "observation": "x", "screenshot": None}
-        text = '{"objective":"é","language":"pt-BR","history":[],"observation":"x","screenshot":null}'
-        self.assertEqual(task._input_bound(request), len(text.encode()) + task.PROMPT_TOKENS)
-        self.assertEqual(
-            task._input_bound({**request, "screenshot": "AAAA"}),
-            len(text.encode()) + task.PROMPT_TOKENS + task.IMAGE_TOKENS,
         )
 
     def test_a_failed_driver_session_is_replaced_and_the_task_continues_where_it_was(self):
@@ -256,29 +430,26 @@ class BrowserTaskTests(unittest.TestCase):
             reopened.append((session, deadline))
             return fresh
 
-        step, requests = _steps(
-            {"kind": "click", "ref": "p1:1"},
-            {"kind": "scroll", "direction": "down"},
-            {"kind": "done", "summary": "ok"},
-        )
-        outcome, _ = _run(failed, step, reopen=reopen)
-        self.assertEqual(outcome, task.Outcome("done", summary="ok", steps=3, recovered=1))
+        brain = Brain({"kind": "click", "ref": "p1:1"}, {"kind": "scroll", "direction": "down"}, DONE)
+        outcome, _ = _run(failed, brain, reopen=reopen)
+        self.assertEqual(outcome, _done("Prazo: 30/11.", 3, recovered=1))
         self.assertEqual(reopened, [(failed, task.MAX_SECONDS)])
-        # The failed session is never used again, and the click whose effect is unknown is in the history as such.
+        # The failed session is never used again, and the click whose effect is unknown is in the thread as such.
         self.assertEqual((failed.calls, fresh.calls), ([("click", "p1:1")], [("scroll", "down")]))
-        self.assertEqual([entry["outcome"] for entry in requests[-1]["history"]], ["interrupted", "ok"])
+        outcomes = [entry["outcome"] for entry in brain.requests()[-1]["thread"]["steps"]]
+        self.assertEqual(outcomes, ["interrupted", "ok"])
 
     def test_an_observation_that_failed_is_looked_at_again_on_a_fresh_session(self):
         fresh = FakeSession()
-        step, requests = _steps({"kind": "done", "summary": "ok"})
-        outcome, _ = _run(FakeSession(fail_observe=True), step, reopen=lambda _session, _deadline: fresh)
-        self.assertEqual(outcome, task.Outcome("done", summary="ok", steps=2, recovered=1))
-        self.assertEqual((requests[0]["history"], len(fresh.screenshots)), ([], 1))
+        brain = Brain(DONE)
+        outcome, _ = _run(FakeSession(fail_observe=True), brain, reopen=lambda _session, _deadline: fresh)
+        self.assertEqual(outcome, _done("Prazo: 30/11.", 2, recovered=1))
+        self.assertEqual((brain.requests()[0]["thread"]["steps"], len(fresh.screenshots)), ([], 1))
 
     def test_recoveries_are_bounded_and_a_failed_one_ends_the_task_with_its_cause(self):
         outcome, _ = _run(
             FakeSession(fail_observe=True),
-            _steps({"kind": "done", "summary": "ok"})[0],
+            Brain(DONE),
             reopen=lambda _session, _deadline: FakeSession(fail_observe=True),
         )
         self.assertEqual(
@@ -291,7 +462,7 @@ class BrowserTaskTests(unittest.TestCase):
         def refused(_session, _deadline):
             raise cua.CuaError("driver-not-ended")
 
-        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=refused)
+        outcome, _ = _run(FakeSession(fail_observe=True), Brain(), reopen=refused)
         self.assertEqual(
             outcome,
             task.Outcome("failed", reason="browser-lost", cause="observe/tool-failed/reopen/driver-not-ended"),
@@ -305,40 +476,27 @@ class BrowserTaskTests(unittest.TestCase):
             raise cua.CuaError("driver-unavailable")
 
         # Stop came while the session was being replaced.
-        stopped = iter([False, False, True])
-        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, cancelled=lambda: next(stopped))
+        outcome, _ = _run(FakeSession(fail_observe=True), Brain(), reopen=reopen, cancelled=lambda: bool(reopened))
         self.assertEqual((outcome, reopened), (task.Outcome("stopped"), [True]))
-        # Stop during the failure after the last allowed recovery still ends the task stopped, not lost.
-        sessions = []
-
-        def failing(_session, _deadline):
-            sessions.append(FakeSession(fail_observe=True))
-            return sessions[-1]
-
-        outcome, _ = _run(
-            FakeSession(fail_observe=True),
-            _steps()[0],
-            reopen=failing,
-            cancelled=lambda: len(sessions) == task.MAX_RECOVERIES and sessions[-1].observed > 0,
-        )
-        self.assertEqual(outcome, task.Outcome("stopped", steps=task.MAX_RECOVERIES, recovered=task.MAX_RECOVERIES))
         # The egress was lost before the session failed: no session is replaced.
+        reopened.clear()
         lost = iter([True, False])
-        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, intact=lambda: next(lost))
+        outcome, _ = _run(FakeSession(fail_observe=True), Brain(), reopen=reopen, intact=lambda: next(lost))
         self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost", cause="runtime/not-intact"))
-        self.assertEqual(reopened, [True])
+        self.assertEqual(reopened, [])
 
-    def test_no_call_outlives_the_task_deadline(self):
+    def test_no_call_outlives_the_deadline_the_task_was_given(self):
         seconds = []
-        ticks = iter([10.0, 10.0, 10.0, 25.0, 25.0, 30.0, 30.0, 30.0, 30.0])
+        now = [10.0]
+
+        def clock():
+            now[0] += 1.0
+            return now[0]
+
         session = FakeSession()
-        _run(
-            session,
-            _steps({"kind": "wait"}, {"kind": "done", "summary": "ok"}, seconds=seconds)[0],
-            clock=lambda: next(ticks),
-        )
-        self.assertEqual(session.deadline, 10.0 + task.MAX_SECONDS)
-        self.assertEqual(seconds, [task.MAX_SECONDS - 15.0, task.MAX_SECONDS - 20.0])
+        _run(session, Brain({"kind": "wait"}, DONE, seconds=seconds), clock=clock, deadline=500.0)
+        self.assertEqual(session.deadline, 500.0)
+        self.assertTrue(seconds and all(0 < left < 500.0 - 10.0 for left in seconds))
 
 
 if __name__ == "__main__":

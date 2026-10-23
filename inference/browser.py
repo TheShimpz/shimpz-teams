@@ -1,7 +1,7 @@
 """The Brain's two Browser exchanges as Team admits them (ADR-0117 §5 and §6).
 
 A `browser-required` turn names exactly its one Browser call and nothing beside it; every other turn names none. A
-`browser-step` answer is one raw step, the fixed Browser model the Brain ran it on, and that call's usage.
+Browser operation's answer is its raw value, the fixed Browser model the Brain ran it on, and that call's usage.
 """
 
 from dataclasses import dataclass
@@ -43,9 +43,23 @@ def parse_call(value: dict[str, object]) -> BrowserRequest | None:
     return BrowserRequest(browser["interrupt_id"], browser["objective"])
 
 
-def parse_step(response: object) -> tuple[object, str, dict[str, int]]:
-    """A `browser-step` answer's raw step, the Browser model that answered it, and the call's usage counts."""
-    if not isinstance(response, dict) or set(response) != {"step", "model", "usage"}:
+# Each Browser operation of a task (ADR-0117, 2026-10-22 amendment) and the fields of its answer beside the model and
+# its usage: a step, a fold's note, the completeness check's verdict, and the final answer from the thread.
+ANSWERS = {
+    "browser-step": frozenset({"step"}),
+    "browser-fold": frozenset({"note"}),
+    "browser-check": frozenset({"complete", "missing"}),
+    "browser-final": frozenset({"summary"}),
+}
+
+
+def parse_answer(operation: str, response: object) -> tuple[object, str, dict[str, int]]:
+    """A Browser operation's raw answer, the Browser model that answered it, and the call's usage counts.
+
+    A step is returned as its raw step; any other answer as its fields. The task loop admits only their canonical form.
+    """
+    fields = ANSWERS[operation]
+    if not isinstance(response, dict) or set(response) != {*fields, "model", "usage"}:
         raise BrainRuntimeError("Brain runtime returned an invalid response")
     model = response["model"]
     if not isinstance(model, str) or http_turn.SAFE_ID_RE.fullmatch(model) is None:
@@ -54,4 +68,5 @@ def parse_step(response: object) -> tuple[object, str, dict[str, int]]:
         counts = brain_usage.parse(response["usage"])
     except brain_usage.UsageError as exc:
         raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
-    return response["step"], model, counts
+    answer = response["step"] if operation == "browser-step" else {name: response[name] for name in fields}
+    return answer, model, counts

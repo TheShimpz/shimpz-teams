@@ -11,6 +11,7 @@ from local import audit as local_audit
 from local.browser import runtime, service
 from local.browser import view as local_view
 from local.chat import segment as local_chat_segment
+from protocol.http.v1 import browser as browser_protocol
 from storage import files as team_storage
 
 LEASE = runtime.Lease("team_1", "c" * 64, "172.30.0.9", runtime.Generation("e" * 64, "2026-10-17T00:00:01Z", "9" * 32))
@@ -18,6 +19,33 @@ CONTEXT = brain_runtime_client.RuntimeContext("thread", "Team", (), "openai", "g
 STOPPED_TURN = "0" * 32
 TURN = "7" * 32
 REQUEST = brain_runtime_client.BrowserRequest("interrupt-1", "Veja o prazo do edital.")
+COUNTS = {
+    "model_calls": 1,
+    "provider_requests": 1,
+    "failed_calls": 0,
+    "unreported_calls": 0,
+    "input_tokens": 120,
+    "output_tokens": 10,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+}
+
+
+def _brain(*steps):
+    """A Brain that answers each step in turn and finds every done answer complete."""
+    answers = iter(steps)
+
+    def call(_context, operation, payload, *, deadline):
+        if operation == "browser-check":
+            return {"complete": True, "missing": None}, COUNTS, "gpt-6-luna"
+        answer = next(answers)
+        if callable(answer):
+            answer = answer(payload)
+        return answer, COUNTS, "gpt-6-luna"
+
+    return call
+
+
 # The real Driver session, before each test replaces it with a fake.
 DRIVER_SESSION = cua.CuaSession
 
@@ -208,6 +236,21 @@ class BrowserServiceTests(unittest.TestCase):
             self.assertEqual(lost.run(self.turn, CONTEXT, REQUEST)[0]["reason"], "browser-lost")
         self.assertEqual(self.runtime.events[-1], ("release", LEASE.container_id))
 
+    def test_a_done_result_carries_what_screening_and_the_check_left_unresolved(self):
+        urls = tuple(f"https://example.com/{n}" for n in range(browser_protocol.MAX_UNSCREENED_URLS + 2))
+        outcome = task.Outcome(
+            "done", summary="x", steps=3, unscreened=urls, completeness="incomplete", missing="Faltam 3 vagas."
+        )
+        result, _terminal = self.run_with(self.make(FakeRuntime()), outcome)
+        self.assertEqual(
+            {key: result[key] for key in ("completeness", "missing", "unscreened_more")},
+            {"completeness": "incomplete", "missing": "Faltam 3 vagas.", "unscreened_more": 2},
+        )
+        self.assertEqual(result["unscreened_urls"], list(urls[: browser_protocol.MAX_UNSCREENED_URLS]))
+        checked = task.Outcome("done", summary="x", steps=1, completeness="complete")
+        result, _terminal = self.run_with(self.make(FakeRuntime()), checked)
+        self.assertEqual((result["unscreened_urls"], "missing" in result), ([], False))
+
     def test_a_read_that_fails_marks_the_rest_lost(self):
         listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
         browser_service = self.make(FakeRuntime(listing=listing))
@@ -216,21 +259,22 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertEqual(result["files"], [{"name": "a.pdf", "outcome": "browser-lost"}])
 
     def test_each_step_goes_to_the_brain_with_the_turns_context_and_a_brain_failure_ends_it(self):
-        self.brain.browser_step.return_value = ({"kind": "done", "summary": "ok"}, 120)
+        self.brain.browser_call.side_effect = _brain({"kind": "done", "summary": "ok"})
         browser_service = self.make(FakeRuntime())
         session = mock.Mock()
         session.observe.return_value = cua.Observation("u", "t", "url: u", {})
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             result, _ = browser_service.run(self.turn, CONTEXT, REQUEST)
         self.assertEqual(result["status"], "done")
-        context, payload = self.brain.browser_step.call_args.args
-        self.assertIs(context, CONTEXT)
-        self.assertLessEqual(self.brain.browser_step.call_args.kwargs["deadline"], task.MAX_SECONDS)
+        first = self.brain.browser_call.call_args_list[0]
+        context, operation, payload = first.args
+        self.assertEqual((context, operation), (CONTEXT, "browser-step"))
+        self.assertLessEqual(first.kwargs["deadline"], task.MAX_SECONDS)
         self.assertEqual((payload["objective"], payload["language"]), ("Veja o prazo do edital.", "pt-BR"))
         # Each step sees the downloads present in its Browser, read by the task's deadline.
         self.assertEqual(payload["downloads"], {"files": [], "pending": 0, "truncated": False})
         self.assertIsNotNone(browser_service._runtime.listed[0])
-        self.brain.browser_step.side_effect = BrainRuntimeError("down")
+        self.brain.browser_call.side_effect = BrainRuntimeError("down")
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             result, _ = browser_service.run(self.turn, CONTEXT, REQUEST)
         self.assertEqual((result["status"], result["reason"]), ("failed", "model-unavailable"))
@@ -248,11 +292,11 @@ class BrowserServiceTests(unittest.TestCase):
         session.observe.return_value = cua.Observation("u", "t", "url: u", {})
         seen = []
 
-        def step(_context, payload, *, deadline):
+        def step(payload):
             seen.append(payload["downloads"])
-            return {"kind": "done", "summary": "ok"}, 10
+            return {"kind": "done", "summary": "ok"}
 
-        self.brain.browser_step.side_effect = step
+        self.brain.browser_call.side_effect = lambda *args, **kwargs: _brain(step)(*args, **kwargs)
         for fake, expected in (
             (FakeRuntime(listing=listing), {"files": ["a.csv", "b.csv", "big.zip"], "pending": 1, "truncated": False}),
             (FakeRuntime(files_error=runtime.BrowserError("browser-lost")), None),
@@ -269,15 +313,15 @@ class BrowserServiceTests(unittest.TestCase):
         fake = FakeRuntime()
         browser_service = self.make(fake)
 
-        def step(_context, payload, *, deadline):
+        def step(payload):
             seen.append(payload["downloads"])
             if len(seen) == 1:
                 # The turn's Stop takes the Browser away while the task still runs its loop.
                 browser_service.interrupt("team_1", TURN)
-                return {"kind": "wait"}, 10
-            return {"kind": "done", "summary": "ok"}, 10
+                return {"kind": "wait"}
+            return {"kind": "done", "summary": "ok"}
 
-        self.brain.browser_step.side_effect = step
+        self.brain.browser_call.side_effect = _brain(step, step)
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             browser_service.run(self.turn, CONTEXT, REQUEST)
         # Only the first step read the listing; the final ingest reads its own, with no step deadline.
@@ -315,7 +359,9 @@ class BrowserServiceTests(unittest.TestCase):
                 return self.ended
 
         page = cua.Observation("u", "t", "url: u", {})
-        self.brain.browser_step.return_value = ({"kind": "done", "summary": "ok"}, 120)
+        self.brain.browser_call.side_effect = lambda *args, **kwargs: _brain({"kind": "done", "summary": "ok"})(
+            *args, **kwargs
+        )
         for ended, status in ((True, "done"), (False, "failed")):
             with self.subTest(ended=ended):
                 fake = Driving()

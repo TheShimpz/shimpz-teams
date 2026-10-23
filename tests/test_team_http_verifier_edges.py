@@ -475,7 +475,10 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         )
         self._assert_vector_mutations_refused(*mutations, refusal=SystemExit)
         with self.assertRaises(SystemExit):
-            _execute(HTTP / "verify.py", _edited("len(value) > MAX_HISTORY", "len(value) >= MAX_HISTORY", "browser.py"))
+            _execute(
+                HTTP / "verify.py",
+                _edited("for note in notes) > MAX_NOTES_BYTES", "for note in notes) >= MAX_NOTES_BYTES", "browser.py"),
+            )
 
 
 if __name__ == "__main__":

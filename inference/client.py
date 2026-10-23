@@ -829,22 +829,23 @@ class BrainRuntimeClient:
         response = self._post("/v1/turns/resume", payload)
         return self._parse_turn(self._metered(response, "turn-resume", context.provider, context.model))
 
-    def browser_step(
-        self, context: RuntimeContext, request: Mapping[str, object], *, deadline: float
-    ) -> tuple[object, int]:
-        """One Browser agent step for this turn's task, and the input tokens it spent (ADR-0117 §5).
+    def browser_call(
+        self, context: RuntimeContext, operation: str, request: Mapping[str, object], *, deadline: float
+    ) -> tuple[object, dict[str, int], str]:
+        """One Browser operation of this turn's task: its raw answer, its usage counts, and the model (ADR-0117 §5).
 
         The Brain fixes the Browser model for the Team's provider and names it, so its usage is recorded as that
-        model's. The step is returned raw: the task loop admits only its canonical form. The request ends once
-        `deadline` seconds have passed, so no step outlives its task.
+        model's. The answer is returned raw: the task loop admits only its canonical form. The request ends once
+        `deadline` seconds have passed, so no call outlives its task.
         """
         payload = {
             "provider": {"provider": context.provider, "model": context.model, "api_key": context.api_key},
             **request,
         }
-        step, model, counts = inference_browser.parse_step(self._post("/v1/browser-step", payload, deadline=deadline))
-        brain_usage.record("browser-step", context.provider, model, counts)
-        return step, counts["input_tokens"]
+        response = self._post(f"/v1/{operation}", payload, deadline=deadline)
+        answer, model, counts = inference_browser.parse_answer(operation, response)
+        brain_usage.record(operation, context.provider, model, counts)
+        return answer, counts, model
 
     def purpose(self, context: RuntimeContext, request: ActionRequest, assistant_name: str, summary: str) -> str | None:
         """Ask once why the user's task needs this paused Action, in the turn's language; any failure is None.

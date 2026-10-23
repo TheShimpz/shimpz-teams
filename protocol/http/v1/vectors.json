@@ -7406,6 +7406,14 @@
           "kind": "click",
           "ref": "p1:0",
           "note": "Prazo de inscrição: 30/11."
+        },
+        {
+          "kind": "read",
+          "refs": [
+            "p3:1",
+            "p3:2",
+            "p3:9"
+          ]
         }
       ],
       "invalid": [
@@ -7451,175 +7459,509 @@
         {
           "kind": "wait",
           "note": "a\nb"
+        },
+        {
+          "kind": "read",
+          "refs": []
+        },
+        {
+          "kind": "read",
+          "refs": [
+            "p1:1",
+            "p1:1"
+          ]
+        },
+        {
+          "kind": "read",
+          "refs": [
+            "#a"
+          ]
+        },
+        {
+          "kind": "read",
+          "refs": [
+            "p1:0",
+            "p1:1",
+            "p1:2",
+            "p1:3",
+            "p1:4",
+            "p1:5",
+            "p1:6",
+            "p1:7",
+            "p1:8",
+            "p1:9",
+            "p1:10"
+          ]
+        },
+        {
+          "kind": "read",
+          "ref": "p1:1"
         }
       ]
     },
-    "history": {
+    "thread": {
       "valid": [
-        [],
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://example.com/edital"
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "navigate",
+                "url": "https://example.com/edital"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "about:blank",
+                "title": "about:blank"
+              }
             },
-            "outcome": "ok",
-            "page": {
-              "url": "about:blank",
-              "title": "about:blank"
+            {
+              "step": {
+                "kind": "click",
+                "ref": "p1:0",
+                "note": "Prazo de inscrição: 30/11."
+              },
+              "outcome": "refused",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
             }
-          },
-          {
-            "step": {
-              "kind": "click",
-              "ref": "p1:0",
-              "note": "Prazo de inscrição: 30/11."
-            },
-            "outcome": "refused",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+          ],
+          "folded_omitted": 3,
+          "notes": [
+            "Vaga V101: R$ 9.500 por mês."
+          ],
+          "notes_omitted": 1,
+          "steps": [
+            {
+              "step": {
+                "kind": "read",
+                "refs": [
+                  "p2:1",
+                  "p2:4"
+                ]
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "text": "url: https://vagas.example/busca",
+              "downloads": null,
+              "screenshot": false
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://www.python.org/"
-            },
-            "outcome": "navigation-failed",
-            "page": {
-              "url": "about:blank",
-              "title": ""
+          ]
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [
+            {
+              "step": {
+                "kind": "click",
+                "ref": "p1:0"
+              },
+              "outcome": "interrupted",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "text": "url: https://vagas.example/busca",
+              "downloads": {
+                "files": [
+                  "edital.pdf"
+                ],
+                "pending": 0,
+                "truncated": false
+              },
+              "screenshot": true
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "click",
-              "ref": "p1:0"
-            },
-            "outcome": "interrupted",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
-            }
-          }
-        ]
+          ]
+        }
       ],
       "invalid": [
-        {},
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://example.com/edital"
-            },
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+        null,
+        [],
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [],
+          "extra": 1
+        },
+        {
+          "folded": [],
+          "folded_omitted": -1,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [
+            ""
+          ],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [
+            "bell\u0007"
+          ],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "wait"
+              },
+              "outcome": "maybe",
+              "page": {
+                "url": "about:blank",
+                "title": ""
+              }
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://example.com/edital"
-            },
-            "outcome": "ok"
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://example.com/edital"
-            },
-            "outcome": "maybe",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "done",
+                "summary": "x"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "about:blank",
+                "title": ""
+              }
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "open"
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [
+            {
+              "step": {
+                "kind": "read",
+                "refs": [
+                  "p2:1",
+                  "p2:4"
+                ]
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "downloads": null,
+              "screenshot": false
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "done",
-              "summary": "x"
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+          ]
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [
+            {
+              "step": {
+                "kind": "read",
+                "refs": [
+                  "p2:1",
+                  "p2:4"
+                ]
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "text": "url: https://vagas.example/busca",
+              "downloads": null,
+              "screenshot": 1
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "navigate",
-              "url": "https://example.com",
-              "ref": null
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026"
+          ]
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [
+            {
+              "step": {
+                "kind": "read",
+                "refs": [
+                  "p2:1",
+                  "p2:4"
+                ]
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "text": "url: https://vagas.example/busca",
+              "downloads": {
+                "files": [],
+                "pending": -1,
+                "truncated": false
+              },
+              "screenshot": false
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "wait"
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com"
+          ]
+        },
+        {
+          "folded": [],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": [
+            {
+              "step": {
+                "kind": "read",
+                "refs": []
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://vagas.example/busca",
+                "title": "Vagas"
+              },
+              "text": "url: https://vagas.example/busca",
+              "downloads": null,
+              "screenshot": false
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "wait"
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com/edital",
-              "title": "Edital 2026",
-              "extra": 1
+          ]
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "navigate",
+                "url": "https://example.com/edital"
+              },
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
             }
-          }
-        ],
-        [
-          {
-            "step": {
-              "kind": "wait"
-            },
-            "outcome": "ok",
-            "page": {
-              "url": "https://example.com",
-              "title": "a\u0007"
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "navigate",
+                "url": "https://example.com/edital"
+              },
+              "outcome": "ok"
             }
-          }
-        ]
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "navigate",
+                "url": "https://example.com/edital"
+              },
+              "outcome": "maybe",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "open"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "done",
+                "summary": "x"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "navigate",
+                "url": "https://example.com",
+                "ref": null
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "wait"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "wait"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com/edital",
+                "title": "Edital 2026",
+                "extra": 1
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        },
+        {
+          "folded": [
+            {
+              "step": {
+                "kind": "wait"
+              },
+              "outcome": "ok",
+              "page": {
+                "url": "https://example.com",
+                "title": "a\u0007"
+              }
+            }
+          ],
+          "folded_omitted": 0,
+          "notes": [],
+          "notes_omitted": 0,
+          "steps": []
+        }
+      ]
+    },
+    "check": {
+      "valid": [
+        {
+          "complete": true,
+          "missing": null
+        },
+        {
+          "complete": null,
+          "missing": null
+        },
+        {
+          "complete": false,
+          "missing": "Only 7 of the 10 openings were found."
+        }
+      ],
+      "invalid": [
+        null,
+        {
+          "complete": true
+        },
+        {
+          "complete": true,
+          "missing": "x"
+        },
+        {
+          "complete": false,
+          "missing": null
+        },
+        {
+          "complete": false,
+          "missing": "two\nlines"
+        },
+        {
+          "complete": "yes",
+          "missing": null
+        }
       ]
     },
     "observation": {

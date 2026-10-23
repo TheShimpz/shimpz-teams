@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 
+from browser import task as browser_task
 from local.browser.channel import ChannelError, ExecStream
 from protocol.http.v1 import browser_view as view_protocol
 
@@ -23,7 +24,9 @@ UPGRADE_SECONDS = 5.0
 MAX_UPGRADE_BYTES = 4096
 WRITE_SECONDS = 10.0
 BUFFER_BYTES = 1024 * 1024
-LIFE_SECONDS = 15 * 60.0
+# A stream outlives the longest Browser task, its start and its ingest included, so no task outlives its Watch stream
+# (ADR-0117, 2026-10-22 amendment §7); the view ends every stream when its task ends.
+LIFE_SECONDS = browser_task.MAX_SECONDS + 5 * 60.0
 CHUNK = 64 * 1024
 TICK_SECONDS = 0.5
 # The display answers only an upgrade that names an origin; its own loopback origin is the one it is given.

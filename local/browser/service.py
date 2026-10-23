@@ -22,11 +22,13 @@ from browser import cua
 from browser import ingest as browser_ingest
 from browser import task as browser_task
 from inference import client as brain_runtime_client
+from inference import config as inference_config
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser import view as local_view
 from local.browser.channel import ChannelError, ExecStream
 from local.browser.runtime import BrowserError, BrowserRuntime, Lease
+from protocol.http.v1 import browser as browser_protocol
 from protocol.http.v1 import browser_view as view_protocol
 from storage import files as team_storage
 
@@ -175,10 +177,12 @@ class BrowserService:
             local_audit.record_request("browser-task", result="denied", team_id=turn.team_id, detail=exc.code)
             return _result(browser_task.Outcome("failed", reason=exc.code), None), _terminal(None)
         outcome, ingested = browser_task.Outcome("failed", reason="browser-lost"), None
+        # One absolute deadline from before the Browser's start and its Watch view through the task's last step.
+        deadline = time.monotonic() + browser_task.MAX_SECONDS
         # From the moment it is held, the lease is released however the task ends, its audit included.
         try:
             with self._held(turn.token, lease):
-                outcome, ingested = self._work(turn, context, request, lease, page_language)
+                outcome, ingested = self._work(turn, context, request, lease, page_language, deadline)
         except BrowserError as exc:
             outcome = _lost(outcome, f"runtime/{exc.code}")
         except cua.CuaError as exc:
@@ -197,13 +201,14 @@ class BrowserService:
         request: brain_runtime_client.BrowserRequest,
         lease: Lease,
         page_language: str,
+        deadline: float,
     ) -> tuple[browser_task.Outcome, browser_ingest.Ingested | None]:
         """The task and then its downloads, each only while the turn runs; an egress replaced meanwhile loses it."""
         _audit(turn, lease, "started")
         # A Stop during creation found no lease to remove: no channel opens once the turn is stopped.
         if turn.cancelled():
             return browser_task.Outcome("stopped"), None
-        outcome = self._task(turn, context, request, lease, page_language)
+        outcome = self._task(turn, context, request, lease, page_language, deadline)
         if outcome.status == "stopped" or turn.cancelled():
             return outcome, None
         try:
@@ -221,6 +226,7 @@ class BrowserService:
         request: brain_runtime_client.BrowserRequest,
         lease: Lease,
         page_language: str,
+        deadline: float,
     ) -> browser_task.Outcome:
         drivers: dict[cua.CuaSession, tuple[str, ExecStream]] = {}
 
@@ -272,9 +278,9 @@ class BrowserService:
             except BrowserError, browser_ingest.ListingError:
                 return None
 
-        def step(payload, seconds: float):
+        def call(operation: str, payload, seconds: float):
             try:
-                return turn.runtime.browser_step(context, payload, deadline=seconds)
+                return turn.runtime.browser_call(context, operation, payload, deadline=seconds)
             except BrainRuntimeError as exc:
                 raise browser_task.StepFailedError(str(exc)) from exc
 
@@ -282,11 +288,13 @@ class BrowserService:
             request.objective,
             page_language,
             session,
-            step,
+            call,
+            lambda model: inference_config.price(context.provider, model),
             turn.cancelled,
             lambda: self._runtime.intact(lease),
             reopen=reopen,
             downloads=downloads,
+            deadline=deadline,
         ).run()
 
     def _ingest(self, turn: BrowserTurn, lease: Lease) -> browser_ingest.Ingested:
@@ -364,6 +372,14 @@ def _result(outcome: browser_task.Outcome, ingested: browser_ingest.Ingested | N
     result: dict[str, object] = {"status": status}
     if outcome.summary is not None:
         result["summary"] = outcome.summary
+    if outcome.completeness is not None:
+        # What provenance screening and the advisory completeness check left unresolved, for the chat agent to say.
+        result["completeness"] = outcome.completeness
+        if outcome.missing is not None:
+            result["missing"] = outcome.missing
+        shown = outcome.unscreened[: browser_protocol.MAX_UNSCREENED_URLS]
+        result["unscreened_urls"] = list(shown)
+        result["unscreened_more"] = len(outcome.unscreened) - len(shown)
     if outcome.reason is not None:
         result["reason"] = outcome.reason
     if outcome.sentence is not None:

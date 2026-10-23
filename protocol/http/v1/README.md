@@ -19,8 +19,10 @@ An Assistant id (at most 40 characters) and an Assistant's Integration, provider
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.
 `websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
-`browser.py` owns the Browser agent's closed step set, the `browser-step` exchange bounds, and the `browser` field of a
-chat terminal (ADR-0117); the Brain consumes it as a pinned mirror.
+`browser.py` owns the Browser agent's closed step set, the `browser-step` exchange bounds (the task's thread: folded
+step records, fold notes, and unfolded steps, each bounded, with the byte measures both sides bound a request by), the
+completeness check's verdict, and the `browser` field of a chat terminal (ADR-0117); the Brain consumes it as a pinned
+mirror.
 `browser_view.py` owns the Browser screen a Supervisor watches: the opened view's id and the one exact WebSocket
 upgrade (version, key, accept, subprotocol) Team carries to the Browser's display; only Team and Admin consume it.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by

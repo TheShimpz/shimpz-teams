@@ -27,6 +27,24 @@ PROVIDERS: dict[str, frozenset[str]] = {
     provider["id"]: frozenset(model["id"] for model in provider["models"] if model["chat"] is True)
     for provider in _MODEL_CATALOG["providers"]
 }
+# Each catalog model's input and output price in cents per million tokens, by provider and model id.
+PRICES: dict[str, dict[str, tuple[int, int]]] = {
+    provider["id"]: {
+        model["id"]: (model["input_usd_per_million_cents"], model["output_usd_per_million_cents"])
+        for model in provider["models"]
+    }
+    for provider in _MODEL_CATALOG["providers"]
+}
+
+
+def price(provider: str, model: str | None) -> tuple[int, int]:
+    """A provider model's catalog price; an unknown or unnamed model is priced as the provider's dearest."""
+    prices = PRICES[provider]
+    if model in prices:
+        return prices[model]
+    return max(prices.values(), key=lambda pair: pair[0] + pair[1])
+
+
 # Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(
     r"(?:[0-9a-f]{64}(?:\.knowledge)?\.json|\.[0-9a-f]{64}(?:\.knowledge)?\.json\.[0-9a-f]{16}\.tmp)\Z"

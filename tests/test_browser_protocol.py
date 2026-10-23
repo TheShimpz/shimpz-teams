@@ -1,4 +1,4 @@
-"""The Browser agent's closed step set: only canonical steps, objectives, histories, and observations pass."""
+"""The Browser agent's closed step set: only canonical steps, objectives, threads, and observations pass."""
 
 import importlib.util
 import sys
@@ -92,33 +92,79 @@ class BrowserProtocolTests(unittest.TestCase):
         self.assertEqual(browser.STEP_SCHEMA["properties"]["kind"]["enum"], list(browser.FIELDS))
         self.assertIs(browser.STEP_SCHEMA["additionalProperties"], False)
 
-    def test_objectives_histories_and_observations_are_bounded(self):
+    def test_objectives_threads_and_observations_are_bounded(self):
         self.assertEqual(browser.canonical_objective("  Veja o prazo do edital.\n"), "Veja o prazo do edital.")
         for objective in (None, "", "   ", "x" * (browser.MAX_OBJECTIVE_CHARS + 1), "bell\x07"):
             self.assertIsNone(browser.canonical_objective(objective))
         step = {"kind": "click", "ref": "p1:1", "note": "Prazo: 30/11."}
         page = {"url": "https://example.com/edital", "title": "Edital"}
-        entry = {"step": step, "outcome": "ok", "page": page}
-        self.assertEqual(browser.canonical_history([entry]), [entry])
-        for history in (
+        record = {"step": step, "outcome": "returned", "page": page}
+        entry = {**record, "text": "url: https://example.com/edital", "downloads": None, "screenshot": True}
+        empty = {"folded": [], "folded_omitted": 0, "notes": [], "notes_omitted": 0, "steps": []}
+        thread = {**empty, "folded": [record], "folded_omitted": 2, "notes": ["V101: R$ 9.500"], "steps": [entry]}
+        self.assertEqual(browser.canonical_thread(thread), thread)
+        page_entry = {**entry, "text": "a" * browser.MAX_OBSERVATION_BYTES}
+        for value in (
             None,
-            [entry] * (browser.MAX_HISTORY + 1),
-            [{"step": step, "page": page}],
-            [{"step": step, "outcome": "ok"}],
-            [{**entry, "outcome": "maybe"}],
-            [{**entry, "step": {"kind": "click"}}],
-            [{**entry, "step": _flat(kind="click", ref="p1:1")}],
-            [{**entry, "step": {"kind": "done", "summary": "x"}}],
-            [{**entry, "page": {"url": "https://example.com"}}],
-            [{**entry, "page": {**page, "title": "x" * (browser.MAX_TITLE_CHARS + 1)}}],
-            [{**entry, "page": {**page, "url": 7}}],
-            ["step"],
+            {**empty, "extra": 0},
+            {**empty, "folded": [{**record, "outcome": "maybe"}]},
+            {**empty, "folded": [{**record, "step": {"kind": "done", "summary": "x"}}]},
+            {**empty, "folded": [{**record, "page": {"url": "https://example.com"}}]},
+            {**empty, "folded": [record] * (browser.MAX_FOLDED_BYTES // (browser.MAX_FOLDED_LINE_BYTES + 1) + 1)},
+            {**empty, "notes": ["two\x07"]},
+            {**empty, "notes": ["x" * (browser.MAX_FOLD_NOTE_BYTES + 1)]},
+            {**empty, "notes": ["x" * browser.MAX_FOLD_NOTE_BYTES] * 3},
+            {**empty, "notes_omitted": -1},
+            {**empty, "steps": [{**entry, "screenshot": 1}]},
+            {**empty, "steps": [{key: value for key, value in entry.items() if key != "downloads"}]},
+            {**empty, "steps": [page_entry, page_entry]},
+            {**empty, "folded": [record] * 10, "steps": [entry] * (browser.MAX_STEPS - 9)},
         ):
-            with self.subTest(history=history):
-                self.assertIsNone(browser.canonical_history(history))
+            with self.subTest(thread=value):
+                self.assertIsNone(browser.canonical_thread(value))
         self.assertEqual(browser.canonical_observation("url: x"), "url: x")
         self.assertIsNone(browser.canonical_observation("x" * (browser.MAX_OBSERVATION_BYTES + 1)))
         self.assertIsNone(browser.canonical_observation(None))
+
+    def test_a_request_measure_bounds_what_its_thread_and_page_render_to(self):
+        entry = {
+            "step": {"kind": "read", "refs": ["p1:1"]},
+            "outcome": "ok",
+            "page": {"url": "https://example.com", "title": "Example"},
+            "text": "page text",
+            "downloads": None,
+            "screenshot": False,
+        }
+        thread = {"folded": [], "folded_omitted": 0, "notes": ["note"], "notes_omitted": 0, "steps": [entry]}
+        one = browser.history_bytes(thread)
+        self.assertGreaterEqual(one, browser.entry_bytes(entry) + len(b"note"))
+        total = browser.request_text_bytes("Objective", thread, "current page", None)
+        self.assertGreaterEqual(total, one + len(b"Objective") + len(b"current page"))
+
+    def test_a_read_names_one_to_ten_distinct_refs(self):
+        self.assertEqual(
+            browser.canonical_step(_flat(kind="read", refs=["p1:1", "p1:3"])),
+            {"kind": "read", "refs": ["p1:1", "p1:3"]},
+        )
+        for refs in ([], ["p1:1", "p1:1"], ["#a"], [f"p1:{n}" for n in range(browser.MAX_READ_REFS + 1)], "p1:1", None):
+            with self.subTest(refs=refs):
+                self.assertIsNone(browser.canonical_step(_flat(kind="read", refs=refs)))
+
+    def test_the_completeness_verdict_is_complete_incomplete_with_a_sentence_or_not_checked(self):
+        for verdict in (
+            {"complete": True, "missing": None},
+            {"complete": None, "missing": None},
+            {"complete": False, "missing": "Faltam 3 vagas."},
+        ):
+            self.assertEqual(browser.canonical_check(verdict), verdict)
+        for verdict in (
+            None,
+            {"complete": True},
+            {"complete": False, "missing": None},
+            {"complete": 1, "missing": None},
+        ):
+            with self.subTest(verdict=verdict):
+                self.assertIsNone(browser.canonical_check(verdict))
 
     def test_a_terminal_names_kept_files_by_reference_and_losses_by_closed_reason(self):
         kept = {"id": "a" * 32, "name": "edital.pdf", "media_type": "application/pdf", "size": 9}

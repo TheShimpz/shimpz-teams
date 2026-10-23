@@ -25,7 +25,11 @@ FIELDS = (
     "cache_write_tokens",
 )
 OPERATIONS = (
-    # One Browser agent step of a chat turn's Browser task (ADR-0117).
+    # A chat turn's Browser task (ADR-0117): its steps, the agent's fold notes, the completeness check, and the final
+    # answer from the thread.
+    "browser-check",
+    "browser-final",
+    "browser-fold",
     "browser-step",
     "capability-plan",
     "intent-route",

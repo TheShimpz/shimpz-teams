@@ -434,7 +434,8 @@ admit_browser = {
     "url": browser.canonical_url,
     "objective": browser.canonical_objective,
     "step": browser.canonical_step,
-    "history": browser.canonical_history,
+    "thread": browser.canonical_thread,
+    "check": browser.canonical_check,
     "observation": browser.canonical_observation,
     "terminal": browser.canonical_terminal,
     "downloads": browser.canonical_downloads,
@@ -450,6 +451,9 @@ for kind, admit in admit_browser.items():
         fail(f"an invalid Browser {kind} vector was admitted")
 # Each bound, one past it: too large to write out as a vector.
 wait = {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "about:blank", "title": ""}}
+empty = {"folded": [], "folded_omitted": 0, "notes": [], "notes_omitted": 0, "steps": []}
+page_step = {**wait, "text": "a" * browser.MAX_OBSERVATION_BYTES, "downloads": None, "screenshot": False}
+lines = browser.MAX_FOLDED_BYTES // (browser.MAX_FOLDED_LINE_BYTES + 1)
 long_title = {"url": "about:blank", "title": "a" * (browser.MAX_TITLE_CHARS + 1)}
 long_url = {"url": "https://example.com/" + "a" * browser.MAX_URL_CHARS, "title": ""}
 kept = browser_vectors["terminal"]["valid"][0]
@@ -458,10 +462,14 @@ over_bounds = (
     (browser.canonical_objective, "a" * (browser.MAX_OBJECTIVE_CHARS + 1)),
     (browser.canonical_step, {"kind": "done", "summary": "\u00e9" * (browser.MAX_SUMMARY_BYTES // 2 + 1)}),
     (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
-    (browser.canonical_history, [wait] * (browser.MAX_HISTORY + 1)),
+    (browser.canonical_thread, {**empty, "folded": [wait] * (lines + 1)}),
+    (browser.canonical_thread, {**empty, "notes": ["a" * (browser.MAX_FOLD_NOTE_BYTES + 1)]}),
+    (browser.canonical_thread, {**empty, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 3}),
+    (browser.canonical_thread, {**empty, "steps": [page_step] * 2}),
+    (browser.canonical_step, {"kind": "read", "refs": [f"p1:{n}" for n in range(browser.MAX_READ_REFS + 1)]}),
     (browser.canonical_step, {"kind": "wait", "note": "a" * (browser.MAX_NOTE_CHARS + 1)}),
-    (browser.canonical_history, [{**wait, "page": long_title}]),
-    (browser.canonical_history, [{**wait, "page": long_url}]),
+    (browser.canonical_record, {**wait, "page": long_title}),
+    (browser.canonical_record, {**wait, "page": long_url}),
     (browser.canonical_observation, "a" * (browser.MAX_OBSERVATION_BYTES + 1)),
     (browser.canonical_terminal, {**kept, "files": kept["files"] * (browser.MAX_TERMINAL_FILES + 1)}),
     (browser.canonical_terminal, {**kept, "lost": kept["lost"] * (browser.MAX_TERMINAL_LOSSES + 1)}),
@@ -475,8 +483,9 @@ over_bounds = (
 )
 if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")
-if browser.canonical_history([wait] * browser.MAX_HISTORY) != [wait] * browser.MAX_HISTORY:
-    fail("a Browser history at its bound was not admitted")
+at_bound = {**empty, "folded": [wait] * lines, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 2}
+if browser.canonical_thread(at_bound) != at_bound:
+    fail("a Browser thread at its bounds was not admitted")
 blank_notes = vectors.get("browser_blank_note")
 if not blank_notes or any(browser.canonical_step(case["step"]) != case["canonical"] for case in blank_notes):
     fail("a blank Browser note vector differs")

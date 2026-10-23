@@ -152,7 +152,8 @@ COPY --link action/__init__.py action/challenges.py action/dispatch.py action/ex
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
-COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py ./browser/
+COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/read.py browser/screen.py browser/task.py \
+    browser/thread.py ./browser/
 # The seccomp profile Team gives every Browser container (ADR-0117 §3.2).
 COPY --link browser/image/seccomp.json ./browser/image/
 COPY --link local/browser/__init__.py local/browser/capsule.py local/browser/channel.py local/browser/credentials.py \
