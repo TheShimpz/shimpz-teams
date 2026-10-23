@@ -487,6 +487,10 @@ if any(admit(value) is not None for admit, value in over_bounds):
 at_bound = {**empty, "folded": [wait] * lines, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 2}
 if browser.canonical_thread(at_bound) != at_bound:
     fail("a Browser thread at its bounds was not admitted")
+# A request's measure covers its thread's history, its page, its objective, and its downloads.
+measured = browser.request_text_bytes("objective", at_bound, "page", None)
+if measured < browser.history_bytes(at_bound) + len(b"objective") + len(b"page"):
+    fail("a Browser request measure is smaller than what it renders")
 blank_notes = vectors.get("browser_blank_note")
 if not blank_notes or any(browser.canonical_step(case["step"]) != case["canonical"] for case in blank_notes):
     fail("a blank Browser note vector differs")
