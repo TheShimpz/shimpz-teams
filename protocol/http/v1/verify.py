@@ -453,7 +453,7 @@ for kind, admit in admit_browser.items():
 wait = {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "about:blank", "title": ""}}
 empty = {"folded": [], "folded_omitted": 0, "notes": [], "notes_omitted": 0, "steps": []}
 page_step = {**wait, "text": "a" * browser.MAX_OBSERVATION_BYTES, "downloads": None, "screenshot": False}
-lines = browser.MAX_FOLDED_BYTES // (browser.MAX_FOLDED_LINE_BYTES + 1)
+lines = browser.MAX_FOLDED_BYTES // browser.record_bytes(wait)
 long_title = {"url": "about:blank", "title": "a" * (browser.MAX_TITLE_CHARS + 1)}
 long_url = {"url": "https://example.com/" + "a" * browser.MAX_URL_CHARS, "title": ""}
 kept = browser_vectors["terminal"]["valid"][0]
@@ -463,6 +463,7 @@ over_bounds = (
     (browser.canonical_step, {"kind": "done", "summary": "\u00e9" * (browser.MAX_SUMMARY_BYTES // 2 + 1)}),
     (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
     (browser.canonical_thread, {**empty, "folded": [wait] * (lines + 1)}),
+    (browser.canonical_thread, {**empty, "notes": [None]}),
     (browser.canonical_thread, {**empty, "notes": ["a" * (browser.MAX_FOLD_NOTE_BYTES + 1)]}),
     (browser.canonical_thread, {**empty, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 3}),
     (browser.canonical_thread, {**empty, "steps": [page_step] * 2}),

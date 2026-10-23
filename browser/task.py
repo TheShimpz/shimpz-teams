@@ -184,8 +184,9 @@ class Task:
         reserve = attempt * browser_protocol.MAX_CALL_ATTEMPTS
         if not self._affords(reserve, finishing=finishing) or self._halted(0) is not None:
             raise StepFailedError("no budget")
+        until = self.deadline if finishing else self.deadline - FINISH_SECONDS
         try:
-            value, counts, model = self.call(operation, request, self.deadline - self.clock())
+            value, counts, model = self.call(operation, request, until - self.clock())
         except StepFailedError:
             self.budget.spent += reserve
             raise
@@ -235,6 +236,7 @@ class Task:
 
     def _observe(self, index: int) -> cua.Observation | Outcome | None:
         """The current page, back on the last page that loaded after an error page, with any read pages joined."""
+        notice = ""
         try:
             observation = self.session.observe(screenshot=self.wants_screenshot)
             if observation.url.startswith("chrome-error://") and self.last_good is not None:
@@ -242,7 +244,6 @@ class Task:
                 self.session.navigate(self.last_good)
                 observation = self.session.observe(screenshot=self.wants_screenshot)
                 notice = f"The last page you opened ({title}) did not load; you are back on {self.last_good}.\n"
-                observation = replace(observation, text=read.joined(notice + observation.text, ""))
         except cua.CuaError as exc:
             # Nothing was done on the page: the next step looks at it again on the fresh session.
             return self._recover(index, f"observe/{exc.code}")
@@ -250,7 +251,7 @@ class Task:
             self.last_good = observation.url
         if self.wants_screenshot:
             self.screenshot_at, self.wants_screenshot = index, False
-        observation = replace(observation, text=read.joined(observation.text, self.section))
+        observation = read.shown(observation, notice, self.section)
         self.section = ""
         self.screen.observed(observation.url, observation.text)
         return observation
@@ -272,6 +273,9 @@ class Task:
         ended = self._halted(index + 1)
         if ended is not None:
             return ended
+        if self._finishing():
+            # The soft cutoff passed while the Brain answered: no step is taken past it.
+            return self._final(index + 1, request)
         decision = browser_protocol.canonical_step(raw)
         if decision is None:
             return Outcome("failed", reason="step-invalid", steps=index + 1)
@@ -293,6 +297,9 @@ class Task:
         else:
             try:
                 outcome = self._perform(decision, observation)
+            except read.UnstartedError as exc:
+                # The read never clicked: nothing was done on the page.
+                outcome, failure = "refused", f"act/{exc.code}"
             except cua.CuaError as exc:
                 outcome, failure = "interrupted", f"act/{exc.code}"
         self._record(request, decision, outcome, observation, downloads)
@@ -301,10 +308,12 @@ class Task:
     def _perform(self, decision: dict[str, object], observation: cua.Observation) -> str:
         if decision["kind"] != "read":
             return _execute(self.session, decision, observation, self.sleep)
-        outcome, self.section = read.run(
-            self.session, decision, observation, self._may_act, self.sleep, self.screen.observed
+        return read.run(
+            self.session, decision, observation, self._may_act, self.sleep, self.screen.observed, self._keep
         )
-        return outcome
+
+    def _keep(self, section: str) -> None:
+        self.section = section
 
     def _record(
         self,
@@ -354,6 +363,9 @@ class Task:
             self.returned["unscreened"] += 1
             return self._return(request, observation, downloads, UNSCREENED_NOTE + ", ".join(unscreened))
         verdict = self._check(summary)
+        ended = self._halted(index + 1)
+        if ended is not None:
+            return ended
         if verdict.get("complete") is False and self.returned["incomplete"] < MAX_RETURNS_INCOMPLETE:
             self.returned["incomplete"] += 1
             return self._return(request, observation, downloads, INCOMPLETE_NOTE + str(verdict["missing"]))
@@ -392,6 +404,9 @@ class Task:
             value = self._ask("browser-final", request, finishing=True)
         except StepFailedError:
             return self._halted(index) or Outcome("budget", steps=index)
+        ended = self._halted(index)
+        if ended is not None:
+            return ended
         summary = value.get("summary") if isinstance(value, dict) and set(value) == {"summary"} else None
         if summary is None or browser_protocol.canonical_step({"kind": "done", "summary": summary}) is None:
             return Outcome("budget", steps=index)

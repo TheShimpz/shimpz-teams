@@ -171,14 +171,14 @@ class BrowserService:
     ) -> tuple[dict[str, object], dict[str, object]]:
         """The result the Brain resumes with, and the terminal's `browser` field."""
         page_language = language(turn.locale)
+        # One absolute deadline from before the Browser starts, through its Watch view and the task, to its ingest.
+        deadline = time.monotonic() + browser_task.MAX_SECONDS
         try:
             lease = self._runtime.acquire(turn.team_id, page_language)
         except BrowserError as exc:
             local_audit.record_request("browser-task", result="denied", team_id=turn.team_id, detail=exc.code)
             return _result(browser_task.Outcome("failed", reason=exc.code), None), _terminal(None)
         outcome, ingested = browser_task.Outcome("failed", reason="browser-lost"), None
-        # One absolute deadline from before the Browser's start and its Watch view through the task's last step.
-        deadline = time.monotonic() + browser_task.MAX_SECONDS
         # From the moment it is held, the lease is released however the task ends, its audit included.
         try:
             with self._held(turn.token, lease):
@@ -212,7 +212,7 @@ class BrowserService:
         if outcome.status == "stopped" or turn.cancelled():
             return outcome, None
         try:
-            ingested = self._ingest(turn, lease)
+            ingested = self._ingest(turn, lease, deadline)
         except BrowserError, browser_ingest.ListingError:
             return _lost(outcome, "ingest"), None
         if not self._runtime.intact(lease):
@@ -297,10 +297,12 @@ class BrowserService:
             deadline=deadline,
         ).run()
 
-    def _ingest(self, turn: BrowserTurn, lease: Lease) -> browser_ingest.Ingested:
+    def _ingest(self, turn: BrowserTurn, lease: Lease, deadline: float) -> browser_ingest.Ingested:
         def read(name: str, size: int) -> bytes:
             try:
-                return self._runtime.read(lease, name, size)
+                if time.monotonic() >= deadline:
+                    raise BrowserError("deadline")
+                return self._runtime.read(lease, name, size, deadline)
             except BrowserError as exc:
                 raise browser_ingest.ReadLostError(name) from exc
 
@@ -312,7 +314,7 @@ class BrowserService:
                     raise browser_ingest.StoppedError(name)
                 return self._storage.put(turn.team_id, name, data, media_type, web=True)
 
-        return browser_ingest.ingest(self._runtime.files(lease), read, put, turn.cancelled)
+        return browser_ingest.ingest(self._runtime.files(lease, deadline), read, put, turn.cancelled)
 
     def _release(self, lease: Lease) -> bool:
         try:

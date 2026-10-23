@@ -3,7 +3,7 @@
 import itertools
 import unittest
 
-from browser import cua, task
+from browser import cua, read, screen, task
 from browser import thread as browser_thread
 from protocol.http.v1 import browser as browser_protocol
 
@@ -36,9 +36,15 @@ class FakeSession:
         self.calls, self.screenshots, self.observed = [], [], 0
 
     def page(self, screenshot):
-        return cua.Observation(
-            self.url, "Example", f"url: {self.url}", self.refs, PNG if screenshot else None, self.links
-        )
+        # Each offered ref has its action line, as the Driver's observation shows it.
+        links = dict(self.links)
+        lines = [f'{ref} link "{name}" (click)' for ref, name in self.links]
+        lines += [
+            f'{ref} button "b" ({", ".join(sorted(acts))})' for ref, acts in self.refs.items() if ref not in links
+        ]
+        text = f"url: {self.url}\ntitle: Example\nactions:\n" + "\n".join(lines) + "\npage:\n"
+        refs = {**self.refs, **{ref: frozenset({"click"}) for ref in links}}
+        return cua.Observation(self.url, "Example", text, refs, PNG if screenshot else None, self.links)
 
     def observe(self, *, screenshot=False):
         self.observed += 1
@@ -156,7 +162,7 @@ class BrowserTaskTests(unittest.TestCase):
                 "step": {"kind": "wait"},
                 "outcome": "ok",
                 "page": {"url": "https://example.com/editais", "title": "Example"},
-                "text": "url: https://example.com/editais",
+                "text": FakeSession(url="https://example.com/editais").page(False).text,
                 "downloads": None,
                 "screenshot": False,
             },
@@ -279,6 +285,88 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual([call[0] for call in session.calls], ["click", "navigate"])
         self.assertIn("(1 links not read", brain.requests()[1]["observation"])
 
+    def test_a_read_checks_before_every_command_and_keeps_what_it_read_when_a_later_target_fails(self):
+        links = (("p1:4", "Vaga A"), ("p1:5", "Vaga B"))
+
+        class Breaking(FakeSession):
+            def click(self, ref):
+                super().click(ref)
+                if ref == "p1:5":
+                    raise cua.CuaError("tool-failed")
+                self.url = "https://example.com/a"
+
+        brain = Brain({"kind": "read", "refs": ["p1:4", "p1:5"]}, DONE)
+        outcome, _ = _run(
+            Breaking(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d: FakeSession()
+        )
+        self.assertEqual(outcome.status, "done")
+        self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "interrupted")
+        self.assertIn("--- read https://example.com/a", brain.requests()[-1]["observation"])
+
+        # A Driver failure before the first click had no effect on the page.
+        class Blind(FakeSession):
+            reads = 0
+
+            def observe(self, *, screenshot=False):
+                Blind.reads += 1
+                if Blind.reads == 2:
+                    raise cua.CuaError("tool-failed")
+                return super().observe(screenshot=screenshot)
+
+        brain = Brain({"kind": "read", "refs": ["p1:4"]}, DONE)
+        _run(Blind(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d: FakeSession())
+        self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "refused")
+        # The egress was lost after the first target was opened: nothing more is clicked, not even the way back.
+        session = FakeSession(links=links, url="https://example.com/busca")
+        intact = iter([True] * 8 + [False] * 50)
+        _run(session, Brain({"kind": "read", "refs": ["p1:4", "p1:5"]}, DONE), intact=lambda: next(intact))
+        self.assertLessEqual(len([call for call in session.calls if call[0] == "click"]), 1)
+
+    def test_a_click_whose_page_never_changed_is_reported_not_opened(self):
+        links = (("p1:4", "Vaga A"),)
+        brain = Brain({"kind": "read", "refs": ["p1:4"]}, DONE)
+        _, sleeps = _run(FakeSession(links=links, url="https://example.com/busca"), brain)
+        self.assertIn("--- not opened: Vaga A (the page did not change) ---", brain.requests()[1]["observation"])
+        self.assertEqual(sleeps.count(read.SETTLE_SECONDS), read.SETTLE_TRIES)
+
+    def test_a_shown_page_stays_within_its_bound_and_offers_only_the_refs_it_shows(self):
+        session = FakeSession(refs={f"p1:{n}": frozenset({"click"}) for n in range(1_500)})
+        observation = session.page(False)
+        cut = read.shown(observation, "N" * 2_000, "\nPages you read last step:\n" + "x" * 10_000)
+        self.assertLessEqual(len(cut.text.encode()), browser_protocol.MAX_OBSERVATION_BYTES)
+        shown_refs = {line.split(" ", 1)[0] for line in cut.text.splitlines() if line.startswith("p1:")}
+        self.assertEqual(set(cut.refs), shown_refs)
+        self.assertLess(len(cut.refs), len(observation.refs))
+
+    def test_screening_compares_whole_url_tokens_exactly(self):
+        checked = screen.Screen()
+        checked.observed("https://example.com/job", "veja https://example.com/item(2).")
+        self.assertEqual(checked.unscreened("https://example.com/job e (https://example.com/item(2))"), [])
+        self.assertEqual(checked.unscreened("https://example.com/job/"), ["https://example.com/job/"])
+        self.assertEqual(checked.unscreened("https://example.com/item"), ["https://example.com/item"])
+
+    def test_no_step_is_taken_past_the_soft_cutoff_and_stop_during_finishing_wins(self):
+        now = [0.0]
+
+        def answering(operation, request, left):
+            if operation == "browser-step":
+                now[0] = task.MAX_SECONDS - 30.0
+                return {"kind": "navigate", "url": "https://example.com/x"}, _counts(), "gpt-6-luna"
+            return {"summary": "Parcial."}, _counts(), "gpt-6-luna"
+
+        session = FakeSession()
+        outcome, _ = _run(session, answering, clock=lambda: now[0])
+        self.assertEqual((outcome.summary, session.calls), ("Parcial.", []))
+        stopped = []
+
+        def stopping(operation, request, left):
+            if operation == "browser-check":
+                stopped.append(True)
+                return COMPLETE, _counts(), "gpt-6-luna"
+            return DONE, _counts(), "gpt-6-luna"
+
+        self.assertEqual(_run(FakeSession(), stopping, cancelled=lambda: bool(stopped))[0].status, "stopped")
+
     def test_a_thread_past_its_bound_folds_its_oldest_steps_into_the_agents_note(self):
         class Long(FakeSession):
             def page(self, screenshot):
@@ -310,7 +398,7 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual([entry["outcome"] for entry in returned], ["returned", "returned"])
         self.assertTrue(returned[0]["step"]["note"].startswith(task.UNSCREENED_NOTE))
         # A cited page the task observed is screened.
-        brain = Brain({**DONE, "summary": "Fonte: https://example.com/."})
+        brain = Brain({**DONE, "summary": "Fonte: https://example.com."})
         self.assertEqual(_run(FakeSession(), brain)[0].unscreened, ())
 
     def test_an_incomplete_answer_goes_back_four_times_then_travels_with_what_is_missing(self):

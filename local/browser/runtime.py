@@ -742,11 +742,12 @@ class BrowserRuntime:
             raise BrowserError("browser-lost")
         return listing
 
-    def read(self, lease: Lease, name: str, size: int) -> bytes:
-        """One listed download's exact bytes, framed by the length the program states first."""
+    def read(self, lease: Lease, name: str, size: int, deadline: float | None = None) -> bytes:
+        """One listed download's exact bytes, framed by the length the program states first, by `deadline` if given."""
         stream = ExecStream(self._exec(lease.container_id, ["files", "read", name])[1], self._clock)
         stream.close_input()
-        deadline = self._clock() + PROGRAM_SECONDS
+        own = self._clock() + PROGRAM_SECONDS
+        deadline = own if deadline is None else min(own, deadline)
         try:
             stated = stream.receive_line(deadline, 20)
             if stated != str(size).encode():

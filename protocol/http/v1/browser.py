@@ -254,9 +254,14 @@ def entry_bytes(entry: dict[str, object]) -> int:
     )
 
 
+def record_bytes(record: dict[str, object]) -> int:
+    """At most what one folded step renders to: its whole record, which a step history shows in full."""
+    return _bytes(record) + 1
+
+
 def history_bytes(thread: dict[str, object]) -> int:
-    """At most what a thread's history renders to: its folded lines, its notes, and its unfolded steps."""
-    folded = len(thread["folded"]) * (MAX_FOLDED_LINE_BYTES + 1)
+    """At most what a thread's history renders to: its folded records, its notes, and its unfolded steps."""
+    folded = sum(record_bytes(record) for record in thread["folded"])
     notes = sum(len(str(note).encode()) + 2 for note in thread["notes"])
     return ENTRY_OVERHEAD_BYTES + folded + notes + sum(entry_bytes(entry) for entry in thread["steps"])
 
@@ -292,7 +297,9 @@ def canonical_thread(value: object) -> dict[str, object] | None:
         return None
     records = [canonical_record(item) for item in folded]
     entries = [_entry(item) for item in steps]
-    if any(item is None for item in (*records, *entries)) or not all(canonical_note(note) == note for note in notes):
+    if any(item is None for item in (*records, *entries)) or not all(
+        isinstance(note, str) and canonical_note(note) == note for note in notes
+    ):
         return None
     thread = {
         "folded": records,
@@ -302,7 +309,7 @@ def canonical_thread(value: object) -> dict[str, object] | None:
         "steps": entries,
     }
     if (
-        len(records) * (MAX_FOLDED_LINE_BYTES + 1) > MAX_FOLDED_BYTES
+        sum(record_bytes(record) for record in records) > MAX_FOLDED_BYTES
         or sum(len(note.encode()) for note in notes) > MAX_NOTES_BYTES
         or history_bytes(thread) > MAX_HISTORY_BYTES
     ):

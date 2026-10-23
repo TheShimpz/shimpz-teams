@@ -77,7 +77,7 @@ class FakeRuntime:
             raise self.files_error
         return self.listing
 
-    def read(self, lease, name, size):
+    def read(self, lease, name, size, deadline=None):
         if self.contents.get(name) is None:
             raise runtime.BrowserError("browser-lost")
         return self.contents[name]
@@ -324,8 +324,9 @@ class BrowserServiceTests(unittest.TestCase):
         self.brain.browser_call.side_effect = _brain(step, step)
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             browser_service.run(self.turn, CONTEXT, REQUEST)
-        # Only the first step read the listing; the final ingest reads its own, with no step deadline.
-        self.assertEqual((seen[1:], sum(deadline is not None for deadline in fake.listed)), ([None], 1))
+        # Only the first step read the listing; the final ingest reads its own, by the task's one deadline.
+        self.assertEqual((seen[1:], len(fake.listed)), ([None], 2))
+        self.assertEqual(fake.listed[0], fake.listed[1])
 
     def test_a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(self):
         class Stream:
@@ -545,7 +546,7 @@ class BrowserServiceTests(unittest.TestCase):
         browser_service = self.make(fake)
         original = fake.read
 
-        def read(lease, name, size):
+        def read(lease, name, size, deadline=None):
             # Stop of this very turn arrives while the bytes are read: the store refuses them.
             browser_service.interrupt("team_1", TURN)
             return original(lease, name, size)

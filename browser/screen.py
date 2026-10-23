@@ -11,14 +11,24 @@ import re
 from collections.abc import Iterable
 
 MAX_URLS = 2_000
-# A URL as a token: an http(s) scheme and every character up to whitespace or a delimiter an answer puts around it.
-URL_RE = re.compile(r"https?://[^\s<>\"'`|()\[\]{}]+")
+# A URL as a token: an http(s) scheme and every character up to whitespace or a quote or bar an answer puts around it.
+URL_RE = re.compile(r"https?://[^\s<>\"'`|]+")
 TRAILING = ".,;:!?"
+CLOSERS = {")": "(", "]": "[", "}": "{"}
+
+
+def _token(match: str) -> str:
+    """A URL token without the sentence punctuation or unbalanced closing brackets that follow it in prose."""
+    while match and (
+        match[-1] in TRAILING or (match[-1] in CLOSERS and match.count(match[-1]) > match.count(CLOSERS[match[-1]]))
+    ):
+        match = match[:-1]
+    return match
 
 
 def urls(text: str) -> list[str]:
-    """The distinct URLs a text names, in order, each without trailing sentence punctuation."""
-    return list(dict.fromkeys(match.rstrip(TRAILING) for match in URL_RE.findall(text)))
+    """The distinct URLs a text names, in order, each as its complete token."""
+    return list(dict.fromkeys(token for token in map(_token, URL_RE.findall(text)) if token))
 
 
 class Screen:
@@ -36,12 +46,7 @@ class Screen:
         return [url for url in urls(answer) if not self._known(url)]
 
     def _known(self, url: str) -> bool:
-        stripped = url.rstrip("/")
-        return any(
-            candidate in store
-            for store in (self._seen, self._mentioned)
-            for candidate in (url, stripped, stripped + "/")
-        )
+        return url in self._seen or url in self._mentioned
 
 
 def _remember(store: dict[str, None], values: Iterable[str]) -> None:

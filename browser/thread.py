@@ -15,7 +15,6 @@ from protocol.http.v1 import browser as browser_protocol
 
 # A fold empties the history to at most this share of its bound when folding alone can, so it happens rarely.
 FOLD_TARGET_BYTES = browser_protocol.MAX_HISTORY_BYTES // 2
-LINE_BYTES = browser_protocol.MAX_FOLDED_LINE_BYTES + 1
 
 
 @dataclass(slots=True)
@@ -44,22 +43,25 @@ class Thread:
         return browser_protocol.history_bytes(self.wire())
 
     def to_fold(self, incoming: int) -> int:
-        """How many of the oldest unfolded steps fold before an entry of `incoming` bytes joins: none while it fits."""
+        """How many of the oldest unfolded steps fold before an entry of `incoming` bytes joins: none while it fits.
+
+        The count leaves room for the fold's own note, at most MAX_FOLD_NOTE_BYTES.
+        """
         if self.history_bytes() + incoming <= browser_protocol.MAX_HISTORY_BYTES:
             return 0
-        size = self.history_bytes() + incoming
+        size = self.history_bytes() + incoming + browser_protocol.MAX_FOLD_NOTE_BYTES + 2
         count = 0
         for entry in self.steps:
             if size <= FOLD_TARGET_BYTES:
                 break
-            size -= browser_protocol.entry_bytes(entry) - LINE_BYTES
+            size -= browser_protocol.entry_bytes(entry) - browser_protocol.record_bytes(_record(entry))
             count += 1
         return count
 
     def fold(self, count: int, note: str) -> None:
         """Move the oldest `count` unfolded steps into folded records, with the note written for them."""
         moved, self.steps = self.steps[:count], self.steps[count:]
-        self.folded.extend({key: entry[key] for key in ("step", "outcome", "page")} for entry in moved)
+        self.folded.extend(_record(entry) for entry in moved)
         self.notes.append(note)
         self._trim()
 
@@ -75,12 +77,16 @@ class Thread:
                 self.notes_omitted += 1
 
     def _trim(self) -> None:
-        while len(self.folded) * LINE_BYTES > browser_protocol.MAX_FOLDED_BYTES:
+        while sum(map(browser_protocol.record_bytes, self.folded)) > browser_protocol.MAX_FOLDED_BYTES:
             self.folded.pop(0)
             self.folded_omitted += 1
         while sum(len(note.encode()) for note in self.notes) > browser_protocol.MAX_NOTES_BYTES:
             self.notes.pop(0)
             self.notes_omitted += 1
+
+
+def _record(entry: dict[str, object]) -> dict[str, object]:
+    return {key: entry[key] for key in ("step", "outcome", "page")}
 
 
 def omitted_note(first: int, last: int) -> str:
