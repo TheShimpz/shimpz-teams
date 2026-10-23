@@ -479,6 +479,8 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                 HTTP / "verify.py",
                 _edited("for note in notes) > MAX_NOTES_BYTES", "for note in notes) >= MAX_NOTES_BYTES", "browser.py"),
             )
+        with self.assertRaises(SystemExit):
+            _execute(HTTP / "verify.py", _edited("        + history_bytes(thread)\n", "", "browser.py"))
 
 
 if __name__ == "__main__":
