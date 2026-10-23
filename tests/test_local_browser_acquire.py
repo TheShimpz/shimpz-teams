@@ -4,14 +4,16 @@ import threading
 import unittest
 from unittest import mock
 
-from test_local_browser_runtime import PUBLISHED, BrowserRuntimeTests, Containers, Images
+import test_local_browser_runtime as runtime_tests
+from test_local_browser_runtime import PUBLISHED, Containers, Images
 
 from local.browser import runtime
 
 
 class AcquisitionTests(unittest.TestCase):
-    setUp = BrowserRuntimeTests.setUp
-    make = BrowserRuntimeTests.make
+    # The runtime suite's fixtures; importing its class here would run that whole suite twice.
+    setUp = runtime_tests.BrowserRuntimeTests.setUp
+    make = runtime_tests.BrowserRuntimeTests.make
 
     def test_a_pull_is_waited_for_only_while_the_task_may_wait(self):
         del self.docker.images[PUBLISHED]
