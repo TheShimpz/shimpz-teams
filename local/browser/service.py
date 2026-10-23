@@ -208,6 +208,9 @@ class BrowserService:
         # A Stop during creation found no lease to remove: no channel opens once the turn is stopped.
         if turn.cancelled():
             return browser_task.Outcome("stopped"), None
+        # A start that took the whole deadline leaves the task no time.
+        if time.monotonic() >= deadline:
+            return browser_task.Outcome("budget"), None
         outcome = self._task(turn, context, request, lease, page_language, deadline)
         if outcome.status == "stopped" or turn.cancelled():
             return outcome, None
@@ -267,7 +270,7 @@ class BrowserService:
             except BrowserError as exc:
                 raise cua.CuaError("driver-unavailable") from exc
 
-        session = driver(time.monotonic() + cua.CALL_SECONDS)
+        session = driver(min(deadline, time.monotonic() + cua.CALL_SECONDS))
 
         def downloads(deadline: float) -> dict[str, object] | None:
             """The downloads present in this very Browser, read while the turn holds it; None when unreadable."""
@@ -299,12 +302,16 @@ class BrowserService:
 
     def _ingest(self, turn: BrowserTurn, lease: Lease, deadline: float) -> browser_ingest.Ingested:
         def read(name: str, size: int) -> bytes:
+            if time.monotonic() >= deadline:
+                raise browser_ingest.ReadLostError(name)
             try:
-                if time.monotonic() >= deadline:
-                    raise BrowserError("deadline")
-                return self._runtime.read(lease, name, size, deadline)
+                data = self._runtime.read(lease, name, size, deadline)
             except BrowserError as exc:
                 raise browser_ingest.ReadLostError(name) from exc
+            # Nothing read at or past the task's deadline is stored.
+            if time.monotonic() >= deadline:
+                raise browser_ingest.ReadLostError(name)
+            return data
 
         def put(name: str, data: bytes, media_type: str) -> dict[str, object]:
             # Under the guard Stop takes to remove the Browser, so no download is stored once Stop has done so.

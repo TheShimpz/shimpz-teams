@@ -26,9 +26,16 @@ def _token(match: str) -> str:
     return match
 
 
+# A Markdown link's destination is exact: every character between its parentheses belongs to it.
+LINK_RE = re.compile(r"\]\((https?://[^\s<>\"'`|]+?)\)(?=[\s.,;:!?]|$)")
+
+
 def urls(text: str) -> list[str]:
-    """The distinct URLs a text names, in order, each as its complete token."""
-    return list(dict.fromkeys(token for token in map(_token, URL_RE.findall(text)) if token))
+    """The distinct URLs a text names, in order: a link destination as written, a URL in prose as its token."""
+    linked = LINK_RE.findall(text)
+    prose = LINK_RE.sub("]", text)
+    found = [*linked, *(token for token in map(_token, URL_RE.findall(prose)) if token)]
+    return list(dict.fromkeys(found))
 
 
 class Screen:

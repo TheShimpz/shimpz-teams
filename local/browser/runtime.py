@@ -743,19 +743,26 @@ class BrowserRuntime:
         return listing
 
     def read(self, lease: Lease, name: str, size: int, deadline: float | None = None) -> bytes:
-        """One listed download's exact bytes, framed by the length the program states first, by `deadline` if given."""
-        stream = ExecStream(self._exec(lease.container_id, ["files", "read", name])[1], self._clock)
-        stream.close_input()
-        own = self._clock() + PROGRAM_SECONDS
-        deadline = own if deadline is None else min(own, deadline)
+        """One listed download's exact bytes, framed by the length the program states first, by `deadline` if given.
+
+        Opening and reading it end by that deadline; the channel is closed however it ends.
+        """
+        end = self._clock() + PROGRAM_SECONDS
+        if deadline is not None:
+            end = min(end, deadline)
+        _exec_id, raw = self._open_exec(lease.container_id, ["files", "read", name], end)
+        stream = ExecStream(raw, self._clock)
         try:
-            stated = stream.receive_line(deadline, 20)
+            stream.close_input()
+            stated = stream.receive_line(end, 20)
             if stated != str(size).encode():
                 raise BrowserError("browser-lost")
-            data = stream.receive_exact(size, deadline)
-            stream.receive_end(deadline)
-        except ChannelError as exc:
+            data = stream.receive_exact(size, end)
+            stream.receive_end(end)
+        except (ChannelError, OSError) as exc:
             raise BrowserError("browser-lost") from exc
+        finally:
+            stream.close()
         return data
 
     def _exec(self, container_id: str, arguments: list[str]) -> tuple[str, object]:

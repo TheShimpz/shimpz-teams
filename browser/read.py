@@ -32,8 +32,8 @@ class UnstartedError(cua.CuaError):
 
 
 def targets(decision: Mapping[str, object], observation: cua.Observation) -> list[int]:
-    """The positions, among the page's offered links, of the refs a read names; refs that are no offered link drop."""
-    positions = {ref: index for index, (ref, _name) in enumerate(observation.links)}
+    """The positions, among the page's links, of the refs a read names; a ref the agent was not shown drops."""
+    positions = {ref: index for index, (ref, _name) in enumerate(observation.links) if ref in observation.refs}
     return [positions[ref] for ref in decision["refs"] if ref in positions]
 
 
@@ -115,13 +115,18 @@ def _section(records: list[str], left: int) -> str:
 def shown(observation: cua.Observation, notice: str, section: str) -> cua.Observation:
     """The observation the agent sees: a notice before its text and a read section after, all within the bound.
 
-    Only refs whose action line is still shown stay actionable, so a cut can never leave a hidden ref clickable.
+    Only refs whose complete action line, as the Driver gave it, is still shown stay actionable, so a cut can never
+    leave a hidden ref clickable and no read page's text can offer one. The page's full ordered link list stays, as a
+    read compares it with the page it returns to.
     """
     room = browser_protocol.MAX_OBSERVATION_BYTES - len(section.encode())
-    text = (notice + observation.text).encode()[: max(0, room)].decode(errors="ignore") + section
-    visible = {
-        match.group(1) for line in text.split("\npage:\n", 1)[0].splitlines() if (match := _REF_LINE.match(line))
-    }
+    kept = (notice + observation.text).encode()[: max(0, room)].decode(errors="ignore")
+    head, separated, _outline = kept.partition("\npage:\n")
+    lines = head.splitlines()
+    if not separated and lines:
+        # The cut fell inside the action lines: the last one may be partial.
+        lines = lines[:-1]
+    original = set(observation.text.partition("\npage:\n")[0].splitlines())
+    visible = {match.group(1) for line in lines if line in original and (match := _REF_LINE.match(line))}
     refs = {ref: actions for ref, actions in observation.refs.items() if ref in visible}
-    links = tuple(link for link in observation.links if link[0] in visible)
-    return replace(observation, text=text, refs=refs, links=links)
+    return replace(observation, text=kept + section, refs=refs)

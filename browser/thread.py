@@ -45,7 +45,8 @@ class Thread:
     def to_fold(self, incoming: int) -> int:
         """How many of the oldest unfolded steps fold before an entry of `incoming` bytes joins: none while it fits.
 
-        The count leaves room for the fold's own note, at most MAX_FOLD_NOTE_BYTES.
+        The count leaves room for the fold's own note, at most MAX_FOLD_NOTE_BYTES. Folding aims at FOLD_TARGET_BYTES
+        but only steps fold, so a history of large notes and lines may stay above it; MAX_HISTORY_BYTES is the bound.
         """
         if self.history_bytes() + incoming <= browser_protocol.MAX_HISTORY_BYTES:
             return 0

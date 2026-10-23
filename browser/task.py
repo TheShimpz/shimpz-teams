@@ -150,7 +150,8 @@ class Task:
         return None
 
     def _may_act(self) -> bool:
-        return self._halted(0) is None
+        """Whether a read may send its next Driver command: the task may go on and the soft cutoff has not passed."""
+        return self._halted(0) is None and not self._finishing()
 
     def _finishing(self) -> bool:
         return self.clock() >= self.deadline - FINISH_SECONDS
@@ -185,8 +186,11 @@ class Task:
         if not self._affords(reserve, finishing=finishing) or self._halted(0) is not None:
             raise StepFailedError("no budget")
         until = self.deadline if finishing else self.deadline - FINISH_SECONDS
+        left = until - self.clock()
+        if left <= 0:
+            raise StepFailedError("no time")
         try:
-            value, counts, model = self.call(operation, request, until - self.clock())
+            value, counts, model = self.call(operation, request, left)
         except StepFailedError:
             self.budget.spent += reserve
             raise
@@ -268,18 +272,25 @@ class Task:
         try:
             raw = self._ask("browser-step", request, finishing=False)
         except StepFailedError:
-            # Stop aborts the Brain request in flight, which then fails: that task was stopped, not failed.
-            return self._halted(index) or Outcome("failed", reason="model-unavailable", steps=index)
-        ended = self._halted(index + 1)
+            return self._unanswered(index, request)
+        # The soft cutoff passed while the Brain answered: no step is taken past it.
+        ended = self._halted(index + 1) or (self._final(index + 1, request) if self._finishing() else None)
         if ended is not None:
             return ended
-        if self._finishing():
-            # The soft cutoff passed while the Brain answered: no step is taken past it.
-            return self._final(index + 1, request)
         decision = browser_protocol.canonical_step(raw)
-        if decision is None:
-            return Outcome("failed", reason="step-invalid", steps=index + 1)
-        return decision
+        return Outcome("failed", reason="step-invalid", steps=index + 1) if decision is None else decision
+
+    def _unanswered(self, index: int, request: Mapping[str, object]) -> Outcome:
+        """How a step the Brain did not answer ends the task.
+
+        Stop aborts the Brain request in flight, which then fails: that task was stopped, not failed. A step cut short
+        by the soft cutoff finishes the task from its thread.
+        """
+        if (ended := self._halted(index)) is not None:
+            return ended
+        if self._finishing():
+            return self._final(index, request)
+        return Outcome("failed", reason="model-unavailable", steps=index)
 
     def _act(
         self,
