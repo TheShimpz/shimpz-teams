@@ -685,12 +685,38 @@ class BrowserRuntimeTests(unittest.TestCase):
             release.wait(5)
             return original(images, repository, tag)
 
-        with mock.patch.object(Images, "pull", stalled):
-            for wait in ({"wanted": lambda: False}, {"deadline": 0.0}):
-                with self.subTest(wait=list(wait)), self.assertRaises(runtime.BrowserError):
-                    self.make(image=PUBLISHED).acquire("team_1", "en", **wait)
+        started = []
+
+        def counted(images, repository, tag):
+            started.append(tag)
+            return stalled(images, repository, tag)
+
+        browser = self.make(image=PUBLISHED)
+        stop = threading.Event()
+        with mock.patch.object(Images, "pull", counted):
+            for _attempt in range(3):
+                threading.Timer(0.2, stop.set).start()
+                with self.assertRaises(runtime.BrowserError):
+                    browser.acquire("team_1", "en", wanted=lambda: not stop.is_set())
+                stop.clear()
+            # Every abandoned wait shared the one pull under way.
+            self.assertEqual(len(started), 1)
+            with self.assertRaises(runtime.BrowserError):
+                browser.acquire("team_1", "en", deadline=0.0)
             release.set()
         self.assertEqual(self.docker.created, [])
+
+    def test_a_stop_while_the_browser_is_created_never_starts_chromium(self):
+        stopped = []
+        original = Containers.create
+
+        def creating(containers, **options):
+            stopped.append(True)
+            return original(containers, **options)
+
+        with mock.patch.object(Containers, "create", creating), self.assertRaises(runtime.BrowserError):
+            self.runtime.acquire("team_1", "en", wanted=lambda: not stopped)
+        self.assertEqual(len(self.docker.created), len(self.docker.removed))
 
     def test_a_created_browser_that_drifts_resolves_another_image_or_never_gets_ready_is_removed(self):
         cases = {

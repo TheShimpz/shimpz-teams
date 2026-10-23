@@ -192,6 +192,9 @@ class BrowserRuntime:
         self._clock = clock
         self._sleep = sleep
         self._slot = threading.Lock()
+        # The one pull of the pinned image under way, if any, and what it ended with.
+        self._pull_guard = threading.Lock()
+        self._pulling: tuple[threading.Thread, dict[str, object]] | None = None
         # The egress generation an earlier task ran on, which no later task may share; unknown after a Team start.
         self._used: Generation | None = None
         self._dirty = True
@@ -489,7 +492,8 @@ class BrowserRuntime:
             raise BrowserError("browser-unavailable") from exc
         try:
             container.reload()
-            if container.attrs.get("Image") != image.id:
+            if container.attrs.get("Image") != image.id or not may_wait():
+                # Stop or the deadline came while the container was created: Chromium never starts.
                 raise BrowserError("browser-unavailable")
             container.start()
             container.reload()
@@ -500,7 +504,7 @@ class BrowserRuntime:
                 self._feed(container.id, ["credentials"], (credentials.file(),))
             if capsule is not None:
                 self._feed(container.id, ["profile", "import"], capsule)
-            self._wait_ready(container)
+            self._wait_ready(container, may_wait)
             return Lease(team_id, container.id, self._address(container), egress, mode, credentials)
         except BaseException:
             self._remove(container.id)
@@ -511,17 +515,14 @@ class BrowserRuntime:
 
         A pull still running when the wait ends goes on alone and is never used by this task.
         """
-        repository, digest = self._image.split("@")
-        done: dict[str, object] = {}
-
-        def pull() -> None:
-            try:
-                done["image"] = self._client.images.pull(repository, tag=digest)
-            except DockerException as exc:
-                done["error"] = exc
-
-        worker = threading.Thread(target=pull, name="browser-image-pull", daemon=True)
-        worker.start()
+        if not may_wait():
+            raise BrowserError("browser-unavailable")
+        with self._pull_guard:
+            # At most one pull of the pinned image runs: a later task waits for the one under way.
+            if self._pulling is None or not self._pulling[0].is_alive():
+                self._pulling = (threading.Thread(target=self._pull_image, name="browser-image-pull", daemon=True), {})
+                self._pulling[0].start()
+            worker, done = self._pulling
         while worker.is_alive():
             if not may_wait():
                 raise BrowserError("browser-unavailable")
@@ -529,6 +530,14 @@ class BrowserRuntime:
         if "error" in done:
             raise BrowserError("browser-unavailable") from done["error"]
         return done["image"]
+
+    def _pull_image(self) -> None:
+        repository, digest = self._image.split("@")
+        done = self._pulling[1]
+        try:
+            done["image"] = self._client.images.pull(repository, tag=digest)
+        except DockerException as exc:
+            done["error"] = exc
 
     def container_name(self, team_id: str) -> str:
         return f"shimpz-local-{space_prefix(self._space_id)}-{team_id}-browser"
@@ -566,10 +575,10 @@ class BrowserRuntime:
         ):
             raise BrowserError("browser-unavailable")
 
-    def _wait_ready(self, container) -> None:
+    def _wait_ready(self, container, may_wait: Callable[[], bool] = lambda: True) -> None:
         deadline = self._clock() + READY_SECONDS
         while self.program(container.id, ["ready"], deadline=self._clock() + 2)[0] != 0:
-            if self._clock() >= deadline:
+            if self._clock() >= deadline or not may_wait():
                 raise BrowserError("browser-unavailable")
             self._sleep(0.2)
 
