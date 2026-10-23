@@ -405,6 +405,63 @@ class BrowserTaskTests(unittest.TestCase):
         screen.urls("](https://a" * (browser_protocol.MAX_SUMMARY_BYTES // 11) * 8)
         self.assertLess(time.monotonic() - started, 1.0)
 
+    def test_the_hard_deadline_ends_the_task_and_a_call_with_no_time_left_is_never_sent(self):
+        ticks = iter([0.0] + [task.MAX_SECONDS + 1.0] * 50)
+        self.assertEqual(_run(FakeSession(), Brain(DONE), clock=lambda: next(ticks))[0], task.Outcome("budget"))
+        now = [0.0]
+
+        def clock():
+            # Each look at the clock is a later moment: the step's own call finds its time already spent.
+            now[0] += task.MAX_SECONDS / 4
+            return now[0]
+
+        sent = []
+        _run(FakeSession(), lambda *args: sent.append(args), clock=clock)
+        self.assertEqual(sent, [])
+
+    def test_a_final_answer_ends_with_what_stopped_it(self):
+        final = {"summary": "Parcial."}
+        outcome, _ = _run(FakeSession(fail_observe=True), Brain(final=final), budget=task.Budget(steps=0))
+        self.assertEqual(outcome.reason, "browser-lost")
+        stopped = []
+
+        def finishing(operation, request, left):
+            stopped.append(operation)
+            return final, _counts(), "gpt-6-luna"
+
+        outcome, _ = _run(
+            FakeSession(), finishing, budget=task.Budget(steps=0), cancelled=lambda: "browser-final" in stopped
+        )
+        self.assertEqual(outcome, task.Outcome("stopped"))
+
+    def test_a_read_stops_before_its_first_target_or_while_its_page_loads_when_the_task_must_stop(self):
+        links = (("p1:4", "Vaga A"), ("p1:5", "Vaga B"))
+        session = FakeSession(links=links, url="https://example.com/busca")
+        observation = read.shown(session.page(False), "", "")
+        decision = {"kind": "read", "refs": ["p1:4", "p1:5"]}
+        self.assertEqual(read.run(session, decision, observation, lambda: False, [].append, print, print), "refused")
+        self.assertEqual(session.calls, [])
+        answers = iter([True, True, False])
+        kept = []
+        outcome = read.run(session, decision, observation, lambda: next(answers, False), [].append, print, kept.append)
+        self.assertEqual((outcome, session.calls), ("ok", [("click", "p1:4")]))
+        self.assertIn("--- not opened: Vaga A", kept[-1])
+        # A click the page refused opened nothing, and the read goes on.
+        refusing = FakeSession(links=links, url="https://example.com/busca", refuse={"click"})
+        kept.clear()
+        read.run(
+            refusing, decision, read.shown(refusing.page(False), "", ""), lambda: True, [].append, print, kept.append
+        )
+        self.assertIn("--- not loaded: Vaga A ---", kept[-1])
+
+    def test_a_bracket_that_opens_no_link_and_an_evicted_url_screen_as_prose(self):
+        self.assertEqual(screen.urls("veja ](texto) e https://example.com/a"), ["https://example.com/a"])
+        checked = screen.Screen()
+        checked.observed("https://example.com/first", "")
+        for number in range(screen.MAX_URLS):
+            checked.observed(f"https://example.com/{number}", "")
+        self.assertEqual(checked.unscreened("https://example.com/first"), ["https://example.com/first"])
+
     def test_screening_compares_whole_url_tokens_exactly(self):
         checked = screen.Screen()
         checked.observed("https://example.com/job", "veja https://example.com/item(2).")

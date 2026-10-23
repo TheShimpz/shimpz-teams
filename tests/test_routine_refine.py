@@ -196,6 +196,13 @@ class InputTests(unittest.TestCase):
         self.assertEqual(refined.document["steps"][3]["input"]["t"], {"kind": "run_clock", "format": "date"})
         self.assertEqual(refined.origins["s4"], {"t": "clock"})
 
+    def test_new_steps_whose_selections_outgrow_their_bound_are_refused(self) -> None:
+        records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": []})
+        named = "Também leia os registros de shimpz.com"
+        with mock.patch.object(routine_plan, "retained_within", return_value=False):
+            code = _code(self, _insert("s3", "c2"), calls=(ZONES_CALL, records), message=named)
+        self.assertEqual(code, "routine-recording-too-large")
+
     def test_a_withheld_input_refuses_as_a_secret(self) -> None:
         withheld = (*FETCH_A[:3], trace.Kept({"q": None}, frozenset({"/q"})))
         self.assertEqual(_code(self, _insert("s3", "c1"), calls=(withheld,)), "routine-secret-literal")

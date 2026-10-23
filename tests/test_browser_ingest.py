@@ -131,6 +131,14 @@ class IngestTests(unittest.TestCase):
         self.assertEqual((result.kept, result.lost), ((), ()))
         self.assertNotIn(("read", "b.pdf", 9), recorder.events)
 
+    def test_a_store_past_the_tasks_deadline_loses_that_file_and_every_later_one(self):
+        recorder = Recorder({"a.pdf": PDF, "b.pdf": PDF}, {"a.pdf": ingest.ReadLostError("a.pdf")})
+        result = ingest.ingest(_listing([("a.pdf", 9), ("b.pdf", 9)]), recorder.read, recorder.put, _running)
+        self.assertEqual(
+            (result.kept, result.lost),
+            ((), ({"name": "a.pdf", "reason": "browser-lost"}, {"name": "b.pdf", "reason": "browser-lost"})),
+        )
+
     def test_a_malformed_listing_is_refused_whole(self):
         for listing in (
             {},

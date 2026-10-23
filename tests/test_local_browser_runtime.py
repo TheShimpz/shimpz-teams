@@ -706,6 +706,11 @@ class BrowserRuntimeTests(unittest.TestCase):
             release.set()
         self.assertEqual(self.docker.created, [])
 
+    def test_a_task_that_may_no_longer_wait_creates_no_browser(self):
+        with self.assertRaises(runtime.BrowserError):
+            self.runtime.acquire("team_1", "en", wanted=lambda: False)
+        self.assertEqual(self.docker.created, [])
+
     def test_a_stop_while_the_browser_is_created_never_starts_chromium(self):
         stopped = []
         original = Containers.create
@@ -829,6 +834,7 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.docker.programs[("files", "read", "edital.pdf")] = (0, b"9\n%PDF-1.4\n")
         self.assertEqual(self.runtime.files(lease), listing)
         self.assertEqual(self.runtime.read(lease, "edital.pdf", 9), b"%PDF-1.4\n")
+        self.assertEqual(self.runtime.read(lease, "edital.pdf", 9, deadline=1e9), b"%PDF-1.4\n")
         for output in (b"[]\n", b'{"files": []}\n', b"not json\n", b'{"files":[]}'):
             with self.subTest(output=output), self.assertRaises(runtime.BrowserError) as raised:
                 self.docker.programs[("files", "list")] = (0, output)

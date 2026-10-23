@@ -251,6 +251,26 @@ class BrowserServiceTests(unittest.TestCase):
         result, _terminal = self.run_with(self.make(FakeRuntime()), checked)
         self.assertEqual((result["unscreened_urls"], "missing" in result), ([], False))
 
+    def test_a_start_that_took_the_whole_deadline_runs_no_task(self):
+        with mock.patch.object(service.browser_task, "MAX_SECONDS", -1.0):
+            result, _ = self.make(FakeRuntime()).run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(self.brain.browser_call.called)
+
+    def test_nothing_is_read_or_stored_at_or_past_the_tasks_deadline(self):
+        listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
+        lost = [{"name": "a.pdf", "reason": "browser-lost"}]
+        # Past the deadline before the read, after it, and once the file is ready to be stored.
+        for ticks in ([10.0], [0.0, 10.0], [0.0, 0.0, 10.0]):
+            with self.subTest(ticks=ticks):
+                fake = FakeRuntime(listing=listing, contents={"a.pdf": b"%PDF-1.4\n"})
+                browser_service = self.make(fake)
+                browser_service._running["team_1"] = (TURN, LEASE, None)
+                clock = iter([*ticks, *([10.0] * 5)])
+                with mock.patch.object(service.time, "monotonic", side_effect=clock):
+                    ingested = browser_service._ingest(self.turn, LEASE, 5.0)
+                self.assertEqual((ingested.kept, list(ingested.lost)), ((), lost))
+
     def test_a_read_that_fails_marks_the_rest_lost(self):
         listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
         browser_service = self.make(FakeRuntime(listing=listing))
