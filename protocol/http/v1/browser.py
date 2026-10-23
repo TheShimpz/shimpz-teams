@@ -31,20 +31,23 @@ MAX_STEPS = 300
 # A read step opens at most this many links of its page in turn.
 MAX_READ_REFS = 10
 # The thread a step request carries: its history (the earlier-steps message plus the unfolded steps) within
-# MAX_HISTORY_BYTES; one fold note, all notes, and the folded step lines each within their own bound.
-MAX_HISTORY_BYTES = 48 * 1024
-MAX_FOLD_NOTE_BYTES = 8 * 1024
-MAX_NOTES_BYTES = 16 * 1024
+# MAX_HISTORY_BYTES; the agent's task memory and the folded step lines each within their own bound. The history holds
+# the memory, the folded lines, and about four real pages of unfolded steps, so a fold comes every few steps rather than
+# every step (2026-10-23 amendment).
+MAX_HISTORY_BYTES = 128 * 1024
+MAX_MEMORY_BYTES = 12 * 1024
 MAX_FOLDED_LINE_BYTES = 300
 MAX_FOLDED_BYTES = 8 * 1024
 # Each thread entry's rendering adds at most this much to its fields' bytes (headings, markers, its step record).
 ENTRY_OVERHEAD_BYTES = 512
 # The whole text a request renders to: its history, its current page, its objective, and their framing.
-MAX_REQUEST_TEXT_BYTES = 88 * 1024
+MAX_REQUEST_TEXT_BYTES = 172 * 1024
 # What one Brain call of a Browser task may cost, so Team reserves its worst case before sending it: the provider
-# attempts the Brain makes (its SDK retries included), the input it admits, and the output it lets a model write.
+# attempts the Brain makes (its SDK retries included), the input it admits, and the output it lets a model write. The
+# input bound stays below the prompt size from which GPT-6 Luna bills a higher rate (272,000 tokens); the Brain holds
+# Haiku 5.5, which bills more above 100,000, to that lower bound.
 MAX_CALL_ATTEMPTS = 3
-MAX_CALL_INPUT_TOKENS = 100_000
+MAX_CALL_INPUT_TOKENS = 200_000
 MAX_CALL_OUTPUT_TOKENS = 4_096
 LANGUAGES = frozenset({"en", "pt-BR"})
 REASONS = ("sign-in", "captcha", "payment", "confirmation", "blocked")
@@ -260,10 +263,10 @@ def record_bytes(record: dict[str, object]) -> int:
 
 
 def history_bytes(thread: dict[str, object]) -> int:
-    """At most what a thread's history renders to: its folded records, its notes, and its unfolded steps."""
+    """At most what a thread's history renders to: its folded records, its memory, and its unfolded steps."""
     folded = sum(record_bytes(record) for record in thread["folded"])
-    notes = sum(len(str(note).encode()) + 2 for note in thread["notes"])
-    return ENTRY_OVERHEAD_BYTES + folded + notes + sum(entry_bytes(entry) for entry in thread["steps"])
+    memory = len(str(thread["memory"]).encode())
+    return ENTRY_OVERHEAD_BYTES + folded + memory + sum(entry_bytes(entry) for entry in thread["steps"])
 
 
 def request_text_bytes(objective: str, thread: dict[str, object], observation: str, downloads: object) -> int:
@@ -278,48 +281,38 @@ def request_text_bytes(objective: str, thread: dict[str, object], observation: s
 
 
 def canonical_thread(value: object) -> dict[str, object] | None:
-    """A task's thread, oldest first: folded step records, fold notes, and unfolded steps, each within its bound.
+    """A task's thread, oldest first: folded step records, the agent's task memory, and unfolded steps.
 
-    Each list's dropped items are counted; the history stays within MAX_HISTORY_BYTES.
+    The dropped folded records are counted; each part stays within its bound and the history within MAX_HISTORY_BYTES.
     """
-    keys = {"folded", "folded_omitted", "notes", "notes_omitted", "steps"}
-    if not isinstance(value, dict) or set(value) != keys:
+    if not isinstance(value, dict) or set(value) != {"folded", "folded_omitted", "memory", "steps"}:
         return None
-    folded, notes, steps = value["folded"], value["notes"], value["steps"]
+    folded, memory, steps = value["folded"], value["memory"], value["steps"]
     if (
         not isinstance(folded, list)
-        or not isinstance(notes, list)
         or not isinstance(steps, list)
         or len(folded) + len(steps) > MAX_STEPS
         or not _count(value["folded_omitted"])
-        or not _count(value["notes_omitted"])
+        or not isinstance(memory, str)
+        or (memory != "" and canonical_memory(memory) != memory)
     ):
         return None
     records = [canonical_record(item) for item in folded]
     entries = [_entry(item) for item in steps]
-    if any(item is None for item in (*records, *entries)) or not all(
-        isinstance(note, str) and canonical_note(note) == note for note in notes
-    ):
+    if any(item is None for item in (*records, *entries)):
         return None
-    thread = {
-        "folded": records,
-        "folded_omitted": value["folded_omitted"],
-        "notes": list(notes),
-        "notes_omitted": value["notes_omitted"],
-        "steps": entries,
-    }
-    if (
-        sum(record_bytes(record) for record in records) > MAX_FOLDED_BYTES
-        or sum(len(note.encode()) for note in notes) > MAX_NOTES_BYTES
-        or history_bytes(thread) > MAX_HISTORY_BYTES
-    ):
+    thread = {"folded": records, "folded_omitted": value["folded_omitted"], "memory": memory, "steps": entries}
+    if sum(record_bytes(record) for record in records) > MAX_FOLDED_BYTES or history_bytes(thread) > MAX_HISTORY_BYTES:
         return None
     return thread
 
 
-def canonical_note(value: object) -> str | None:
-    """One fold note: the agent's own plain-text record of pages leaving its view, untrusted like the pages."""
-    if not _plain(value, MAX_FOLD_NOTE_BYTES, multiline=True) or len(str(value).encode()) > MAX_FOLD_NOTE_BYTES:
+def canonical_memory(value: object) -> str | None:
+    """The agent's task memory: its own plain-text record of what pages that left its view showed, untrusted like them.
+
+    A fold rewrites the whole memory, which replaces the one before; an empty memory is no memory.
+    """
+    if not _plain(value, MAX_MEMORY_BYTES, multiline=True) or len(str(value).encode()) > MAX_MEMORY_BYTES:
         return None
     return str(value)
 

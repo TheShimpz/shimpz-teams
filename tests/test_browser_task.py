@@ -78,11 +78,11 @@ class FakeSession:
 
 
 class Brain:
-    """Answers each step in turn, checks with `verdicts`, folds with `note`, and finishes with `final`."""
+    """Answers each step in turn, checks with `verdicts`, folds with `memory`, and finishes with `final`."""
 
-    def __init__(self, *steps, verdicts=(), note="Fatos.", final=None, counts=None, seconds=None):
+    def __init__(self, *steps, verdicts=(), memory="Fatos.", final=None, counts=None, seconds=None):
         self.steps, self.verdicts = iter(steps), iter(verdicts)
-        self.note, self.final, self.counts = note, final, counts or _counts()
+        self.memory, self.final, self.counts = memory, final, counts or _counts()
         self.calls, self.seconds = [], seconds
 
     def __call__(self, operation, request, left):
@@ -92,13 +92,13 @@ class Brain:
         answer = {
             "browser-step": lambda: next(self.steps),
             "browser-check": lambda: next(self.verdicts, COMPLETE),
-            "browser-fold": lambda: self.note,
+            "browser-fold": lambda: self.memory,
             "browser-final": lambda: self.final,
         }[operation]()
         if isinstance(answer, BaseException):
             raise answer
         if operation == "browser-fold" and not isinstance(answer, dict):
-            answer = {"note": answer}
+            answer = {"memory": answer}
         return answer, self.counts, "gpt-6-luna"
 
     def requests(self, operation="browser-step"):
@@ -495,27 +495,41 @@ class BrowserTaskTests(unittest.TestCase):
 
         self.assertEqual(_run(FakeSession(), stopping, cancelled=lambda: bool(stopped))[0].status, "stopped")
 
-    def test_a_thread_past_its_bound_folds_its_oldest_steps_into_the_agents_note(self):
+    def test_a_thread_past_its_bound_folds_its_oldest_steps_and_keeps_the_rewritten_memory(self):
         class Long(FakeSession):
             def page(self, screenshot):
                 observation = super().page(screenshot)
-                return cua.Observation(observation.url, "Long", "x" * 20_000, {}, observation.screenshot)
+                text = "x" * browser_protocol.MAX_OBSERVATION_BYTES
+                return cua.Observation(observation.url, "Long", text, {}, observation.screenshot)
 
-        brain = Brain(*([{"kind": "wait"}] * 6), DONE, note="V101: R$ 9.500")
-        outcome, _ = _run(Long(), brain)
+        memories = iter(["V101: R$ 9.500", *["V101: R$ 9.500\nV102: R$ 7.000"] * 10])
+        brain = Brain(*([{"kind": "wait"}] * 12), DONE)
+        original = brain.__call__
+
+        def answering(operation, request, left):
+            if operation == "browser-fold":
+                brain.calls.append((operation, request))
+                return {"memory": next(memories)}, _counts(), "gpt-6-luna"
+            return original(operation, request, left)
+
+        outcome, _ = _run(Long(), answering)
         self.assertEqual(outcome.status, "done")
         folds = brain.requests("browser-fold")
-        self.assertEqual([(fold["first"], fold["last"]) for fold in folds], [(1, 2), (3, 4)])
+        self.assertGreaterEqual(len(folds), 2)
+        self.assertEqual(folds[1]["thread"]["memory"], "V101: R$ 9.500")
         thread = brain.requests()[-1]["thread"]
-        self.assertEqual(thread["notes"], ["V101: R$ 9.500"] * 2)
-        self.assertEqual(len(thread["folded"]), 4)
+        self.assertEqual(thread["memory"], "V101: R$ 9.500\nV102: R$ 7.000")
         self.assertEqual(browser_protocol.canonical_thread(thread), thread)
         for request in brain.requests():
             self.assertLessEqual(browser_protocol.history_bytes(request["thread"]), browser_protocol.MAX_HISTORY_BYTES)
-        # A fold whose note could not be written keeps its fixed note, and the bounds still hold.
-        brain = Brain(*([{"kind": "wait"}] * 6), DONE, note=task.StepFailedError("down"))
+        # A fold whose memory could not be written keeps the memory it had and names the gap; the bounds still hold.
+        brain = Brain(*([{"kind": "wait"}] * 12), DONE, memory=task.StepFailedError("down"))
         _run(Long(), brain)
-        self.assertEqual(brain.requests()[-1]["thread"]["notes"][0], browser_thread.omitted_note(1, 2))
+        first = brain.requests("browser-fold")[0]
+        self.assertEqual(
+            brain.requests()[-1]["thread"]["memory"].splitlines()[0],
+            browser_thread.omitted_note(first["first"], first["last"]),
+        )
 
     def test_an_answer_citing_an_unshown_url_goes_back_twice_then_says_so(self):
         cited = "Prazo: 30/11 (https://example.com/edital)."

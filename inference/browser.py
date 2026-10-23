@@ -44,10 +44,10 @@ def parse_call(value: dict[str, object]) -> BrowserRequest | None:
 
 
 # Each Browser operation of a task (ADR-0117, 2026-10-22 amendment) and the fields of its answer beside the model and
-# its usage: a step, a fold's note, the completeness check's verdict, and the final answer from the thread.
+# its usage: a step, a fold's rewritten memory, the completeness check's verdict, and the final answer from the thread.
 ANSWERS = {
     "browser-step": frozenset({"step"}),
-    "browser-fold": frozenset({"note"}),
+    "browser-fold": frozenset({"memory"}),
     "browser-check": frozenset({"complete", "missing"}),
     "browser-final": frozenset({"summary"}),
 }

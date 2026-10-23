@@ -100,8 +100,8 @@ class BrowserProtocolTests(unittest.TestCase):
         page = {"url": "https://example.com/edital", "title": "Edital"}
         record = {"step": step, "outcome": "returned", "page": page}
         entry = {**record, "text": "url: https://example.com/edital", "downloads": None, "screenshot": True}
-        empty = {"folded": [], "folded_omitted": 0, "notes": [], "notes_omitted": 0, "steps": []}
-        thread = {**empty, "folded": [record], "folded_omitted": 2, "notes": ["V101: R$ 9.500"], "steps": [entry]}
+        empty = {"folded": [], "folded_omitted": 0, "memory": "", "steps": []}
+        thread = {**empty, "folded": [record], "folded_omitted": 2, "memory": "V101: R$ 9.500", "steps": [entry]}
         self.assertEqual(browser.canonical_thread(thread), thread)
         page_entry = {**entry, "text": "a" * browser.MAX_OBSERVATION_BYTES}
         for value in (
@@ -111,14 +111,14 @@ class BrowserProtocolTests(unittest.TestCase):
             {**empty, "folded": [{**record, "step": {"kind": "done", "summary": "x"}}]},
             {**empty, "folded": [{**record, "page": {"url": "https://example.com"}}]},
             {**empty, "folded": [record] * (browser.MAX_FOLDED_BYTES // browser.record_bytes(record) + 1)},
-            {**empty, "notes": [None]},
-            {**empty, "notes": ["two\x07"]},
-            {**empty, "notes": ["x" * (browser.MAX_FOLD_NOTE_BYTES + 1)]},
-            {**empty, "notes": ["x" * browser.MAX_FOLD_NOTE_BYTES] * 3},
-            {**empty, "notes_omitted": -1},
+            {**empty, "memory": None},
+            {**empty, "memory": " "},
+            {**empty, "memory": "two\x07"},
+            {**empty, "memory": "x" * (browser.MAX_MEMORY_BYTES + 1)},
+            {**empty, "folded_omitted": -1},
             {**empty, "steps": [{**entry, "screenshot": 1}]},
             {**empty, "steps": [{key: value for key, value in entry.items() if key != "downloads"}]},
-            {**empty, "steps": [page_entry, page_entry]},
+            {**empty, "steps": [page_entry] * 6},
             {**empty, "folded": [record] * 10, "steps": [entry] * (browser.MAX_STEPS - 9)},
         ):
             with self.subTest(thread=value):
@@ -136,9 +136,9 @@ class BrowserProtocolTests(unittest.TestCase):
             "downloads": None,
             "screenshot": False,
         }
-        thread = {"folded": [], "folded_omitted": 0, "notes": ["note"], "notes_omitted": 0, "steps": [entry]}
+        thread = {"folded": [], "folded_omitted": 0, "memory": "memory", "steps": [entry]}
         one = browser.history_bytes(thread)
-        self.assertGreaterEqual(one, browser.entry_bytes(entry) + len(b"note"))
+        self.assertGreaterEqual(one, browser.entry_bytes(entry) + len(b"memory"))
         total = browser.request_text_bytes("Objective", thread, "current page", None)
         self.assertGreaterEqual(total, one + len(b"Objective") + len(b"current page"))
 

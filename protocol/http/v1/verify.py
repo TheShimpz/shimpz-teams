@@ -451,7 +451,7 @@ for kind, admit in admit_browser.items():
         fail(f"an invalid Browser {kind} vector was admitted")
 # Each bound, one past it: too large to write out as a vector.
 wait = {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "about:blank", "title": ""}}
-empty = {"folded": [], "folded_omitted": 0, "notes": [], "notes_omitted": 0, "steps": []}
+empty = {"folded": [], "folded_omitted": 0, "memory": "", "steps": []}
 page_step = {**wait, "text": "a" * browser.MAX_OBSERVATION_BYTES, "downloads": None, "screenshot": False}
 lines = browser.MAX_FOLDED_BYTES // browser.record_bytes(wait)
 long_title = {"url": "about:blank", "title": "a" * (browser.MAX_TITLE_CHARS + 1)}
@@ -463,10 +463,9 @@ over_bounds = (
     (browser.canonical_step, {"kind": "done", "summary": "\u00e9" * (browser.MAX_SUMMARY_BYTES // 2 + 1)}),
     (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
     (browser.canonical_thread, {**empty, "folded": [wait] * (lines + 1)}),
-    (browser.canonical_thread, {**empty, "notes": [None]}),
-    (browser.canonical_thread, {**empty, "notes": ["a" * (browser.MAX_FOLD_NOTE_BYTES + 1)]}),
-    (browser.canonical_thread, {**empty, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 3}),
-    (browser.canonical_thread, {**empty, "steps": [page_step] * 2}),
+    (browser.canonical_thread, {**empty, "memory": None}),
+    (browser.canonical_thread, {**empty, "memory": "a" * (browser.MAX_MEMORY_BYTES + 1)}),
+    (browser.canonical_thread, {**empty, "steps": [page_step] * 6}),
     (browser.canonical_step, {"kind": "read", "refs": [f"p1:{n}" for n in range(browser.MAX_READ_REFS + 1)]}),
     (browser.canonical_step, {"kind": "wait", "note": "a" * (browser.MAX_NOTE_CHARS + 1)}),
     (browser.canonical_record, {**wait, "page": long_title}),
@@ -484,7 +483,7 @@ over_bounds = (
 )
 if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")
-at_bound = {**empty, "folded": [wait] * lines, "notes": ["a" * browser.MAX_FOLD_NOTE_BYTES] * 2}
+at_bound = {**empty, "folded": [wait] * lines, "memory": "a" * browser.MAX_MEMORY_BYTES}
 if browser.canonical_thread(at_bound) != at_bound:
     fail("a Browser thread at its bounds was not admitted")
 # A request's measure covers its thread's history, its page, its objective, and its downloads.

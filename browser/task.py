@@ -355,17 +355,17 @@ class Task:
         count = self.thread.to_fold(browser_protocol.entry_bytes(entry))
         if count:
             first, last = self.thread.number(0), self.thread.number(count - 1)
-            self.thread.fold(count, self._fold_note(request, first, last))
+            self.thread.fold(count, self._memory(request, first, last))
         self.thread.append(entry)
 
-    def _fold_note(self, request: Mapping[str, object], first: int, last: int) -> str:
-        """The agent's own note of the steps leaving its view, or the fixed one when it could not be written."""
+    def _memory(self, request: Mapping[str, object], first: int, last: int) -> str | None:
+        """The agent's whole rewritten memory as steps leave its view; None when it could not be written."""
         try:
             value = self._ask("browser-fold", {**request, "first": first, "last": last}, finishing=False)
         except StepFailedError:
-            return browser_thread.omitted_note(first, last)
-        note = value.get("note") if isinstance(value, dict) and set(value) == {"note"} else None
-        return browser_protocol.canonical_note(note) or browser_thread.omitted_note(first, last)
+            return None
+        memory = value.get("memory") if isinstance(value, dict) and set(value) == {"memory"} else None
+        return browser_protocol.canonical_memory(memory)
 
     # Finishing
 
