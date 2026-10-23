@@ -139,13 +139,33 @@ class EditTests(unittest.TestCase):
 
 
 class InputTests(unittest.TestCase):
-    def test_a_value_an_earlier_result_holds_or_no_result_sourced_is_refused_in_this_slice(self) -> None:
+    def test_a_value_copied_from_a_traced_call_joins_with_that_call_as_an_added_step(self) -> None:
         records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": []})
+        named = "Também leia os registros de shimpz.com"
+        refined = _refined(_insert("s3", "c2"), calls=(ZONES_CALL, records), message=named)
+        steps = refined.document["steps"]
+        self.assertEqual([step["action"] for step in steps[3:]], ["list-zones", "list-dns-records"])
+        # The copy names its new source step by name, never the demonstrated id.
+        self.assertEqual(steps[4]["input"]["zone_id"], {**SELECTED, "step": "s4"})
+        self.assertEqual(refined.changes[3:], (("added", None), ("added", None)))
+        # A zone the person never named is a binding the recorder would ask about, and so is a value no call holds.
         self.assertEqual(_code(self, _insert("s3", "c2"), calls=(ZONES_CALL, records)), routine_refine.INPUT)
         self.assertEqual(_code(self, _insert("s3", "c1"), calls=(records,)), routine_refine.INPUT)
+
+    def test_a_source_two_edits_read_joins_once_before_both_and_a_named_source_read_earlier_is_refused(self) -> None:
+        records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": []})
+        again = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": [{"id": "r2"}]})
         named = "Também leia os registros de shimpz.com"
+        refined = _refined(_insert("s1", "c2"), _insert("s3", "c3"), calls=(ZONES_CALL, records, again), message=named)
+        actions = [step["action"] for step in refined.document["steps"]]
+        self.assertEqual(actions.count("list-zones"), 2)
+        zones = [step["id"] for step in refined.document["steps"] if step["action"] == "list-zones"][1]
+        readers = [step for step in refined.document["steps"][2:] if step["action"] == "list-dns-records"]
+        self.assertTrue(all(step["input"]["zone_id"]["step"] == zones for step in readers if step["id"] != "s4"))
+        # The source is named after the step whose edit reads it first: it would run after its reader.
         self.assertEqual(
-            _code(self, _insert("s3", "c2"), calls=(ZONES_CALL, records), message=named), routine_refine.INPUT
+            _code(self, _insert("s1", "c2"), _insert("s3", "c1"), calls=(ZONES_CALL, records), message=named),
+            routine_refine.INVALID,
         )
 
     def test_a_value_the_person_named_is_a_literal(self) -> None:

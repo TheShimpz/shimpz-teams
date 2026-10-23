@@ -214,8 +214,8 @@ def _plan(
     if not work:
         raise routine_recording.RecordingError("routine-recording-empty")
     source_classes(context)
-    nodes = _closure(context, work)
-    order = _ordered(context, nodes)
+    nodes = closure(context, work)
+    order = ordered(context, nodes)
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
     steps = [_step(context, nodes[node], names) for node in order]
     origins = {names[node]: context.inputs[node][1] for node in order}
@@ -225,7 +225,7 @@ def _plan(
     return document, origins
 
 
-def _closure(
+def closure(
     context: routine_recording.Context, work: list[routine_recording.Call]
 ) -> dict[int, routine_recording.Call]:
     """The plan calls: each work call's source representative, and every source their inputs read, transitively."""
@@ -249,11 +249,11 @@ def _step(context: routine_recording.Context, call: routine_recording.Call, name
         "assistant": call.occurrence.assistant,
         "action": call.occurrence.action,
         "pin": call.occurrence.pin,
-        "input": {member: _named(source, names) for member, source in inputs.items()},
+        "input": {member: named(source, names) for member, source in inputs.items()},
     }
 
 
-def _named(source: dict[str, object], names: dict[int, str]) -> dict[str, object]:
+def named(source: dict[str, object], names: dict[int, str]) -> dict[str, object]:
     if "node" not in source:
         return dict(source)
     named = {key: value for key, value in source.items() if key != "node"}
@@ -305,7 +305,7 @@ def _edges(context: routine_recording.Context, nodes: dict[int, routine_recordin
     return edges
 
 
-def _ordered(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> list[int]:
+def ordered(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> list[int]:
     """The plan calls in data-dependency order, earliest first, every changing call where it ran; refuses a cycle."""
     edges = _edges(context, nodes)
     incoming = dict.fromkeys(nodes, 0)

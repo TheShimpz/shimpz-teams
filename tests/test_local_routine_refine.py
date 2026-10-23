@@ -171,8 +171,8 @@ class RefinementTests(RefineCase):
             "routine-refine-dependency": ((), _refine({"kind": "remove", "step": "s1", "calls": []})),
             "routine-refine-invalid": ((), _refine({"kind": "insert", "step": "s2", "calls": ["c1"]})),
             "routine-refine-input": (
-                (ZONES_CALL, RECORDS_CALL),
-                _refine({"kind": "insert", "step": "s2", "calls": ["c2"]}),
+                (RECORDS_CALL,),
+                _refine({"kind": "insert", "step": "s2", "calls": ["c1"]}),
             ),
         }
         for code, turn in cases.items():

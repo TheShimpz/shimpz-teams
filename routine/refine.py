@@ -7,9 +7,13 @@ Action alone. The new plan is deterministic: the base steps in their order, each
 dropped, with every insertion after its step; then every step is numbered again (``s1``, ``s2``, ...), since a step id
 names a step only within its revision, and every reference follows its step.
 
-In this first slice a new step's every input is a literal or a run date, as the recorder classifies it from the span
-(``routine.provenance``); one that would copy an earlier result, or that the recorder would ask about, is refused.
-Removing or replacing a step that a kept step reads is refused too: the person records that group again. The plan keeps
+A new step's inputs are classified from the span exactly as a recording classifies them (``routine.provenance``): a
+literal, a run date, or a value copied from another traced call of the span, kept as a name-based selection. Every
+call a new step copies from joins the plan as an added step, once, in the earliest edit that needs it and before every
+step that reads it, in the recorder's data-dependency order; a named call that an earlier edit would read is refused,
+since its edit would place it after its reader. A new step never reads a kept base step, whose recorded result is not
+in the span. An input the recorder would ask about is refused. Removing or replacing a step that a kept step reads is
+refused too: the person records that group again. The plan keeps
 its zone and output mode, its shown step being its new last one, and is admitted against the Team's exact current
 contracts, so every pin is revalidated; each new step's input is resolved as a run resolves it on its call's own start
 and must be exactly what that call sent.
@@ -21,14 +25,13 @@ from dataclasses import dataclass
 from protocol.http.v1 import routine as http_routine
 from routine import compose as routine_compose
 from routine import plan as routine_plan
-from routine import provenance as routine_provenance
 from routine import recording as routine_recording
 
 # A refinement that names a step or call that does not exist, or leaves no step.
 INVALID = "routine-refine-invalid"
 # A removed or replaced step that a kept step reads.
 DEPENDENCY = "routine-refine-dependency"
-# A new step input that is neither a literal nor a run date.
+# A new step input the recorder would have to ask about.
 INPUT = "routine-refine-input"
 
 
@@ -56,8 +59,9 @@ class _Entry:
     change: str
     base: int | None
     origins: dict[str, str]
-    # The traced call a new step stands for; None for a kept step.
+    # The traced call a new step stands for and its source class; None for a kept step.
     call: routine_recording.Call | None = None
+    node: int | None = None
 
 
 def refine(
@@ -73,12 +77,13 @@ def refine(
     """
     steps = list(base["steps"])
     by_step = {edit["step"]: edit for edit in edits}
-    named = [_call(calls, handle) for edit in edits for handle in edit["calls"]]
     if not set(by_step) <= {step["id"] for step in steps}:
         raise routine_recording.RecordingError(INVALID)
     _independent(steps, by_step)
-    context.work = tuple(call.index for call in named)
+    named = {edit["step"]: [_call(calls, handle) for handle in edit["calls"]] for edit in edits}
+    context.work = tuple(call.index for group in named.values() for call in group)
     routine_compose.source_classes(context)
+    groups = _placed(context, steps, by_step, named)
     entries: list[_Entry] = []
     removed: list[tuple[int, str]] = []
     for position, step in enumerate(steps, start=1):
@@ -91,12 +96,12 @@ def refine(
             entries.append(_Entry(dict(step), "kept", position, origins))
         else:
             removed.append((position, "removed" if kind == "remove" else "replaced"))
-        if kind == "replace":
-            entries.append(_new(context, _call(calls, edit["calls"][0]), "replaced", position))
-        if kind == "insert":
-            # The inserted calls run in the order this send traced them, whatever order the edit names them in.
-            traced = sorted(edit["calls"], key=lambda handle: int(handle[1:]))
-            entries.extend(_new(context, _call(calls, handle), "added", None) for handle in traced)
+        if kind in ("insert", "replace"):
+            replaced = {context.classes[call.index] for call in named[step["id"]]} if kind == "replace" else set()
+            entries.extend(
+                _new(context, node, "replaced" if node in replaced else "added", position if node in replaced else None)
+                for node in groups[step["id"]]
+            )
     if not entries:
         raise routine_recording.RecordingError(INVALID)
     document = _numbered(base, entries)
@@ -129,30 +134,65 @@ def _independent(steps: list[Mapping[str, object]], by_step: Mapping[str, Mappin
             raise routine_recording.RecordingError(DEPENDENCY)
 
 
-def _new(context: routine_recording.Context, call: routine_recording.Call, change: str, base: int | None) -> _Entry:
-    """A new step for one traced call, its every input a literal or a run date as the recorder classifies it."""
+def _placed(
+    context: routine_recording.Context,
+    steps: list[Mapping[str, object]],
+    by_step: Mapping[str, Mapping[str, object]],
+    named: Mapping[str, list[routine_recording.Call]],
+) -> dict[str, list[int]]:
+    """Each edit's new steps as source classes in their order: its named calls and every call they copy from, once.
+
+    A copied-from call that no edit names goes to the earliest edit that needs it; a named call stays with its edit,
+    which is refused when an earlier edit reads it. Within an edit the recorder's data-dependency order holds.
+    """
+    place = {step["id"]: index for index, step in enumerate(steps)}
+    # A replacement sits where its step was; an insertion just after its step.
+    anchor = {sid: (place[sid], 0 if edit["kind"] == "replace" else 1) for sid, edit in by_step.items()}
     try:
-        routine_provenance.classify_call(context, call)
+        closures = {sid: routine_compose.closure(context, calls) for sid, calls in named.items() if calls}
     except routine_recording.AskError as asking:
         raise routine_recording.RecordingError(INPUT) from asking
-    inputs, origins = context.inputs[call.index]
-    # A copied value is held by the call it is copied from (``node``), which no kept plan step stands for.
-    if any(source.get("kind") not in ("literal", "run_clock") for source in inputs.values()):
-        raise routine_recording.RecordingError(INPUT)
+    owner = {context.classes[call.index]: sid for sid, calls in named.items() for call in calls}
+    for sid in sorted(closures, key=anchor.__getitem__):
+        for node in closures[sid]:
+            owner.setdefault(node, sid)
+    if any(anchor[owner[node]] > anchor[sid] for sid, nodes in closures.items() for node in nodes):
+        raise routine_recording.RecordingError(INVALID)
+    # One data-dependency order over every new step, which each edit keeps for its own.
+    order = routine_compose.ordered(context, {node: context.calls[node] for node in owner})
+    return {sid: [node for node in order if owner[node] == sid] for sid in closures}
+
+
+def _new(context: routine_recording.Context, node: int, change: str, base: int | None) -> _Entry:
+    """A new step for one source class, its inputs as the recorder classified them and its copies naming new steps."""
+    call = context.calls[node]
+    inputs, origins = context.inputs[node]
     occurrence = call.occurrence
     step = {
-        "id": "",
+        "id": _placeholder(node),
         "assistant": occurrence.assistant,
         "action": occurrence.action,
         "pin": occurrence.pin,
-        "input": {member: dict(source) for member, source in inputs.items()},
+        "input": {member: routine_compose.named(source, _Placeholders()) for member, source in inputs.items()},
     }
-    return _Entry(step, change, base, dict(origins), call)
+    return _Entry(step, change, base, dict(origins), call, node)
+
+
+def _placeholder(node: int) -> str:
+    """A new step's id until the plan is numbered: no base step id (``s{k}``) can be one."""
+    return f"n{node}"
+
+
+class _Placeholders(dict):
+    """Every source class's placeholder id, for naming a copy before the plan is numbered."""
+
+    def __missing__(self, node: int) -> str:
+        return _placeholder(node)
 
 
 def _numbered(base: Mapping[str, object], entries: list[_Entry]) -> dict[str, object]:
     """The plan document with every step numbered again in order and every reference following its step."""
-    renamed = {entry.step["id"]: f"s{place}" for place, entry in enumerate(entries, start=1) if entry.call is None}
+    renamed = {entry.step["id"]: f"s{place}" for place, entry in enumerate(entries, start=1)}
     steps: list[dict[str, object]] = []
     for place, entry in enumerate(entries, start=1):
         inputs = {
@@ -170,21 +210,29 @@ def _numbered(base: Mapping[str, object], entries: list[_Entry]) -> dict[str, ob
 
 
 def _verified(document: dict[str, object], context: routine_recording.Context, entries: list[_Entry]) -> None:
-    """Admit the plan against the exact contracts; each new step, resolved on its call's start, sends what it sent."""
+    """Admit the plan against the exact contracts and prove every new step sends what its calls sent.
+
+    Every call a new step stands for is resolved on its own start from the new steps' recorded selections, as a
+    recording's verification proves its plan.
+    """
     try:
         plan = routine_plan.admit(document, context.contracts)
     except routine_plan.PlanError as exc:
         raise routine_recording.RecordingError(exc.code) from exc
-    for step, entry in zip(plan.steps, entries, strict=True):
-        if entry.call is None:
-            continue
-        started = context.sends[entry.call.send].started_at
-        try:
-            resolved = routine_plan.resolve(plan, step, {}, started, lambda value: value)
-        except routine_plan.PlanError as exc:
-            code = (
-                "routine-recording-too-large" if exc.code == "plan-input-too-large" else "routine-recording-unverified"
-            )
-            raise routine_recording.RecordingError(code) from exc
-        if not routine_plan.same(resolved, entry.call.occurrence.input.value):
-            raise routine_recording.RecordingError("routine-recording-unverified")
+    new = [(step, entry) for step, entry in zip(plan.steps, entries, strict=True) if entry.call is not None]
+    selected: dict[routine_plan.Key, object] = {}
+    try:
+        for step, entry in new:
+            chosen = routine_plan.selections(plan, step.step_id, entry.call.occurrence.result.value)
+            selected.update({(step.step_id, *key): value for key, value in chosen.items()})
+        if not routine_plan.retained_within(selected):
+            raise routine_recording.RecordingError("routine-recording-too-large")
+        for step, entry in new:
+            for call in (item for item in context.calls if context.classes[item.index] == entry.node):
+                started = context.sends[call.send].started_at
+                resolved = routine_plan.resolve(plan, step, selected, started, lambda value: value)
+                if not routine_plan.same(resolved, call.occurrence.input.value):
+                    raise routine_recording.RecordingError("routine-recording-unverified")
+    except routine_plan.PlanError as exc:
+        code = "routine-recording-too-large" if exc.code == "plan-input-too-large" else "routine-recording-unverified"
+        raise routine_recording.RecordingError(code) from exc
