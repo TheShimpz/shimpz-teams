@@ -92,7 +92,7 @@ class ClientMeteringTests(RuntimeClientCase):
         return (
             ("browser-check", {"complete": True, "missing": None, "model": "gpt-6-luna"}, browser("browser-check")),
             ("browser-final", {"summary": "ok", "model": "gpt-6-luna"}, browser("browser-final")),
-            ("browser-fold", {"note": "ok", "model": "gpt-6-luna"}, browser("browser-fold")),
+            ("browser-fold", {"memory": "ok", "model": "gpt-6-luna"}, browser("browser-fold")),
             (
                 "browser-step",
                 {"step": {"kind": "done", "summary": "ok"}, "model": "gpt-6-luna"},

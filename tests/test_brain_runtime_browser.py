@@ -76,7 +76,7 @@ class BrowserCallTests(RuntimeClientCase):
 
     def test_each_finishing_operation_answers_its_own_fields_under_its_own_path_and_meter(self):
         for operation, answer in (
-            ("browser-fold", {"note": "V101: R$ 9.500"}),
+            ("browser-fold", {"memory": "V101: R$ 9.500"}),
             ("browser-check", {"complete": False, "missing": "Faltam vagas."}),
             ("browser-final", {"summary": "Encontrei 7 vagas."}),
         ):
