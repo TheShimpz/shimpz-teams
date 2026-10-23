@@ -61,7 +61,7 @@ class FakeRuntime:
         self.events = []
         self.listed = []
 
-    def acquire(self, team_id, language, deadline=None):
+    def acquire(self, team_id, language, deadline=None, wanted=None):
         self.events.append(("acquire", team_id, language))
         if self.acquire_error:
             raise runtime.BrowserError(self.acquire_error)
@@ -528,7 +528,7 @@ class BrowserServiceTests(unittest.TestCase):
         fake = FakeRuntime()
         original = fake.acquire
 
-        def acquire(team_id, language, deadline=None):
+        def acquire(team_id, language, deadline=None, wanted=None):
             stopped[0] = True
             return original(team_id, language)
 

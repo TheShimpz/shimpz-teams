@@ -27,21 +27,27 @@ def _token(match: str) -> str:
 
 
 def _destinations(text: str) -> tuple[list[str], str]:
-    """Each Markdown link destination, read up to its balanced closing parenthesis, and the text without them."""
+    """Each Markdown link destination, read up to its balanced closing parenthesis, and the text without them.
+
+    One pass over the text: a destination that never closes is left as prose, and scanning goes on after it.
+    """
     found: list[str] = []
     rest: list[str] = []
-    start = 0
-    for match in re.finditer(r"\]\((?=https?://)", text):
-        if match.start() < start:
+    start = position = 0
+    while (opened := text.find("](", position)) != -1:
+        begin = opened + 2
+        if not text.startswith(("http://", "https://"), begin):
+            position = begin
             continue
-        depth, end = 1, match.end()
+        depth, end = 1, begin
         while end < len(text) and depth and not text[end].isspace():
             depth += {"(": 1, ")": -1}.get(text[end], 0)
             end += 1
+        position = end
         if depth:
             continue
-        found.append(text[match.end() : end - 1])
-        rest.append(text[start : match.start() + 1])
+        found.append(text[begin : end - 1])
+        rest.append(text[start : opened + 1])
         start = end
     rest.append(text[start:])
     return found, "".join(rest)

@@ -676,6 +676,22 @@ class BrowserRuntimeTests(unittest.TestCase):
                 with self.assertRaises(runtime.BrowserError):
                     self.make(image=PUBLISHED).acquire("team_1", "en")
 
+    def test_a_pull_is_waited_for_only_while_the_task_may_wait(self):
+        del self.docker.images[PUBLISHED]
+        release = threading.Event()
+        original = Images.pull
+
+        def stalled(images, repository, tag):
+            release.wait(5)
+            return original(images, repository, tag)
+
+        with mock.patch.object(Images, "pull", stalled):
+            for wait in ({"wanted": lambda: False}, {"deadline": 0.0}):
+                with self.subTest(wait=list(wait)), self.assertRaises(runtime.BrowserError):
+                    self.make(image=PUBLISHED).acquire("team_1", "en", **wait)
+            release.set()
+        self.assertEqual(self.docker.created, [])
+
     def test_a_created_browser_that_drifts_resolves_another_image_or_never_gets_ready_is_removed(self):
         cases = {
             "image mismatch": lambda: self.docker.fail.update({"image-mismatch": True}),

@@ -272,9 +272,12 @@ class Task:
         try:
             raw = self._ask("browser-step", request, finishing=False)
         except StepFailedError:
-            # A model answers outside its form now and then: the step is asked once more, under its own reservation.
+            # A model answers outside its form now and then: the step is asked once more, under its own reservation,
+            # unless the normal spend share can no longer reserve it, when the task finishes instead.
             if self._halted(index) is not None or self._finishing():
                 return self._unanswered(index, request)
+            if not self._affords(reserve, finishing=False):
+                return self._final(index, request)
             try:
                 raw = self._ask("browser-step", request, finishing=False)
             except StepFailedError:

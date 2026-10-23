@@ -1,6 +1,7 @@
 """One Browser task's loop: closed steps, its thread, reads, folds, finishing, spend, Stop, and failures."""
 
 import itertools
+import time
 import unittest
 
 from browser import cua, read, screen, task
@@ -384,6 +385,25 @@ class BrowserTaskTests(unittest.TestCase):
         ticks = iter([0.0, 0.0] + [task.MAX_SECONDS - 1.0] * 50)
         _run(FakeSession(), counting, clock=lambda: next(ticks))
         self.assertTrue(all(left > 0 for left in calls))
+
+    def test_a_retry_the_normal_share_cannot_reserve_finishes_the_task(self):
+        budget = task.Budget()
+        calls = []
+
+        def failing(operation, request, left):
+            calls.append(operation)
+            if operation == "browser-step":
+                budget.spent = budget.spend * (100 - task.FINISH_SHARE) // 100
+                raise task.StepFailedError("down")
+            return {"summary": "Parcial."}, _counts(), "gpt-6-luna"
+
+        outcome, _ = _run(FakeSession(), failing, budget=budget)
+        self.assertEqual((outcome.summary, calls), ("Parcial.", ["browser-step", "browser-final"]))
+
+    def test_screening_a_malformed_answer_stays_linear(self):
+        started = time.monotonic()
+        screen.urls("](https://a" * (browser_protocol.MAX_SUMMARY_BYTES // 11) * 8)
+        self.assertLess(time.monotonic() - started, 1.0)
 
     def test_screening_compares_whole_url_tokens_exactly(self):
         checked = screen.Screen()

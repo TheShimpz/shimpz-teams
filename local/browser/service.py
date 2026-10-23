@@ -174,7 +174,9 @@ class BrowserService:
         # One absolute deadline from before the Browser starts, through its Watch view and the task, to its ingest.
         deadline = time.monotonic() + browser_task.MAX_SECONDS
         try:
-            lease = self._runtime.acquire(turn.team_id, page_language, deadline=deadline)
+            lease = self._runtime.acquire(
+                turn.team_id, page_language, deadline=deadline, wanted=lambda: not turn.cancelled()
+            )
         except BrowserError as exc:
             local_audit.record_request("browser-task", result="denied", team_id=turn.team_id, detail=exc.code)
             return _result(browser_task.Outcome("failed", reason=exc.code), None), _terminal(None)

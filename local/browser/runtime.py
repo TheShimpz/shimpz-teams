@@ -55,6 +55,8 @@ READY_SECONDS = 20.0
 REMOVE_SECONDS = 30.0
 REMOVE_POLL_SECONDS = 0.1
 EGRESS_SECONDS = 30.0
+# How often a missing image's pull is checked against its task's deadline and Stop.
+PULL_POLL_SECONDS = 0.5
 PROGRAM_SECONDS = 30.0
 # Who drives a Browser (ADR-0117, Sign-ins amendment): the agent alone, a person signing in, or a task restored from a
 # Sign-in, which a person may take over. Only the last two hold display credentials and keep a profile.
@@ -215,12 +217,13 @@ class BrowserRuntime:
         url: str | None = None,
         capsule: Iterable[bytes] | None = None,
         deadline: float | None = None,
+        wanted: Callable[[], bool] = lambda: True,
     ) -> Lease:
         """Create this task's Browser on a fresh egress generation; the caller releases the returned lease.
 
         A person's sign-in starts at `url`; a signed-in Browser, and a person's when the Team has a Sign-in, restores
-        the capsule's chunks before Chromium starts. With a `deadline`, no Browser is created once it has passed, even
-        after an image pull that outlasted it.
+        the capsule's chunks before Chromium starts. With a `deadline`, a missing image's pull is waited for only until
+        it or until the task is no longer `wanted` (Stop), and no Browser is created once it has passed.
         """
         if (
             self._image is None
@@ -238,7 +241,7 @@ class BrowserRuntime:
                 self.clean()
             self._prove_clean()
             egress = self._fresh_egress()
-            lease = self._create(team_id, language, egress, mode, url, capsule, deadline)
+            lease = self._create(team_id, language, egress, mode, url, capsule, _waiting(self._clock, deadline, wanted))
         except BaseException:
             self._dirty = True
             self._slot.release()
@@ -434,7 +437,7 @@ class BrowserRuntime:
         mode: str,
         url: str | None,
         capsule: Iterable[bytes] | None,
-        deadline: float | None = None,
+        may_wait: Callable[[], bool] = lambda: True,
     ) -> Lease:
         # The egress has its outbound network too; the Browser reaches it only on the Browser network.
         proxy = _network_address((self._egress().attrs.get("NetworkSettings") or {}).get("Networks") or {})
@@ -444,10 +447,10 @@ class BrowserRuntime:
         except NotFound:
             if self._image.partition("@")[0] != PUBLISHED:
                 raise BrowserError("browser-unavailable") from None
-            image = self._pull()
+            image = self._pull(may_wait)
         except DockerException as exc:
             raise BrowserError("browser-unavailable") from exc
-        if deadline is not None and self._clock() >= deadline:
+        if not may_wait():
             raise BrowserError("browser-unavailable")
         try:
             container = self._client.containers.create(
@@ -503,12 +506,29 @@ class BrowserRuntime:
             self._remove(container.id)
             raise
 
-    def _pull(self):
+    def _pull(self, may_wait: Callable[[], bool]):
+        """The pinned image, pulled while the task `may_wait` (its deadline has not passed and it was not stopped).
+
+        A pull still running when the wait ends goes on alone and is never used by this task.
+        """
         repository, digest = self._image.split("@")
-        try:
-            return self._client.images.pull(repository, tag=digest)
-        except DockerException as exc:
-            raise BrowserError("browser-unavailable") from exc
+        done: dict[str, object] = {}
+
+        def pull() -> None:
+            try:
+                done["image"] = self._client.images.pull(repository, tag=digest)
+            except DockerException as exc:
+                done["error"] = exc
+
+        worker = threading.Thread(target=pull, name="browser-image-pull", daemon=True)
+        worker.start()
+        while worker.is_alive():
+            if not may_wait():
+                raise BrowserError("browser-unavailable")
+            worker.join(PULL_POLL_SECONDS)
+        if "error" in done:
+            raise BrowserError("browser-unavailable") from done["error"]
+        return done["image"]
 
     def container_name(self, team_id: str) -> str:
         return f"shimpz-local-{space_prefix(self._space_id)}-{team_id}-browser"
@@ -792,3 +812,8 @@ class BrowserRuntime:
         if sock is None:
             raise ExecStartError(created["Id"])
         return created["Id"], sock
+
+
+def _waiting(clock: Callable[[], float], deadline: float | None, wanted: Callable[[], bool]) -> Callable[[], bool]:
+    """Whether a task may still wait for its Browser: it is still wanted and its deadline, if any, has not passed."""
+    return lambda: wanted() and (deadline is None or clock() < deadline)
