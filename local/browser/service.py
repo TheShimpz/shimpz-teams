@@ -216,13 +216,21 @@ class BrowserService:
         outcome = self._task(turn, context, request, lease, page_language, deadline)
         if outcome.status == "stopped" or turn.cancelled():
             return outcome, None
-        try:
-            ingested = self._ingest(turn, lease, deadline)
-        except BrowserError, browser_ingest.ListingError:
-            return _lost(outcome, "ingest"), None
+        outcome, ingested = self._downloads(turn, lease, deadline, outcome)
         if not self._runtime.intact(lease):
             return _lost(outcome, "runtime/not-intact"), ingested
         return outcome, ingested
+
+    def _downloads(
+        self, turn: BrowserTurn, lease: Lease, deadline: float, outcome: browser_task.Outcome
+    ) -> tuple[browser_task.Outcome, browser_ingest.Ingested | None]:
+        """The task's downloads; when they cannot be read, its own answer stands without them, the audit saying why."""
+        try:
+            return outcome, self._ingest(turn, lease, deadline)
+        except BrowserError as exc:
+            return replace(outcome, cause=f"ingest/{exc.code}"), None
+        except browser_ingest.ListingError:
+            return replace(outcome, cause="ingest/listing"), None
 
     def _relaunch(self, lease: Lease, deadline: float, held: Callable[[], bool]) -> None:
         """Start the task's Chromium again while the turn still holds its Browser; Stop wins before and during it."""
@@ -447,6 +455,9 @@ def _result(outcome: browser_task.Outcome, ingested: browser_ingest.Ingested | N
         result["reason"] = outcome.reason
     if outcome.sentence is not None:
         result["sentence"] = outcome.sentence
+    if outcome.cause is not None and outcome.cause.startswith("ingest/"):
+        # The task's downloads could not be read: none reached the Team, whatever the answer says about files.
+        result["downloads"] = "unread"
     kept = [] if ingested is None else [{**item, "outcome": "kept"} for item in ingested.kept]
     lost = [] if ingested is None else list(ingested.lost)
     result["files"] = [

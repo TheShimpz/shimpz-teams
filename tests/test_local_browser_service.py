@@ -264,6 +264,28 @@ class BrowserServiceTests(unittest.TestCase):
                 self.assertEqual(terminal, {"files": [], "lost": [], "skipped": 0})
                 self.assertEqual(self.runtime.events, [("acquire", "team_1", "pt-BR")])
 
+    def test_downloads_that_cannot_be_read_leave_the_answer_standing_and_say_why(self):
+        for runtime_fake, cause in (
+            (FakeRuntime(files_error=runtime.BrowserError("browser-lost")), "ingest/browser-lost"),
+            (FakeRuntime(listing={"files": "none", "refused": [], "skipped": 0}), "ingest/listing"),
+        ):
+            with self.subTest(cause=cause):
+                claim = task.Outcome("done", summary="Baixei report.csv.", steps=1, completeness="complete")
+                result, terminal = self.run_with(self.make(runtime_fake), claim)
+                expected = {
+                    "status": "done",
+                    "summary": "Baixei report.csv.",
+                    "completeness": "complete",
+                    "unscreened_urls": [],
+                    "unscreened_more": 0,
+                    "downloads": "unread",
+                    "files": [],
+                }
+                self.assertEqual(result, expected)
+                self.assertEqual(terminal, {"files": [], "lost": [], "skipped": 0})
+                detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+                self.assertTrue(detail.startswith(f"done:steps=1:recovered=0:relaunched=0:cause={cause}:released=1"))
+
     def test_a_lost_browser_and_a_failed_release_are_reported_and_never_leak(self):
         browser_service = self.make(
             FakeRuntime(files_error=runtime.BrowserError("browser-lost"), release="browser-lost")
@@ -271,13 +293,17 @@ class BrowserServiceTests(unittest.TestCase):
         result, _terminal = self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
-        self.assertTrue(detail.startswith("failed:steps=1:recovered=0:relaunched=0:cause=ingest:released=0"))
+        self.assertTrue(detail.startswith("done:steps=1:recovered=0:relaunched=0:cause=ingest/browser-lost:released=0"))
         # A Browser that could not be proven removed never ends its task as done, whatever it found.
         unreleased = self.make(FakeRuntime(release="browser-lost"))
         result, _terminal = self.run_with(unreleased, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
+        # A listing that broke its shape keeps the task's answer, without any download.
         broken = self.make(FakeRuntime(files_error=ingest.ListingError("bad")))
-        self.assertEqual(self.run_with(broken, task.Outcome("done", summary="x", steps=1))[0]["reason"], "browser-lost")
+        self.assertEqual(
+            self.run_with(broken, task.Outcome("done", summary="x", steps=1))[0],
+            {"status": "done", "summary": "x", "downloads": "unread", "files": []},
+        )
         lost = self.make(FakeRuntime())
         with mock.patch.object(service.browser_task.Task, "run", side_effect=cua.CuaError("tool-failed")):
             self.assertEqual(lost.run(self.turn, CONTEXT, REQUEST)[0]["reason"], "browser-lost")
