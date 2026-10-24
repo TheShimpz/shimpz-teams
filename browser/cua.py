@@ -161,10 +161,11 @@ class CuaSession:
         self._bind()
 
     def _prepare(self, within: float | None = None) -> None:
-        """Attach the Driver to the admitted window, or renew its lapsed grant there; the same call either way."""
-        if self._window is None:
-            raise CuaError("browser-not-open")
-        arguments = {**self._window, "strategy": {"kind": "existing_profile"}}
+        """Attach the Driver to the admitted window, or renew its lapsed grant there; the same call either way.
+
+        Every caller holds an admitted window: opening admits it first, and binding refuses to run without one.
+        """
+        arguments = {**(self._window or {}), "strategy": {"kind": "existing_profile"}}
         if self._call("browser_prepare", arguments, within=within).get("status") != "ok":
             raise CuaError("browser-attach-refused")
         self._granted = self._clock()
