@@ -300,7 +300,7 @@ class BrowserTaskTests(unittest.TestCase):
 
         brain = Brain({"kind": "read", "refs": ["p1:4", "p1:5"]}, DONE)
         outcome, _ = _run(
-            Breaking(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: FakeSession()
+            Breaking(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: (FakeSession(), r)
         )
         self.assertEqual(outcome.status, "done")
         self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "interrupted")
@@ -317,7 +317,7 @@ class BrowserTaskTests(unittest.TestCase):
                 return super().observe(screenshot=screenshot)
 
         brain = Brain({"kind": "read", "refs": ["p1:4"]}, DONE)
-        _run(Blind(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: FakeSession())
+        _run(Blind(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: (FakeSession(), r))
         self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "refused")
         # The egress was lost after the first target was opened: nothing more is clicked, not even the way back.
         session = FakeSession(links=links, url="https://example.com/busca")
@@ -671,7 +671,7 @@ class BrowserTaskTests(unittest.TestCase):
 
         def reopen(session, deadline, relaunch):
             reopened.append((session, deadline, relaunch))
-            return fresh
+            return fresh, relaunch
 
         brain = Brain({"kind": "click", "ref": "p1:1"}, {"kind": "scroll", "direction": "down"}, DONE)
         outcome, _ = _run(failed, brain, reopen=reopen)
@@ -685,7 +685,9 @@ class BrowserTaskTests(unittest.TestCase):
     def test_an_observation_that_failed_is_looked_at_again_on_a_fresh_session(self):
         fresh = FakeSession()
         brain = Brain(DONE)
-        outcome, _ = _run(FakeSession(fail_observe=True), brain, reopen=lambda _session, _deadline, _relaunch: fresh)
+        outcome, _ = _run(
+            FakeSession(fail_observe=True), brain, reopen=lambda _session, _deadline, relaunch: (fresh, relaunch)
+        )
         self.assertEqual(outcome, _done("Prazo: 30/11.", 2, recovered=1))
         self.assertEqual((brain.requests()[0]["thread"]["steps"], len(fresh.screenshots)), ([], 1))
 
@@ -695,7 +697,7 @@ class BrowserTaskTests(unittest.TestCase):
 
         def reopen(_session, _deadline, relaunch):
             reopened.append(relaunch)
-            return fresh
+            return fresh, relaunch
 
         brain = Brain(DONE)
         outcome, _ = _run(FakeSession(fail_observe="browser-read-refused"), brain, reopen=reopen)
@@ -729,16 +731,27 @@ class BrowserTaskTests(unittest.TestCase):
 
         def reopen(_session, _deadline, relaunch):
             reopened.append(relaunch)
-            return FakeSession()
+            return FakeSession(), relaunch
 
         outcome, _ = _run(session, Brain(DONE), reopen=reopen, clock=lambda: now[0])
         self.assertEqual((outcome.status, outcome.relaunched, reopened), ("done", 1, [True]))
+
+    def test_a_session_replaced_on_a_chromium_started_again_is_told_and_counted(self):
+        # Any failure may need Chromium started again: the replacement says whether it did.
+        brain = Brain(DONE)
+
+        def reopen(_session, _deadline, _relaunch):
+            return FakeSession(), True
+
+        outcome, _ = _run(FakeSession(fail_observe=True), brain, reopen=reopen)
+        self.assertEqual(outcome.relaunched, 1)
+        self.assertTrue(brain.requests()[0]["observation"].startswith(task.RESTARTED_NOTICE))
 
     def test_recoveries_are_bounded_and_a_failed_one_ends_the_task_with_its_cause(self):
         outcome, _ = _run(
             FakeSession(fail_observe=True),
             Brain(DONE),
-            reopen=lambda _session, _deadline, _relaunch: FakeSession(fail_observe=True),
+            reopen=lambda _session, _deadline, relaunch: (FakeSession(fail_observe=True), relaunch),
         )
         self.assertEqual(
             outcome,

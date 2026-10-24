@@ -433,6 +433,8 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
         self.assertIn(":cause=observe/channel-lost/reopen/driver-unavailable:", detail)
+        # A channel Docker could not hand over may leave an exec running: Chromium is never relaunched past it.
+        self.assertNotIn("relaunch", [event[0] for event in fake.events])
         # Stop came while the failed session was ending: no replacement is opened, and the task was stopped.
         fake = Driving(stopping)
         fake.stop_while_ending = (True,)
@@ -470,6 +472,16 @@ class BrowserServiceTests(unittest.TestCase):
             result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
         self.assertIn(":cause=observe/browser-read-refused/reopen/relaunch-failed:", detail)
+        # A Chromium started again whose Driver channel cannot be opened loses the task and says why.
+        fake = Driving(stopping)
+        fake.open_failure = runtime.BrowserError("browser-lost")
+        failed = mock.Mock()
+        failed.observe.side_effect = cua.CuaError("browser-read-refused")
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed]):
+            self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertIn(":cause=observe/browser-read-refused/reopen/driver-unavailable:", detail)
+        self.assertIn(("relaunch", True), fake.events)
         fake = Driving(stopping)
         fake.stop_while_ending = (True,)
         failed = mock.Mock()
@@ -479,6 +491,32 @@ class BrowserServiceTests(unittest.TestCase):
             result, _ = self.make(fake).run(stopped_turn, CONTEXT, REQUEST)
         self.assertEqual(result["status"], "stopped")
         self.assertNotIn("relaunch", [event[0] for event in fake.events])
+
+    def test_a_session_that_cannot_open_on_this_chromium_is_ended_and_chromium_starts_again_once(self):
+        page = cua.Observation("u", "t", "url: u", {})
+        self.brain.browser_call.side_effect = lambda *args, **kwargs: _brain({"kind": "done", "summary": "ok"})(
+            *args, **kwargs
+        )
+        fake = Driving([])
+        failed, half, fresh = mock.Mock(), mock.Mock(), mock.Mock()
+        failed.observe.side_effect = cua.CuaError("browser-binding-inexact")
+        half.open.side_effect = cua.CuaError("channel-lost")
+        fresh.observe.return_value = page
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed, half, fresh]):
+            result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "done")
+        order = [event for event in fake.events if event[0] in {"exited", "relaunch", "stream"}]
+        expected = [
+            ("stream", "exec-0"),
+            ("exited", "exec-0"),
+            ("stream", "exec-1"),
+            ("exited", "exec-1"),
+            ("relaunch", True),
+            ("stream", "exec-2"),
+        ]
+        self.assertEqual(order, expected)
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertTrue(detail.startswith("done:steps=2:recovered=1:relaunched=1:released=1"), detail)
 
     def test_no_driver_command_is_sent_once_stop_came_even_mid_initialization(self):
         stopping = []

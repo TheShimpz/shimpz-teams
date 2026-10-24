@@ -242,8 +242,6 @@ class BrowserService:
         page_language: str,
         deadline: float,
     ) -> browser_task.Outcome:
-        drivers: dict[cua.CuaSession, tuple[str, ExecStream]] = {}
-
         def held() -> bool:
             """The turn still runs and still holds this very lease; Stop revokes it."""
             if turn.cancelled():
@@ -252,41 +250,8 @@ class BrowserService:
                 running = self._running.get(lease.team_id)
             return running is not None and running[0] == turn.token and running[1] is lease
 
-        def driver(deadline: float) -> cua.CuaSession:
-            """One Driver session on the task's Browser, opened by `deadline`; none reaches a Browser Stop revoked."""
-            if not held():
-                raise cua.CuaError("stopped")
-            exec_id, stream = self._runtime.open_stream(lease, deadline, held)
-            if not held():
-                stream.close()
-                raise cua.CuaError("stopped")
-            session = cua.CuaSession(_Held(stream, held))
-            drivers[session] = (exec_id, stream)
-            session.deadline = deadline
-            session.open()
-            return session
-
-        def reopen(failed: cua.CuaSession, deadline: float, relaunch: bool) -> cua.CuaSession:
-            """A fresh Driver session in place of `failed`, once Docker proved the failed one's exec ended.
-
-            With `relaunch`, the Browser's Chromium is started again first, while the turn still holds it.
-            """
-            exec_id, stream = drivers.pop(failed)
-            stream.shutdown()
-            try:
-                ended = self._runtime.exited(exec_id, min(deadline, time.monotonic() + DRIVER_END_SECONDS))
-            finally:
-                stream.close()
-            if not ended:
-                raise cua.CuaError("driver-not-ended")
-            if relaunch:
-                self._relaunch(lease, deadline, held)
-            try:
-                return driver(deadline)
-            except BrowserError as exc:
-                raise cua.CuaError("driver-unavailable") from exc
-
-        session = driver(min(deadline, time.monotonic() + cua.CALL_SECONDS))
+        drivers = _Drivers(self._runtime, lease, held, lambda until: self._relaunch(lease, until, held))
+        session = drivers.fresh(min(deadline, time.monotonic() + cua.CALL_SECONDS))
 
         def downloads(deadline: float) -> dict[str, object] | None:
             """The downloads present in this very Browser, read while the turn holds it; None when unreadable."""
@@ -311,7 +276,7 @@ class BrowserService:
             lambda model: inference_config.price(context.provider, model),
             turn.cancelled,
             lambda: self._runtime.intact(lease),
-            reopen=reopen,
+            reopen=drivers.reopen,
             downloads=downloads,
             deadline=deadline,
         ).run()
@@ -349,6 +314,76 @@ class BrowserService:
             # The runtime stays dirty and refuses every later task until a cleanup proves the Space clean again.
             return False
         return True
+
+
+class _Drivers:
+    """A task's Cua Driver sessions on its one Browser.
+
+    Each opens while the turn holds the Browser and is proven ended before the next; Chromium is started again when a
+    page no session can read, or a session that cannot open, needs it.
+    """
+
+    def __init__(
+        self, runtime: BrowserRuntime, lease: Lease, held: Callable[[], bool], relaunch: Callable[[float], None]
+    ) -> None:
+        self._runtime, self._lease, self._held, self._relaunch = runtime, lease, held, relaunch
+        self._open: dict[cua.CuaSession, tuple[str, ExecStream]] = {}
+
+    def fresh(self, deadline: float) -> cua.CuaSession:
+        """One Driver session on the task's Browser, opened by `deadline`; none reaches a Browser Stop revoked."""
+        if not self._held():
+            raise cua.CuaError("stopped")
+        exec_id, stream = self._runtime.open_stream(self._lease, deadline, self._held)
+        if not self._held():
+            stream.close()
+            raise cua.CuaError("stopped")
+        session = cua.CuaSession(_Held(stream, self._held))
+        self._open[session] = (exec_id, stream)
+        session.deadline = deadline
+        session.open()
+        return session
+
+    def reopen(self, failed: cua.CuaSession, deadline: float, relaunch: bool) -> tuple[cua.CuaSession, bool]:
+        """A fresh session in place of `failed`, and whether Chromium was started again for it.
+
+        With `relaunch`, Chromium starts again first. Otherwise, a session that opened but cannot start on this Chromium
+        is ended too, and Chromium starts again once before another opens; a channel that could not even be opened
+        relaunches nothing.
+        """
+        self._end(failed, deadline)
+        if relaunch:
+            self._relaunch(deadline)
+            return self._replacement(deadline), True
+        try:
+            return self.fresh(deadline), False
+        except BrowserError as exc:
+            # Docker may have started an exec it could not hand over: unproven, it leaves nothing more to open here.
+            raise cua.CuaError("driver-unavailable") from exc
+        except cua.CuaError as exc:
+            if exc.code == "stopped":
+                raise
+            # The session opened but could not start: its exec, proven ended, makes way for Chromium started again.
+            for half in list(self._open):
+                self._end(half, deadline)
+            self._relaunch(deadline)
+            return self._replacement(deadline), True
+
+    def _replacement(self, deadline: float) -> cua.CuaSession:
+        try:
+            return self.fresh(deadline)
+        except BrowserError as exc:
+            raise cua.CuaError("driver-unavailable") from exc
+
+    def _end(self, session: cua.CuaSession, deadline: float) -> None:
+        """End `session`'s Driver exec; until Docker proves it ended, no other session opens."""
+        exec_id, stream = self._open.pop(session)
+        stream.shutdown()
+        try:
+            ended = self._runtime.exited(exec_id, min(deadline, time.monotonic() + DRIVER_END_SECONDS))
+        finally:
+            stream.close()
+        if not ended:
+            raise cua.CuaError("driver-not-ended")
 
 
 class _Held:

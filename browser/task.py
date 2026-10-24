@@ -101,8 +101,9 @@ Call = Callable[[str, Mapping[str, object], float], tuple[object, Mapping[str, i
 Price = Callable[[str | None], tuple[int, int]]
 # A fresh Driver session on the same Browser in place of the failed one, opened by the task's absolute deadline; raises
 # CuaError when the failed one could not be proven ended or the new one did not open.
-# A fresh Driver session in place of a failed one, by the deadline; with `relaunch`, on a Chromium started again first.
-Reopen = Callable[[cua.CuaSession, float, bool], cua.CuaSession]
+# A fresh Driver session in place of a failed one, by the deadline, and whether Chromium was started again for it; with
+# `relaunch`, it always is.
+Reopen = Callable[[cua.CuaSession, float, bool], tuple[cua.CuaSession, bool]]
 # The task's downloads so far in the protocol's form, read by the task's absolute deadline; None when unreadable.
 Downloads = Callable[[float], Mapping[str, object] | None]
 
@@ -460,12 +461,12 @@ class Task:
         # A page Chromium no longer reads, through any Driver session, needs Chromium itself started again.
         relaunch = cause.endswith("/browser-read-refused")
         try:
-            self.session = self.reopen(self.session, self.deadline, relaunch)
+            self.session, relaunched = self.reopen(self.session, self.deadline, relaunch)
         except cua.CuaError as exc:
             # Stop and the deadline win over a recovery they cut short.
             return self._halted(steps) or replace(lost, cause=f"{cause}/reopen/{exc.code}")
         self.recovered += 1
-        if relaunch:
+        if relaunched:
             self.relaunched += 1
             self.restarted = True
         return None
