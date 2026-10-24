@@ -238,10 +238,12 @@ fn command(program: &str) -> Command {
     command
 }
 
+/// Chromium's arguments. Accessibility is built per page when the Driver reads it over DevTools, never forced for
+/// every frame: forced, it saturated Chromium's browser process on ad-heavy pages until the Driver's every call timed
+/// out (ADR-0117, 2026-10-23 amendment).
 fn chromium_arguments(settings: &Settings) -> Vec<String> {
     let mut arguments = vec![
         format!("--user-data-dir={PROFILE}"),
-        "--force-renderer-accessibility".into(),
         format!("--remote-debugging-port={DEVTOOLS_PORT}"),
         "--ozone-platform=x11".into(),
         "--no-first-run".into(),

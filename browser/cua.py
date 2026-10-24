@@ -57,8 +57,17 @@ NETWORK_FAILURE = re.compile(r"navigation failed: net::ERR_[A-Z0-9_]{1,64}")
 # so with one refusal that asks for the same preparation again. Team renews it on its own admitted window, never with
 # the Driver's suggested arguments: before binding once the grant is this old, and whenever the Driver says it lapsed.
 REGRANT_SECONDS = 240.0
+# The Driver refuses a page read now and then while the page changes under it (a frame gone mid-read, a busy page),
+# with no effect: measured, every such refusal cleared within 9 seconds, some after the Driver's own 20-second wait. A
+# refused read is asked again at this interval within the read's one bound, each attempt only while a whole call still
+# fits in it; a read still refused then counts as a loss.
+READ_RETRY_SECONDS = 1.0
+READ_SECONDS = 2 * CALL_SECONDS
 LAPSED_CODE = "browser_consent_required"
 LAPSED_REASON = "consumer_profile_endpoint_requires_grant"
+# The same lapse as an action meets it: the Driver names the grant that ended.
+ENDED_CODE = "protected_resource_scope_invalid"
+ENDED_MESSAGE = "the existing-profile grant ended; approve and bind the browser again"
 
 
 class Channel(Protocol):
@@ -79,6 +88,13 @@ class CuaError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.fatal = fatal
+
+
+class ReadRefusedError(CuaError):
+    """The Driver refused to read the page this time; nothing changed, and the read may be asked again."""
+
+    def __init__(self) -> None:
+        super().__init__("browser-read-refused")
 
 
 class GrantLapsedError(CuaError):
@@ -170,7 +186,7 @@ class CuaSession:
             raise CuaError("browser-attach-refused")
         self._granted = self._clock()
 
-    def _bind(self) -> None:
+    def _bind(self, within: float | None = None) -> None:
         """Bind the window and follow its active tab, so a link that opened a new tab is where the task continues.
 
         An old grant is renewed first, and a grant the Driver says lapsed is renewed once, within the same bound.
@@ -178,7 +194,7 @@ class CuaSession:
         if self._window is None:
             raise CuaError("browser-not-open")
         # One bound for the whole binding: a renewal, every check, and the wait between checks end by it.
-        settle = self._call_deadline()
+        settle = self._call_deadline(within)
         if self._granted is None or self._clock() - self._granted >= REGRANT_SECONDS:
             self._prepare(within=settle)
         renewed = False
@@ -191,6 +207,8 @@ class CuaSession:
                 self._prepare(within=settle)
                 renewed = True
                 continue
+            except ReadRefusedError:
+                target = None
             if target is not None:
                 break
             if self._clock() + BIND_POLL_SECONDS > settle:
@@ -219,13 +237,13 @@ class CuaSession:
     def observe(self, *, screenshot: bool = False) -> Observation:
         self._bind()
         try:
-            state = self._snapshot(screenshot)
+            state = self._read(screenshot)
         except GrantLapsedError:
             # The grant lapsed between binding and capture: renewed, the tab is bound again and captured once more.
             self._prepare()
             self._bind()
             try:
-                state = self._snapshot(screenshot)
+                state = self._read(screenshot)
             except GrantLapsedError:
                 raise CuaError("browser-binding-inexact") from None
         page = state.get("page") if isinstance(state.get("page"), dict) else {}
@@ -254,12 +272,28 @@ class CuaSession:
         scroll = {"action": "scroll", "delta_y": delta, **SCROLL_AT, "delivery_mode": "foreground"}
         self._act("browser_pointer", {**self._tab(), **scroll})
 
-    def _snapshot(self, screenshot: bool) -> dict[str, object]:
-        return self._call(
-            "get_browser_state",
-            {**self._tab(), "snapshot_format": "semantic_v2", "include_screenshot": screenshot},
-            images=screenshot,
+    def _read(self, screenshot: bool) -> dict[str, object]:
+        """The page's state, bound afresh and read again while the Driver refuses it, until its bound is spent."""
+        settle = (
+            self._clock() + READ_SECONDS if self.deadline is None else min(self._clock() + READ_SECONDS, self.deadline)
         )
+        while True:
+            try:
+                return self._call(
+                    "get_browser_state",
+                    {**self._tab(), "snapshot_format": "semantic_v2", "include_screenshot": screenshot},
+                    images=screenshot,
+                    within=settle,
+                )
+            except ReadRefusedError:
+                if self._clock() + READ_RETRY_SECONDS + CALL_SECONDS > settle:
+                    raise CuaError("browser-read-refused") from None
+                self._sleep(READ_RETRY_SECONDS)
+                # The page that was bound may have gone: the window's live tab is bound afresh before the next read,
+                # which is asked only while a whole call still fits after the binding.
+                self._bind(within=settle)
+                if self._clock() + CALL_SECONDS > settle:
+                    raise CuaError("browser-read-refused") from None
 
     def _act(self, tool: str, arguments: dict[str, object]) -> None:
         try:
@@ -280,6 +314,8 @@ class CuaSession:
         structured = result.get("structuredContent")
         if _lapsed(structured):
             raise GrantLapsedError
+        if tool == "get_browser_state" and isinstance(structured, dict) and _refused(structured):
+            raise ReadRefusedError
         if result.get("isError") is True or not isinstance(structured, dict):
             if tool in ACTIONS and isinstance(structured, dict) and _refused(structured):
                 raise CuaError("action-refused", fatal=False)
@@ -351,13 +387,11 @@ def _lapsed(structured: object) -> bool:
     if not isinstance(structured, dict) or structured.get("status") != "refused":
         return False
     refusal = structured.get("refusal")
-    detail = refusal.get("detail") if isinstance(refusal, dict) else None
-    return (
-        isinstance(refusal, dict)
-        and refusal.get("code") == LAPSED_CODE
-        and isinstance(detail, dict)
-        and detail.get("reason") == LAPSED_REASON
-    )
+    if not isinstance(refusal, dict):
+        return False
+    detail = refusal.get("detail")
+    lapsed = refusal.get("code") == LAPSED_CODE and isinstance(detail, dict) and detail.get("reason") == LAPSED_REASON
+    return lapsed or (refusal.get("code") == ENDED_CODE and refusal.get("message") == ENDED_MESSAGE)
 
 
 def _refused(structured: dict[str, object]) -> bool:
