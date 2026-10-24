@@ -28,6 +28,9 @@ MAX_TITLE_CHARS = 300
 MAX_OBSERVATION_BYTES = 24 * 1024
 # A task's step ceiling; a thread never holds more steps (ADR-0117, 2026-10-22 amendment).
 MAX_STEPS = 300
+# A task's one absolute deadline: no Browser task, its ingest included, runs longer, so a chat turn's Browser phase
+# ends by it (Admin waits that long for the phase to end).
+MAX_TASK_SECONDS = 30 * 60
 # A read step opens at most this many links of its page in turn.
 MAX_READ_REFS = 10
 # The thread a step request carries: its history (the earlier-steps message plus the unfolded steps) within

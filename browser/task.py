@@ -31,7 +31,7 @@ from browser import thread as browser_thread
 from protocol.http.v1 import browser as browser_protocol
 
 MAX_STEPS = browser_protocol.MAX_STEPS
-MAX_SECONDS = 30 * 60.0
+MAX_SECONDS = float(browser_protocol.MAX_TASK_SECONDS)
 # US$0.50 in millionths of a cent: a token count times a catalog price in cents per million tokens.
 MAX_SPEND = 50 * 1_000_000
 FINISH_SECONDS = 60.0
