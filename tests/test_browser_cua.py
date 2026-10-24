@@ -45,6 +45,20 @@ class FakeChannel:
         ]
 
 
+# The Driver's refusal once its grant on the window lapsed, suggesting a call on another window than Team's.
+LAPSED = {
+    "status": "refused",
+    "refusal": {
+        "code": "browser_consent_required",
+        "detail": {
+            "reason": "consumer_profile_endpoint_requires_grant",
+            "next_action": "browser_prepare",
+            "next_call": {"tool": "browser_prepare", "arguments": {"pid": 99, "window_id": 99, "session": "other"}},
+        },
+    },
+}
+
+
 def _tool(structured, **extra):
     return {"result": {"structuredContent": structured, **extra}}
 
@@ -390,6 +404,75 @@ class CuaSessionTests(unittest.TestCase):
         with self.assertRaises(cua.CuaError) as raised:
             session.observe()
         self.assertEqual((raised.exception.code, raised.exception.fatal), ("tool-failed", True))
+
+    def test_a_lapsed_grant_is_renewed_on_the_admitted_window_and_binding_goes_on(self):
+        window = {"pid": 20, "window_id": 7, "session": "task"}
+        prepare = ("browser_prepare", {**window, "strategy": {"kind": "existing_profile"}})
+        for envelope in ({}, {"isError": True}):
+            with self.subTest(envelope=envelope):
+                # The refusal's own suggested call names another window: Team renews only the window it admitted.
+                session, channel = _opened(_tool(LAPSED, **envelope), _tool({"status": "ok"}), _tool(_bound()))
+                del channel.sent[:]
+                session._bind()
+                self.assertEqual(
+                    channel.calls(), [("get_browser_state", window), prepare, ("get_browser_state", window)]
+                )
+        # A grant that lapses again at once in the same binding is not renewed twice.
+        session, _channel = _opened(_tool(LAPSED), _tool({"status": "ok"}), _tool(LAPSED))
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual((raised.exception.code, raised.exception.fatal), ("browser-binding-inexact", True))
+        # A renewal the Driver refuses is the attach refusal it always was.
+        session, _channel = _opened(_tool(LAPSED), _tool({"status": "refused"}))
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual(raised.exception.code, "browser-attach-refused")
+        # Another consent refusal is no lapsed grant: it is never answered with a renewal.
+        other = {**LAPSED, "refusal": {**LAPSED["refusal"], "detail": {"reason": "user_denied"}}}
+        session, channel = _opened(_tool(other))
+        with self.assertRaises(cua.CuaError):
+            session._bind()
+        self.assertNotIn("browser_prepare", [name for name, _ in channel.calls()[3:]])
+
+    def test_an_old_grant_is_renewed_before_binding_within_the_same_bound(self):
+        now = [100.0]
+        channel = FakeChannel(*OPENING, _tool({"status": "ok"}), _tool(_bound()), _tool(_bound()))
+        session = cua.CuaSession(channel, clock=lambda: now[0])
+        session.open()
+        now[0] += cua.REGRANT_SECONDS
+        session._bind()
+        self.assertEqual([name for name, _ in channel.calls()[3:]], ["browser_prepare", "get_browser_state"])
+        # A fresh grant binds without renewing.
+        session._bind()
+        self.assertEqual([name for name, _ in channel.calls()[5:]], ["get_browser_state"])
+        # A deadline already spent never sends the renewal.
+        session.deadline = now[0]
+        now[0] += cua.REGRANT_SECONDS
+        sent = len(channel.sent)
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual((raised.exception.code, len(channel.sent)), ("deadline-passed", sent))
+
+    def test_a_grant_lapsed_at_capture_is_renewed_and_the_page_captured_once_more(self):
+        page = _tool({"page": {"url": "https://example.com/", "title": "Example"}, "refs": [], "outline": "Hi"})
+        session, channel = _opened(_tool(_bound()), _tool(LAPSED), _tool({"status": "ok"}), _tool(_bound()), page)
+        observation = session.observe()
+        self.assertEqual(observation.url, "https://example.com/")
+        names = [name for name, _ in channel.calls()[3:]]
+        self.assertEqual(names, ["get_browser_state"] * 2 + ["browser_prepare"] + ["get_browser_state"] * 2)
+        session, _channel = _opened(
+            _tool(_bound()), _tool(LAPSED), _tool({"status": "ok"}), _tool(_bound()), _tool(LAPSED)
+        )
+        with self.assertRaises(cua.CuaError) as raised:
+            session.observe()
+        self.assertEqual(raised.exception.code, "browser-binding-inexact")
+
+    def test_an_action_refused_for_a_lapsed_grant_renews_it_and_is_never_repeated(self):
+        session, channel = _opened(_tool(LAPSED, isError=True), _tool({"status": "ok"}))
+        with self.assertRaises(cua.CuaError) as raised:
+            session.click("p1:1")
+        self.assertEqual((raised.exception.code, raised.exception.fatal), ("action-refused", False))
+        self.assertEqual([name for name, _ in channel.calls()[3:]], ["browser_click", "browser_prepare"])
 
     def test_a_failed_channel_is_a_fatal_loss_and_no_call_outlives_the_task(self):
         class Broken(FakeChannel):

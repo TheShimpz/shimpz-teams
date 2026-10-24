@@ -53,6 +53,12 @@ ACTIONS = frozenset({"browser_navigate", "browser_click", "browser_type", "brows
 # A navigation the Driver reports as a Chromium network error left no page loaded but the Browser sound; the agent may
 # look again and retry or go another way. The page may still have changed, so it is its own outcome, not a refusal.
 NETWORK_FAILURE = re.compile(r"navigation failed: net::ERR_[A-Z0-9_]{1,64}")
+# The Driver's grant on the Browser's window lapses with use (measured about 340 seconds after it was given) and says
+# so with one refusal that asks for the same preparation again. Team renews it on its own admitted window, never with
+# the Driver's suggested arguments: before binding once the grant is this old, and whenever the Driver says it lapsed.
+REGRANT_SECONDS = 240.0
+LAPSED_CODE = "browser_consent_required"
+LAPSED_REASON = "consumer_profile_endpoint_requires_grant"
 
 
 class Channel(Protocol):
@@ -73,6 +79,13 @@ class CuaError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.fatal = fatal
+
+
+class GrantLapsedError(CuaError):
+    """The Driver's grant on the window lapsed: the call had no effect, and a renewal lets the session go on."""
+
+    def __init__(self) -> None:
+        super().__init__("browser-grant-lapsed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +126,8 @@ class CuaSession:
         self._identifier = 0
         self._window: dict[str, object] | None = None
         self._target: tuple[str, str] | None = None
+        # When the Driver last granted the window, by this session's clock.
+        self._granted: float | None = None
 
     def initialize(self) -> None:
         """The MCP handshake; nothing is bound yet."""
@@ -142,18 +157,41 @@ class CuaSession:
         if type(pid) is not int or type(window_id) is not int or not chromium:
             raise CuaError("browser-window-unavailable")
         self._window = {"pid": pid, "window_id": window_id, "session": SESSION}
-        prepared = self._call("browser_prepare", {**self._window, "strategy": {"kind": "existing_profile"}})
-        if prepared.get("status") != "ok":
-            raise CuaError("browser-attach-refused")
+        self._prepare()
         self._bind()
 
-    def _bind(self) -> None:
-        """Bind the window and follow its active tab, so a link that opened a new tab is where the task continues."""
+    def _prepare(self, within: float | None = None) -> None:
+        """Attach the Driver to the admitted window, or renew its lapsed grant there; the same call either way."""
         if self._window is None:
             raise CuaError("browser-not-open")
-        # One bound for the whole binding: every check, and the wait between checks, ends by it.
+        arguments = {**self._window, "strategy": {"kind": "existing_profile"}}
+        if self._call("browser_prepare", arguments, within=within).get("status") != "ok":
+            raise CuaError("browser-attach-refused")
+        self._granted = self._clock()
+
+    def _bind(self) -> None:
+        """Bind the window and follow its active tab, so a link that opened a new tab is where the task continues.
+
+        An old grant is renewed first, and a grant the Driver says lapsed is renewed once, within the same bound.
+        """
+        if self._window is None:
+            raise CuaError("browser-not-open")
+        # One bound for the whole binding: a renewal, every check, and the wait between checks end by it.
         settle = self._call_deadline()
-        while (target := self._bound(settle)) is None:
+        if self._granted is None or self._clock() - self._granted >= REGRANT_SECONDS:
+            self._prepare(within=settle)
+        renewed = False
+        while True:
+            try:
+                target = self._bound(settle)
+            except GrantLapsedError:
+                if renewed:
+                    raise CuaError("browser-binding-inexact") from None
+                self._prepare(within=settle)
+                renewed = True
+                continue
+            if target is not None:
+                break
             if self._clock() + BIND_POLL_SECONDS > settle:
                 raise CuaError("browser-binding-inexact")
             self._sleep(BIND_POLL_SECONDS)
@@ -179,11 +217,16 @@ class CuaSession:
 
     def observe(self, *, screenshot: bool = False) -> Observation:
         self._bind()
-        state = self._call(
-            "get_browser_state",
-            {**self._tab(), "snapshot_format": "semantic_v2", "include_screenshot": screenshot},
-            images=screenshot,
-        )
+        try:
+            state = self._snapshot(screenshot)
+        except GrantLapsedError:
+            # The grant lapsed between binding and capture: renewed, the tab is bound again and captured once more.
+            self._prepare()
+            self._bind()
+            try:
+                state = self._snapshot(screenshot)
+            except GrantLapsedError:
+                raise CuaError("browser-binding-inexact") from None
         page = state.get("page") if isinstance(state.get("page"), dict) else {}
         url = _clean(page.get("url"), browser_protocol.MAX_URL_CHARS)
         title = _clean(page.get("title"), browser_protocol.MAX_TITLE_CHARS)
@@ -210,8 +253,21 @@ class CuaSession:
         scroll = {"action": "scroll", "delta_y": delta, **SCROLL_AT, "delivery_mode": "foreground"}
         self._act("browser_pointer", {**self._tab(), **scroll})
 
+    def _snapshot(self, screenshot: bool) -> dict[str, object]:
+        return self._call(
+            "get_browser_state",
+            {**self._tab(), "snapshot_format": "semantic_v2", "include_screenshot": screenshot},
+            images=screenshot,
+        )
+
     def _act(self, tool: str, arguments: dict[str, object]) -> None:
-        if _refused(self._call(tool, arguments)):
+        try:
+            result = self._call(tool, arguments)
+        except GrantLapsedError:
+            # Refused with no effect: the grant is renewed, and the action is never repeated on refs it invalidated.
+            self._prepare()
+            raise CuaError("action-refused", fatal=False) from None
+        if _refused(result):
             raise CuaError("action-refused", fatal=False)
 
     def _call(
@@ -221,6 +277,8 @@ class CuaSession:
             raise CuaError("tool-not-admitted")
         result = self._request("tools/call", {"name": tool, "arguments": arguments}, within)
         structured = result.get("structuredContent")
+        if _lapsed(structured):
+            raise GrantLapsedError
         if result.get("isError") is True or not isinstance(structured, dict):
             if tool in ACTIONS and isinstance(structured, dict) and _refused(structured):
                 raise CuaError("action-refused", fatal=False)
@@ -284,6 +342,20 @@ def _network_failure(result: dict[str, object]) -> bool:
         and item.get("type") == "text"
         and isinstance(item.get("text"), str)
         and NETWORK_FAILURE.fullmatch(item["text"]) is not None
+    )
+
+
+def _lapsed(structured: object) -> bool:
+    """Whether the Driver refused because its grant on the window lapsed, and for nothing else."""
+    if not isinstance(structured, dict) or structured.get("status") != "refused":
+        return False
+    refusal = structured.get("refusal")
+    detail = refusal.get("detail") if isinstance(refusal, dict) else None
+    return (
+        isinstance(refusal, dict)
+        and refusal.get("code") == LAPSED_CODE
+        and isinstance(detail, dict)
+        and detail.get("reason") == LAPSED_REASON
     )
 
 
