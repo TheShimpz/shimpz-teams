@@ -527,6 +527,29 @@ class CuaSessionTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "browser-read-refused")
         self.assertEqual(rebinding.results, [page])
 
+    def test_a_refused_bind_is_asked_again_only_while_the_slowest_refusal_fits(self):
+        now = [100.0]
+        refused = {"status": "refused", "refusal": {"code": "authorization_host_failed", "message": "timed out"}}
+        # A refusal that came at once is asked again and the binding goes on.
+        channel = FakeChannel(*OPENING, _tool(refused, isError=True), _tool(_bound()))
+        session = cua.CuaSession(channel, clock=lambda: now[0], sleep=lambda seconds: None)
+        session.open()
+        session._bind()
+        # One that took the Driver's whole wait leaves no room for another: Chromium refuses the read.
+        channel = FakeChannel(*OPENING, _tool(refused, isError=True))
+        session = cua.CuaSession(channel, clock=lambda: now[0], sleep=lambda seconds: None)
+        session.open()
+        sent = channel.send
+
+        def slow(data, deadline):
+            now[0] += cua.REFUSAL_SECONDS - 1
+            sent(data, deadline)
+
+        channel.send = slow
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual((raised.exception.code, len(channel.results)), ("browser-read-refused", 0))
+
     def test_an_action_refused_for_a_lapsed_grant_renews_it_and_is_never_repeated(self):
         ended = {"status": "refused", "refusal": {"code": cua.ENDED_CODE, "message": cua.ENDED_MESSAGE}}
         for lapsed in (LAPSED, ended):

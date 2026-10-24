@@ -45,6 +45,10 @@ PROMPT_TOKENS = 10_000
 SCREENSHOT_EVERY = 3
 WAIT_SECONDS = 2.0
 MAX_RECOVERIES = 3
+RESTARTED_NOTICE = (
+    "The Browser stopped answering on its last page and was started again: its tabs, forms, and page state are gone, "
+    "so open again what you still need.\n"
+)
 MAX_RETURNS_UNSCREENED = 2
 MAX_RETURNS_INCOMPLETE = 4
 # Which observed action a step needs on the ref it names.
@@ -61,7 +65,8 @@ class Outcome:
     """How a task ended: `done`, `needs-person`, `stopped`, `budget`, or `failed`, with its closed details.
 
     `cause` names, for the audit only, where a failure came from and its closed code; `recovered` counts the Driver
-    sessions replaced on the way. A done answer carries what screening and the completeness check left unresolved.
+    sessions replaced on the way, and `relaunched` the ones that needed Chromium started again. A done answer carries
+    what screening and the completeness check left unresolved.
     """
 
     status: str
@@ -71,6 +76,7 @@ class Outcome:
     steps: int = 0
     cause: str | None = None
     recovered: int = 0
+    relaunched: int = 0
     unscreened: tuple[str, ...] = ()
     completeness: str | None = None
     missing: str | None = None
@@ -95,7 +101,8 @@ Call = Callable[[str, Mapping[str, object], float], tuple[object, Mapping[str, i
 Price = Callable[[str | None], tuple[int, int]]
 # A fresh Driver session on the same Browser in place of the failed one, opened by the task's absolute deadline; raises
 # CuaError when the failed one could not be proven ended or the new one did not open.
-Reopen = Callable[[cua.CuaSession, float], cua.CuaSession]
+# A fresh Driver session in place of a failed one, by the deadline; with `relaunch`, on a Chromium started again first.
+Reopen = Callable[[cua.CuaSession, float, bool], cua.CuaSession]
 # The task's downloads so far in the protocol's form, read by the task's absolute deadline; None when unreadable.
 Downloads = Callable[[float], Mapping[str, object] | None]
 
@@ -120,6 +127,9 @@ class Task:
     reopen: Reopen | None = None
     downloads: Downloads | None = None
     recovered: int = 0
+    relaunched: int = 0
+    # Said with the next observation after Chromium was started again: the agent's page state did not survive it.
+    restarted: bool = False
     thread: browser_thread.Thread = field(default_factory=browser_thread.Thread)
     screen: screen.Screen = field(default_factory=screen.Screen)
     screenshot_at: int = -SCREENSHOT_EVERY
@@ -137,8 +147,8 @@ class Task:
         for index in range(self.budget.steps):
             ended = self._halted(index) or self._turn(index)
             if ended is not None:
-                return replace(ended, recovered=self.recovered)
-        return replace(self._final(self.budget.steps, None), recovered=self.recovered)
+                return replace(ended, recovered=self.recovered, relaunched=self.relaunched)
+        return replace(self._final(self.budget.steps, None), recovered=self.recovered, relaunched=self.relaunched)
 
     # Proof that the task may go on
 
@@ -243,17 +253,18 @@ class Task:
 
     def _observe(self, index: int) -> cua.Observation | Outcome | None:
         """The current page, back on the last page that loaded after an error page, with any read pages joined."""
-        notice = ""
+        notice = RESTARTED_NOTICE if self.restarted else ""
         try:
             observation = self.session.observe(screenshot=self.wants_screenshot)
             if observation.url.startswith("chrome-error://") and self.last_good is not None:
                 title = observation.title
                 self.session.navigate(self.last_good)
                 observation = self.session.observe(screenshot=self.wants_screenshot)
-                notice = f"The last page you opened ({title}) did not load; you are back on {self.last_good}.\n"
+                notice += f"The last page you opened ({title}) did not load; you are back on {self.last_good}.\n"
         except cua.CuaError as exc:
             # Nothing was done on the page: the next step looks at it again on the fresh session.
             return self._recover(index, f"observe/{exc.code}")
+        self.restarted = False
         if observation.url.startswith(("https://", "http://")):
             self.last_good = observation.url
         if self.wants_screenshot:
@@ -446,12 +457,17 @@ class Task:
         lost = Outcome("failed", reason="browser-lost", steps=steps, cause=cause)
         if self.reopen is None or self.recovered >= MAX_RECOVERIES:
             return lost
+        # A page Chromium no longer reads, through any Driver session, needs Chromium itself started again.
+        relaunch = cause.endswith("/browser-read-refused")
         try:
-            self.session = self.reopen(self.session, self.deadline)
+            self.session = self.reopen(self.session, self.deadline, relaunch)
         except cua.CuaError as exc:
             # Stop and the deadline win over a recovery they cut short.
             return self._halted(steps) or replace(lost, cause=f"{cause}/reopen/{exc.code}")
         self.recovered += 1
+        if relaunch:
+            self.relaunched += 1
+            self.restarted = True
         return None
 
 

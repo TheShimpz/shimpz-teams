@@ -9,7 +9,8 @@
 //! KasmVNC's X server confined to its own namespaces (`display.rs`). A Browser a person may control (`BROWSER_MODE`
 //! `person` or `signed-in`, ADR-0117 Sign-ins amendment) also takes `credentials` (the display's two viewer credentials),
 //! `stop` (Chromium's clean stop), `profile export`, and, in `signed-in` mode before Chromium starts, `profile import`
-//! (`profile.rs`).
+//! (`profile.rs`). An agent's Browser alone takes `relaunch`: its Chromium, every process of it, ends and starts
+//! again on a blank page while the display, buses, and network stay, for a page that stopped answering for good.
 //!
 //! Every input comes from Team through the container's environment or the exec argument vector and is validated
 //! here again; nothing is ever passed to a shell.
@@ -64,6 +65,13 @@ const LIFECYCLE_LOCK: &str = "/tmp/run/lifecycle.lock";
 /// `kill`'s answer for a process that no longer exists.
 const NO_SUCH_PROCESS: i32 = 3;
 const CHROMIUM_PID: &str = "/tmp/run/chromium.pid";
+/// An agent's relaunch: the request the supervisor answers, and the Chromium generation it publishes once restarted.
+const RELAUNCH: &str = "/tmp/run/relaunch";
+const GENERATION: &str = "/tmp/run/chromium.generation";
+/// How many times an agent's Chromium may be relaunched in one Browser, and how long one relaunch may take.
+const MAX_RELAUNCHED: u32 = 3;
+const RELAUNCH_DEADLINE: Duration = Duration::from_secs(30);
+const SIGKILL: i32 = 9;
 /// How many times a person's sign-in Browser opens again after its last window closed; past it, it has crashed instead.
 const MAX_REOPENED: u32 = 20;
 const MAX_URL_BYTES: usize = 2048;
@@ -94,6 +102,7 @@ fn main() -> ExitCode {
             credentials(&mut io::stdin().lock(), Path::new(display::PASSWORD_FILE))
         }),
         ["stop"] => controlled().and_then(|()| stop()),
+        ["relaunch"] => agent().and_then(|()| relaunch()),
         ["profile", "export"] => controlled().and_then(|()| export()),
         ["profile", "import"] => restoring().and_then(|()| import()),
         _ => Err(
@@ -189,6 +198,14 @@ fn settings(environment: &HashMap<String, String>) -> Result<Settings, String> {
 
 fn current_mode() -> Result<Mode, String> {
     mode(&std::env::vars().collect())
+}
+
+/// An agent's Browser: only there may Chromium be relaunched, having no person's session or profile to keep.
+fn agent() -> Result<(), String> {
+    match current_mode()? {
+        Mode::Agent => Ok(()),
+        _ => Err("only an agent's Browser relaunches Chromium".into()),
+    }
 }
 
 /// A Browser a person may control: only there do credentials, a clean stop, and an export exist.
@@ -411,6 +428,19 @@ fn supervise(settings: &Settings, children: &mut [Child]) -> Result<(), String> 
             let chromium = index == NAMES.len() - 1;
             // Held while deciding and reopening, so a clean stop either came first or finds the new Chromium.
             let _lifecycle = lifecycle(Path::new(LIFECYCLE_LOCK))?;
+            if chromium && settings.mode == Mode::Agent && Path::new(RELAUNCH).exists() {
+                // Team asked an agent's Chromium to relaunch: every process of the old one ends before the new one
+                // starts on a blank page, and the new generation is published only once it runs.
+                let generation = chromium_generation() + 1;
+                end_chromium()?;
+                drop_partial_downloads(Path::new(DOWNLOADS))?;
+                fs::remove_file(RELAUNCH)
+                    .map_err(|error| format!("cannot clear the relaunch: {error}"))?;
+                children[index] = start_chromium(settings)?;
+                fs::write(GENERATION, generation.to_string())
+                    .map_err(|error| format!("cannot record Chromium's generation: {error}"))?;
+                continue;
+            }
             if chromium
                 && matches!(settings.mode, Mode::Person { .. })
                 && !Path::new(STOPPING).exists()
@@ -486,17 +516,120 @@ fn credentials(input: &mut impl Read, path: &Path) -> Result<(), String> {
 }
 
 /// Whether any process of Chromium is still alive in this container.
-fn chromium_running() -> bool {
-    fs::read_dir("/proc").is_ok_and(|entries| {
-        entries.flatten().any(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
-                && fs::read_to_string(entry.path().join("comm"))
-                    .is_ok_and(|comm| comm.trim_end() == "chromium")
-        })
-    })
+fn chromium_running() -> Result<bool, String> {
+    chromium_processes(Path::new("/proc")).map(|pids| !pids.is_empty())
+}
+
+/// Every process of Chromium under `proc`: its browser process and all it started.
+///
+/// Only a process that ended while it was looked at is passed over; any other doubt fails, so no proof of absence
+/// rests on a listing that could not be read.
+fn chromium_processes(proc: &Path) -> Result<Vec<i32>, String> {
+    let entries = fs::read_dir(proc).map_err(|error| format!("cannot list processes: {error}"))?;
+    let mut pids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot list processes: {error}"))?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        match fs::read_to_string(entry.path().join("comm")) {
+            Ok(comm) if comm.trim_end() == "chromium" => pids.push(pid),
+            Ok(_) => {}
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(NO_SUCH_PROCESS) => {}
+            Err(error) => return Err(format!("cannot read process {pid}: {error}")),
+        }
+    }
+    Ok(pids)
+}
+
+/// Remove the partial downloads under `downloads`, which no Chromium will finish once its processes are gone;
+/// completed files stay. Only a regular file with one link and the partial suffix is removed, never through a link.
+fn drop_partial_downloads(downloads: &Path) -> Result<(), String> {
+    let entries =
+        fs::read_dir(downloads).map_err(|error| format!("cannot list the downloads: {error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot list the downloads: {error}"))?;
+        let partial = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.ends_with(PARTIAL_SUFFIX));
+        let metadata = entry
+            .metadata()
+            .map_err(|error| format!("cannot inspect a download: {error}"))?;
+        if partial && metadata.file_type().is_file() && metadata.nlink() == 1 {
+            fs::remove_file(entry.path())
+                .map_err(|error| format!("cannot remove a partial download: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// How many times this Browser's Chromium was relaunched: 0 until the supervisor publishes a relaunch.
+fn chromium_generation() -> u32 {
+    fs::read_to_string(GENERATION)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// End every Chromium process at once and wait until none is left, within the relaunch's bound.
+fn end_chromium() -> Result<(), String> {
+    let deadline = Instant::now() + RELAUNCH_DEADLINE;
+    while chromium_running()? {
+        for pid in chromium_processes(Path::new("/proc"))? {
+            // A process that ended meanwhile is no failure: the next look proves the rest gone.
+            unsafe { kill(pid, SIGKILL) };
+        }
+        if Instant::now() >= deadline {
+            return Err("Chromium did not end in time".into());
+        }
+        thread::sleep(POLL);
+    }
+    Ok(())
+}
+
+/// Ask an agent's Chromium to relaunch and wait until the supervisor runs a new one that answers on DevTools.
+///
+/// Under the lifecycle lock the request is marked and Chromium's browser process killed; the supervisor, seeing it
+/// end, ends every other Chromium process, starts Chromium again, and publishes the next generation. Past
+/// MAX_RELAUNCHED, with a relaunch already under way, or without a new generation that answers in time, it fails.
+fn relaunch() -> Result<(), String> {
+    let next = {
+        let _lifecycle = lifecycle(Path::new(LIFECYCLE_LOCK))?;
+        let generation = chromium_generation();
+        if generation >= MAX_RELAUNCHED {
+            return Err("Chromium was relaunched as often as it may be".into());
+        }
+        if Path::new(RELAUNCH).exists() {
+            return Err("a relaunch is already under way".into());
+        }
+        let pid: i32 = fs::read_to_string(CHROMIUM_PID)
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+            .ok_or("Chromium is not running")?;
+        fs::write(RELAUNCH, b"").map_err(|error| format!("cannot mark the relaunch: {error}"))?;
+        if unsafe { kill(pid, SIGKILL) } != 0
+            && io::Error::last_os_error().raw_os_error() != Some(NO_SUCH_PROCESS)
+        {
+            return Err("Chromium could not be ended".into());
+        }
+        generation + 1
+    };
+    let deadline = Instant::now() + RELAUNCH_DEADLINE;
+    while chromium_generation() != next || ready().is_err() {
+        if Instant::now() >= deadline {
+            return Err("Chromium did not start again in time".into());
+        }
+        thread::sleep(POLL);
+    }
+    println!("relaunched");
+    Ok(())
 }
 
 /// Ask Chromium to end the session (SIGTERM), wait for every one of its processes, and prove the profile records a
@@ -518,7 +651,7 @@ fn stop() -> Result<(), String> {
         }
     }
     let deadline = Instant::now() + STOP_DEADLINE;
-    while chromium_running() {
+    while chromium_running()? {
         if Instant::now() >= deadline {
             return Err("Chromium did not stop in time".into());
         }
@@ -942,6 +1075,62 @@ mod tests {
         ] {
             assert!(read(root, name, &mut Vec::new()).is_err(), "{name}");
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_relaunch_drops_only_partial_downloads() {
+        let directory = tempfile();
+        let root = directory.as_path();
+        fs::write(root.join("edital.pdf"), b"%PDF-1.4").unwrap();
+        fs::write(root.join("Unconfirmed 1.crdownload"), b"partial").unwrap();
+        fs::write(root.join("linked.crdownload"), b"x").unwrap();
+        fs::hard_link(root.join("linked.crdownload"), root.join("other")).unwrap();
+        symlink("/etc/passwd", root.join("pointer.crdownload")).unwrap();
+        fs::create_dir(root.join("folder.crdownload")).unwrap();
+        drop_partial_downloads(root).unwrap();
+        let mut left: Vec<String> = fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "edital.pdf",
+                "folder.crdownload",
+                "linked.crdownload",
+                "other",
+                "pointer.crdownload"
+            ]
+        );
+        assert!(drop_partial_downloads(&root.join("absent")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chromium_processes_are_found_by_name_and_an_unreadable_listing_fails() {
+        let directory = tempfile();
+        let root = directory.as_path();
+        for (pid, comm) in [
+            ("10", "chromium\n"),
+            ("11", "dbus-daemon\n"),
+            ("12", "chromium\n"),
+        ] {
+            fs::create_dir(root.join(pid)).unwrap();
+            fs::write(root.join(pid).join("comm"), comm).unwrap();
+        }
+        // A process that ended while it was looked at, and an entry that is no process.
+        fs::create_dir(root.join("13")).unwrap();
+        fs::create_dir(root.join("self-info")).unwrap();
+        let mut pids = chromium_processes(root).unwrap();
+        pids.sort_unstable();
+        assert_eq!(pids, [10, 12]);
+        // A process whose name cannot be read for another reason is no proof of absence.
+        fs::create_dir(root.join("14")).unwrap();
+        fs::create_dir(root.join("14").join("comm")).unwrap();
+        assert!(chromium_processes(root).is_err());
+        assert!(chromium_processes(&root.join("absent")).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

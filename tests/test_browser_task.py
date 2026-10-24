@@ -3,6 +3,9 @@
 import itertools
 import time
 import unittest
+from dataclasses import replace
+
+import test_browser_cua
 
 from browser import cua, read, screen, task
 from protocol.http.v1 import browser as browser_protocol
@@ -49,7 +52,7 @@ class FakeSession:
     def observe(self, *, screenshot=False):
         self.observed += 1
         if self.fail_observe:
-            raise cua.CuaError("tool-failed")
+            raise cua.CuaError(self.fail_observe if isinstance(self.fail_observe, str) else "tool-failed")
         self.screenshots.append(screenshot)
         return self.page(screenshot)
 
@@ -297,7 +300,7 @@ class BrowserTaskTests(unittest.TestCase):
 
         brain = Brain({"kind": "read", "refs": ["p1:4", "p1:5"]}, DONE)
         outcome, _ = _run(
-            Breaking(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d: FakeSession()
+            Breaking(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: FakeSession()
         )
         self.assertEqual(outcome.status, "done")
         self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "interrupted")
@@ -314,7 +317,7 @@ class BrowserTaskTests(unittest.TestCase):
                 return super().observe(screenshot=screenshot)
 
         brain = Brain({"kind": "read", "refs": ["p1:4"]}, DONE)
-        _run(Blind(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d: FakeSession())
+        _run(Blind(links=links, url="https://example.com/busca"), brain, reopen=lambda s, d, r: FakeSession())
         self.assertEqual(brain.requests()[-1]["thread"]["steps"][0]["outcome"], "refused")
         # The egress was lost after the first target was opened: nothing more is clicked, not even the way back.
         session = FakeSession(links=links, url="https://example.com/busca")
@@ -666,14 +669,14 @@ class BrowserTaskTests(unittest.TestCase):
         fresh = FakeSession()
         reopened = []
 
-        def reopen(session, deadline):
-            reopened.append((session, deadline))
+        def reopen(session, deadline, relaunch):
+            reopened.append((session, deadline, relaunch))
             return fresh
 
         brain = Brain({"kind": "click", "ref": "p1:1"}, {"kind": "scroll", "direction": "down"}, DONE)
         outcome, _ = _run(failed, brain, reopen=reopen)
         self.assertEqual(outcome, _done("Prazo: 30/11.", 3, recovered=1))
-        self.assertEqual(reopened, [(failed, task.MAX_SECONDS)])
+        self.assertEqual(reopened, [(failed, task.MAX_SECONDS, False)])
         # The failed session is never used again, and the click whose effect is unknown is in the thread as such.
         self.assertEqual((failed.calls, fresh.calls), ([("click", "p1:1")], [("scroll", "down")]))
         outcomes = [entry["outcome"] for entry in brain.requests()[-1]["thread"]["steps"]]
@@ -682,15 +685,60 @@ class BrowserTaskTests(unittest.TestCase):
     def test_an_observation_that_failed_is_looked_at_again_on_a_fresh_session(self):
         fresh = FakeSession()
         brain = Brain(DONE)
-        outcome, _ = _run(FakeSession(fail_observe=True), brain, reopen=lambda _session, _deadline: fresh)
+        outcome, _ = _run(FakeSession(fail_observe=True), brain, reopen=lambda _session, _deadline, _relaunch: fresh)
         self.assertEqual(outcome, _done("Prazo: 30/11.", 2, recovered=1))
         self.assertEqual((brain.requests()[0]["thread"]["steps"], len(fresh.screenshots)), ([], 1))
+
+    def test_a_page_chromium_no_longer_reads_starts_chromium_again_and_the_agent_is_told(self):
+        fresh = FakeSession()
+        reopened = []
+
+        def reopen(_session, _deadline, relaunch):
+            reopened.append(relaunch)
+            return fresh
+
+        brain = Brain(DONE)
+        outcome, _ = _run(FakeSession(fail_observe="browser-read-refused"), brain, reopen=reopen)
+        self.assertEqual(outcome, replace(_done("Prazo: 30/11.", 2, recovered=1), relaunched=1))
+        self.assertEqual(reopened, [True])
+        # Only the next observation says so; the one after it does not.
+        self.assertTrue(brain.requests()[0]["observation"].startswith(task.RESTARTED_NOTICE))
+        brain = Brain({"kind": "scroll", "direction": "down"}, DONE)
+        _run(FakeSession(fail_observe="browser-read-refused"), brain, reopen=reopen)
+        self.assertFalse(brain.requests()[1]["observation"].startswith(task.RESTARTED_NOTICE))
+
+    def test_a_real_session_whose_page_chromium_no_longer_reads_asks_for_chromium_started_again(self):
+        # The Driver's own session over a channel whose every read of the page is refused after the Driver's 20 s.
+        refused = test_browser_cua._tool(
+            {"status": "refused", "refusal": {"code": "authorization_host_failed", "message": "timed out"}},
+            isError=True,
+        )
+        now = [0.0]
+        channel = test_browser_cua.FakeChannel(*test_browser_cua.OPENING, *[refused] * 4)
+        sent = channel.send
+
+        def slow(data, deadline):
+            if b"get_browser_state" in data and len(channel.sent) > 4:
+                now[0] += 20.0
+            sent(data, deadline)
+
+        channel.send = slow
+        session = cua.CuaSession(channel, clock=lambda: now[0], sleep=lambda seconds: None)
+        session.open()
+        reopened = []
+
+        def reopen(_session, _deadline, relaunch):
+            reopened.append(relaunch)
+            return FakeSession()
+
+        outcome, _ = _run(session, Brain(DONE), reopen=reopen, clock=lambda: now[0])
+        self.assertEqual((outcome.status, outcome.relaunched, reopened), ("done", 1, [True]))
 
     def test_recoveries_are_bounded_and_a_failed_one_ends_the_task_with_its_cause(self):
         outcome, _ = _run(
             FakeSession(fail_observe=True),
             Brain(DONE),
-            reopen=lambda _session, _deadline: FakeSession(fail_observe=True),
+            reopen=lambda _session, _deadline, _relaunch: FakeSession(fail_observe=True),
         )
         self.assertEqual(
             outcome,
@@ -699,7 +747,7 @@ class BrowserTaskTests(unittest.TestCase):
             ),
         )
 
-        def refused(_session, _deadline):
+        def refused(_session, _deadline, _relaunch):
             raise cua.CuaError("driver-not-ended")
 
         outcome, _ = _run(FakeSession(fail_observe=True), Brain(), reopen=refused)
@@ -711,7 +759,7 @@ class BrowserTaskTests(unittest.TestCase):
     def test_stop_and_a_lost_egress_win_over_a_recovery(self):
         reopened = []
 
-        def reopen(_session, _deadline):
+        def reopen(_session, _deadline, _relaunch):
             reopened.append(True)
             raise cua.CuaError("driver-unavailable")
 

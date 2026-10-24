@@ -224,6 +224,15 @@ class BrowserService:
             return _lost(outcome, "runtime/not-intact"), ingested
         return outcome, ingested
 
+    def _relaunch(self, lease: Lease, deadline: float, held: Callable[[], bool]) -> None:
+        """Start the task's Chromium again while the turn still holds its Browser; Stop wins before and during it."""
+        if not held():
+            raise cua.CuaError("stopped")
+        try:
+            self._runtime.relaunch(lease, deadline, held)
+        except BrowserError as exc:
+            raise cua.CuaError("relaunch-failed") from exc
+
     def _task(
         self,
         turn: BrowserTurn,
@@ -257,8 +266,11 @@ class BrowserService:
             session.open()
             return session
 
-        def reopen(failed: cua.CuaSession, deadline: float) -> cua.CuaSession:
-            """A fresh Driver session in place of `failed`, once Docker proved the failed one's exec ended."""
+        def reopen(failed: cua.CuaSession, deadline: float, relaunch: bool) -> cua.CuaSession:
+            """A fresh Driver session in place of `failed`, once Docker proved the failed one's exec ended.
+
+            With `relaunch`, the Browser's Chromium is started again first, while the turn still holds it.
+            """
             exec_id, stream = drivers.pop(failed)
             stream.shutdown()
             try:
@@ -267,6 +279,8 @@ class BrowserService:
                 stream.close()
             if not ended:
                 raise cua.CuaError("driver-not-ended")
+            if relaunch:
+                self._relaunch(lease, deadline, held)
             try:
                 return driver(deadline)
             except BrowserError as exc:
@@ -369,7 +383,7 @@ def _lost(outcome: browser_task.Outcome, cause: str) -> browser_task.Outcome:
 
 def _ending(outcome: browser_task.Outcome) -> str:
     """How the task ended, for its audit line: closed words and counts only, never page content."""
-    ending = f"{outcome.status}:steps={outcome.steps}:recovered={outcome.recovered}"
+    ending = f"{outcome.status}:steps={outcome.steps}:recovered={outcome.recovered}:relaunched={outcome.relaunched}"
     return ending if outcome.cause is None else f"{ending}:cause={outcome.cause}"
 
 

@@ -62,6 +62,34 @@ class AcquisitionTests(unittest.TestCase):
             self.runtime.acquire("team_1", "en", wanted=lambda: not stopped)
         self.assertEqual(len(self.docker.created), len(self.docker.removed))
 
+    def test_a_relaunch_must_answer_relaunched_with_status_zero_while_still_wanted(self):
+        browser = self.make()
+        lease = browser.acquire("neo", "en")
+        self.docker.programs[("relaunch",)] = (0, b"relaunched\n")
+        browser.relaunch(lease, self.now[0] + 60, lambda: True)
+        for answer in ((1, b"relaunched\n"), (0, b""), (0, b"relaunched\nmore\n"), (0, b"running\n")):
+            with self.subTest(answer=answer), self.assertRaises(runtime.BrowserError):
+                self.docker.programs[("relaunch",)] = answer
+                browser.relaunch(lease, self.now[0] + 60, lambda: True)
+        # A Stop that came while Chromium started again leaves the relaunch unproven.
+        self.docker.programs[("relaunch",)] = (0, b"relaunched\n")
+        stopped = []
+        inspect = self.docker.api.exec_inspect
+
+        def stopping(exec_id):
+            stopped.append(True)
+            return inspect(exec_id)
+
+        with mock.patch.object(self.docker.api, "exec_inspect", stopping), self.assertRaises(runtime.BrowserError):
+            browser.relaunch(lease, self.now[0] + 60, lambda: not stopped)
+        # So does a Docker that cannot carry it.
+        with (
+            mock.patch.object(self.docker.api, "exec_inspect", side_effect=runtime.DockerException("inspect failed")),
+            self.assertRaises(runtime.BrowserError),
+        ):
+            browser.relaunch(lease, self.now[0] + 60, lambda: True)
+        browser.release(lease)
+
 
 if __name__ == "__main__":
     unittest.main()

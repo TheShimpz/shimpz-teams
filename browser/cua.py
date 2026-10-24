@@ -63,6 +63,8 @@ REGRANT_SECONDS = 240.0
 # fits in it; a read still refused then counts as a loss.
 READ_RETRY_SECONDS = 1.0
 READ_SECONDS = 2 * CALL_SECONDS
+# The longest the Driver takes to refuse a read: its own 20-second CDP wait, and a second more.
+REFUSAL_SECONDS = 21.0
 LAPSED_CODE = "browser_consent_required"
 LAPSED_REASON = "consumer_profile_endpoint_requires_grant"
 # The same lapse as an action meets it: the Driver names the grant that ended.
@@ -208,7 +210,12 @@ class CuaSession:
                 renewed = True
                 continue
             except ReadRefusedError:
-                target = None
+                # The page is not read: asked again while the Driver's slowest refusal still fits, else Chromium
+                # refuses the read.
+                if self._clock() + BIND_POLL_SECONDS + REFUSAL_SECONDS > settle:
+                    raise CuaError("browser-read-refused") from None
+                self._sleep(BIND_POLL_SECONDS)
+                continue
             if target is not None:
                 break
             if self._clock() + BIND_POLL_SECONDS > settle:

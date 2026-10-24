@@ -58,6 +58,8 @@ EGRESS_SECONDS = 30.0
 # How often a missing image's pull is checked against its task's deadline and Stop.
 PULL_POLL_SECONDS = 0.5
 PROGRAM_SECONDS = 30.0
+# `browser-host relaunch` takes at most 30 seconds to prove a new Chromium; this one more for the exec around it.
+RELAUNCH_SECONDS = 40.0
 # Who drives a Browser (ADR-0117, Sign-ins amendment): the agent alone, a person signing in, or a task restored from a
 # Sign-in, which a person may take over. Only the last two hold display credentials and keep a profile.
 AGENT, PERSON, SIGNED_IN = "agent", "person", "signed-in"
@@ -719,6 +721,27 @@ class BrowserRuntime:
             stream.receive_end(deadline)
 
         self._bounded_program(container_id, arguments, CAPSULE_SECONDS, "browser-unavailable", send)
+
+    def relaunch(self, lease: Lease, deadline: float, wanted: Callable[[], bool]) -> None:
+        """Start an agent Browser's Chromium again in place, by `deadline` and while it is `wanted`; any doubt is lost.
+
+        `browser-host relaunch` ends every Chromium process and answers once the supervisor runs a new one that answers
+        on DevTools; the display, buses, and network stay. Its answer and exit status 0 must both be proven.
+        """
+        end = min(self._clock() + RELAUNCH_SECONDS, deadline)
+        exec_id, raw = self._open_exec(lease.container_id, ["relaunch"], end, wanted)
+        stream = ExecStream(raw, self._clock)
+        try:
+            stream.close_input()
+            answer = stream.receive_line(end, 16)
+            stream.receive_end(end)
+            details = _bounded(lambda: self._client.api.exec_inspect(exec_id), end - self._clock())
+        except (DockerException, ChannelError, OSError) as exc:
+            raise BrowserError("browser-lost") from exc
+        finally:
+            stream.close()
+        if answer != b"relaunched" or not isinstance(details, dict) or details.get("ExitCode") != 0 or not wanted():
+            raise BrowserError("browser-lost")
 
     def stop(self, lease: Lease) -> None:
         """End the Browser's Chromium session cleanly, keeping its container for the export; any doubt is a failure."""

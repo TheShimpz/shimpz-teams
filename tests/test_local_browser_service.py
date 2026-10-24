@@ -122,6 +122,51 @@ class FakeSession:
         pass
 
 
+class DriverStream:
+    """A Driver session's channel that records its shutdown and close."""
+
+    def __init__(self, exec_id, events):
+        self.exec_id, self.events = exec_id, events
+
+    def shutdown(self):
+        self.events.append(("shutdown", self.exec_id))
+
+    def close(self):
+        self.events.append(("close", self.exec_id))
+
+
+class Driving(FakeRuntime):
+    """Opens one numbered Driver stream after another, records each step of replacing one, and may relaunch."""
+
+    ended = True
+    stop_while_ending = ()
+
+    def __init__(self, stopping=None):
+        super().__init__()
+        self.stopping = [] if stopping is None else stopping
+
+    open_failure = None
+
+    def open_stream(self, lease, deadline, wanted):
+        if self.open_failure is not None and any(event[0] == "stream" for event in self.events):
+            raise self.open_failure
+        exec_id = f"exec-{sum(event[0] == 'stream' for event in self.events)}"
+        self.events.append(("stream", exec_id))
+        return exec_id, DriverStream(exec_id, self.events)
+
+    def exited(self, exec_id, deadline):
+        self.events.append(("exited", exec_id))
+        self.stopping.extend(self.stop_while_ending)
+        return self.ended
+
+    relaunch_failure = None
+
+    def relaunch(self, lease, deadline, wanted):
+        self.events.append(("relaunch", wanted()))
+        if self.relaunch_failure is not None:
+            raise self.relaunch_failure
+
+
 class BrowserServiceTests(unittest.TestCase):
     def setUp(self):
         self.audit = []
@@ -187,7 +232,9 @@ class BrowserServiceTests(unittest.TestCase):
             "started:incarnation=dddddddddddd:container=cccccccccccc:address=172.30.0.9"
             f":egress=eeeeeeeeeeee@2026-10-17T00:00:01Z:generation={'9' * 32}",
         )
-        self.assertTrue(details[1].startswith("done:steps=4:recovered=0:released=1:incarnation=dddddddddddd"))
+        self.assertTrue(
+            details[1].startswith("done:steps=4:recovered=0:relaunched=0:released=1:incarnation=dddddddddddd")
+        )
         self.assertNotIn("edital", json.dumps(self.audit))
 
     def test_a_stopped_task_ingests_nothing_and_a_needs_person_task_says_why(self):
@@ -224,7 +271,7 @@ class BrowserServiceTests(unittest.TestCase):
         result, _terminal = self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
-        self.assertTrue(detail.startswith("failed:steps=1:recovered=0:cause=ingest:released=0"))
+        self.assertTrue(detail.startswith("failed:steps=1:recovered=0:relaunched=0:cause=ingest:released=0"))
         # A Browser that could not be proven removed never ends its task as done, whatever it found.
         unreleased = self.make(FakeRuntime(release="browser-lost"))
         result, _terminal = self.run_with(unreleased, task.Outcome("done", summary="x", steps=1))
@@ -349,35 +396,7 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertEqual(fake.listed[0], fake.listed[1])
 
     def test_a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(self):
-        class Stream:
-            def __init__(self, exec_id, events):
-                self.exec_id, self.events = exec_id, events
-
-            def shutdown(self):
-                self.events.append(("shutdown", self.exec_id))
-
-            def close(self):
-                self.events.append(("close", self.exec_id))
-
         stopping = []
-
-        class Driving(FakeRuntime):
-            ended = True
-            stop_while_ending = ()
-
-            open_failure = None
-
-            def open_stream(self, lease, deadline, wanted):
-                if self.open_failure is not None and any(event[0] == "stream" for event in self.events):
-                    raise self.open_failure
-                exec_id = f"exec-{sum(event[0] == 'stream' for event in self.events)}"
-                self.events.append(("stream", exec_id))
-                return exec_id, Stream(exec_id, self.events)
-
-            def exited(self, exec_id, deadline):
-                self.events.append(("exited", exec_id))
-                stopping.extend(self.stop_while_ending)
-                return self.ended
 
         page = cua.Observation("u", "t", "url: u", {})
         self.brain.browser_call.side_effect = lambda *args, **kwargs: _brain({"kind": "done", "summary": "ok"})(
@@ -385,7 +404,7 @@ class BrowserServiceTests(unittest.TestCase):
         )
         for ended, status in ((True, "done"), (False, "failed")):
             with self.subTest(ended=ended):
-                fake = Driving()
+                fake = Driving(stopping)
                 fake.ended = ended
                 failed, fresh = mock.Mock(), mock.Mock()
                 failed.observe.side_effect = cua.CuaError("channel-lost")
@@ -398,14 +417,14 @@ class BrowserServiceTests(unittest.TestCase):
                 self.assertEqual(driven, [*ending, ("stream", "exec-1")] if ended else ending)
                 detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
                 expected = (
-                    "done:steps=2:recovered=1:released=1"
+                    "done:steps=2:recovered=1:relaunched=0:released=1"
                     if ended
-                    else "failed:steps=0:recovered=0:cause=observe/channel-lost/reopen/driver-not-ended:released=1"
+                    else "failed:steps=0:recovered=0:relaunched=0:cause=observe/channel-lost/reopen/driver-not-ended:"
                 )
                 self.assertTrue(detail.startswith(expected), detail)
 
         # The replacement could not be opened: the task is lost, and says why.
-        fake = Driving()
+        fake = Driving(stopping)
         fake.open_failure = runtime.BrowserError("browser-lost")
         failed = mock.Mock()
         failed.observe.side_effect = cua.CuaError("channel-lost")
@@ -415,7 +434,7 @@ class BrowserServiceTests(unittest.TestCase):
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
         self.assertIn(":cause=observe/channel-lost/reopen/driver-unavailable:", detail)
         # Stop came while the failed session was ending: no replacement is opened, and the task was stopped.
-        fake = Driving()
+        fake = Driving(stopping)
         fake.stop_while_ending = (True,)
         failed = mock.Mock()
         failed.observe.side_effect = cua.CuaError("channel-lost")
@@ -424,6 +443,42 @@ class BrowserServiceTests(unittest.TestCase):
             result, _ = self.make(fake).run(stopped_turn, CONTEXT, REQUEST)
         self.assertEqual(result["status"], "stopped")
         self.assertEqual([event for event in fake.events if event[0] == "stream"], [("stream", "exec-0")])
+
+    def test_a_page_chromium_no_longer_reads_relaunches_chromium_before_the_new_session(self):
+        stopping = []
+        page = cua.Observation("u", "t", "url: u", {})
+        self.brain.browser_call.side_effect = lambda *args, **kwargs: _brain({"kind": "done", "summary": "ok"})(
+            *args, **kwargs
+        )
+        fake = Driving(stopping)
+        failed, fresh = mock.Mock(), mock.Mock()
+        failed.observe.side_effect = cua.CuaError("browser-read-refused")
+        fresh.observe.return_value = page
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed, fresh]):
+            result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "done")
+        order = [event for event in fake.events if event[0] in {"exited", "relaunch", "stream"}]
+        self.assertEqual(order, [("stream", "exec-0"), ("exited", "exec-0"), ("relaunch", True), ("stream", "exec-1")])
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertTrue(detail.startswith("done:steps=2:recovered=1:relaunched=1:released=1"), detail)
+        # A relaunch that failed loses the task and says why; one Stop came before is never asked.
+        fake = Driving(stopping)
+        fake.relaunch_failure = runtime.BrowserError("browser-lost")
+        failed = mock.Mock()
+        failed.observe.side_effect = cua.CuaError("browser-read-refused")
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed]):
+            result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertIn(":cause=observe/browser-read-refused/reopen/relaunch-failed:", detail)
+        fake = Driving(stopping)
+        fake.stop_while_ending = (True,)
+        failed = mock.Mock()
+        failed.observe.side_effect = cua.CuaError("browser-read-refused")
+        stopped_turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopping))
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed]):
+            result, _ = self.make(fake).run(stopped_turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "stopped")
+        self.assertNotIn("relaunch", [event[0] for event in fake.events])
 
     def test_no_driver_command_is_sent_once_stop_came_even_mid_initialization(self):
         stopping = []
@@ -483,7 +538,9 @@ class BrowserServiceTests(unittest.TestCase):
         result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
         self.assertEqual((result["status"], result["reason"]), ("failed", "browser-lost"))
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
-        self.assertTrue(detail.startswith("failed:steps=0:recovered=0:cause=runtime/browser-lost:"), detail)
+        self.assertTrue(
+            detail.startswith("failed:steps=0:recovered=0:relaunched=0:cause=runtime/browser-lost:"), detail
+        )
         # Stop came while Docker opened it: the session is closed unused and the task stopped.
         fake = Opening()
         fake.stop_while_opening = (True,)
