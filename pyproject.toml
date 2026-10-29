@@ -19,7 +19,7 @@ dependencies = [
     # Attachment preparation parses untrusted images and PDFs only inside the networkless helper container; the
     # controller never imports them (ADR-0093).
     "pillow==13.0.0",
-    "pypdf==6.20.0",
+    "pypdf==6.21.2",
     # A PDF page's preview is rendered by PDFium (Chromium's PDF engine), built without V8 or XFA, only inside the
     # same helper.
     "pypdfium2==5.14.0",
