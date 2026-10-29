@@ -54,6 +54,13 @@ class TeamActionProtocolTests(unittest.TestCase):
         closed = {**CLOSED, "properties": {"v": {"type": ["string", "null"]}}}
         self.assertIsNone(action_protocol.admission_problem(closed))
 
+    def test_an_annotation_nested_as_deep_as_strict_json_admits_is_admitted(self) -> None:
+        # Strict JSON admits 512 levels: the schema object, its `default`, and 510 arrays inside it.
+        nested: object = []
+        for _ in range(509):
+            nested = [nested]
+        self.assertIsNone(action_protocol.admission_problem({**CLOSED, "default": nested}))
+
     def test_the_metaschema_verdict_is_kept_only_for_exact_plain_json(self) -> None:
         action_protocol._CHECKED.clear()
         check = action_protocol.Draft202012Validator.check_schema

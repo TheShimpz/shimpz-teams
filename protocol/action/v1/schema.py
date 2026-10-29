@@ -468,11 +468,19 @@ def _metaschema_admits(schema: object) -> bool:
 
 
 def _plain_json(value: object) -> bool:
-    if type(value) is dict:
-        return all(type(key) is str and _plain_json(child) for key, child in value.items())
-    if type(value) is list:
-        return all(_plain_json(child) for child in value)
-    return value is None or type(value) in (str, int, float, bool)
+    # Iterative, so an annotation nested as deep as strict JSON admits is walked like any other value.
+    pending = [value]
+    while pending:
+        node = pending.pop()
+        if type(node) is dict:
+            if not all(type(key) is str for key in node):
+                return False
+            pending.extend(node.values())
+        elif type(node) is list:
+            pending.extend(node)
+        elif not (node is None or type(node) in (str, int, float, bool)):
+            return False
+    return True
 
 
 # The positions the closed-object rule descends into, besides the list applicators.
