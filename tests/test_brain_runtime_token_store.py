@@ -1,3 +1,4 @@
+import contextlib
 import os
 import stat
 import tempfile
@@ -7,6 +8,16 @@ from types import SimpleNamespace
 from unittest import mock
 
 from inference import token as brain_runtime_token_store
+
+
+def _open_below(root: Path) -> list[str]:
+    """This process's descriptors open on a file under root, deleted or not; other threads' descriptors are ignored."""
+    links = []
+    for descriptor in Path("/proc/self/fd").iterdir():
+        # A descriptor another thread closes between the listing and the read has no link left.
+        with contextlib.suppress(FileNotFoundError):
+            links.append(str(descriptor.readlink()))
+    return [link for link in links if link.startswith(f"{root}/")]
 
 
 class BrainRuntimeTokenStoreTests(unittest.TestCase):
@@ -91,7 +102,6 @@ class BrainRuntimeTokenStoreTests(unittest.TestCase):
         self.root.mkdir(mode=0o750)
         directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
         self.addCleanup(os.close, directory)
-        descriptors = len(list(Path("/proc/self/fd").iterdir()))
         with (
             mock.patch.object(os, "write", side_effect=OSError("full")) as write,
             self.assertRaisesRegex(brain_runtime_token_store.RuntimeTokenError, "could not be created"),
@@ -99,7 +109,7 @@ class BrainRuntimeTokenStoreTests(unittest.TestCase):
             brain_runtime_token_store._create(directory, "token", self.group_id)
         write.assert_called_once()
         self.assertEqual(list(self.root.iterdir()), [])
-        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), descriptors)
+        self.assertEqual(_open_below(self.root), [])
 
         with (
             mock.patch.object(os, "open", side_effect=OSError("denied")),
