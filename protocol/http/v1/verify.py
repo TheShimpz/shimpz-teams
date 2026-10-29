@@ -36,6 +36,19 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
+def same(left: object, right: object) -> bool:
+    """Typed equality: equal values of the same JSON type, so a bool never equals an int or an int a float."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(same(left[key], right[key]) for key in left)
+    if isinstance(left, list | tuple):
+        return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right, strict=True))
+    if isinstance(left, float):
+        return left.hex() == right.hex()
+    return left == right
+
+
 rows: dict[str, str] = {}
 for line in MANIFEST.read_text(encoding="ascii").splitlines():
     match = ROW.fullmatch(line)
@@ -62,7 +75,7 @@ supervisor_vectors = vectors.get("local_supervisor", {})
 if not supervisor_vectors.get("valid") or not supervisor_vectors.get("invalid"):
     fail("Team HTTP Local Supervisor vectors are missing")
 for case in supervisor_vectors["valid"]:
-    if supervisor.canonical_claims(case) != case:
+    if not same(supervisor.canonical_claims(case), case):
         fail("Team HTTP Local Supervisor positive vector differs")
 for case in supervisor_vectors["invalid"]:
     try:
@@ -78,7 +91,7 @@ for case in routine_vectors["valid"]:
         admitted = supervisor.canonical_claims(case, audience=supervisor.ROUTINE_AUDIENCE)
     except supervisor.SupervisorAssertionError:
         admitted = None
-    if admitted != case:
+    if not same(admitted, case):
         fail("Team HTTP Local Routine positive vector differs")
 for case in routine_vectors["invalid"]:
     try:
@@ -96,7 +109,7 @@ for case in vectors["frames"]:
         if case["valid"] or (exc.status, exc.close_code) != (case["status"], case["close_code"]):
             fail(f"Team HTTP frame vector differs: {case['name']}")
     else:
-        if not case["valid"] or value != case["value"]:
+        if not case["valid"] or not same(value, case["value"]):
             fail(f"Team HTTP frame vector differs: {case['name']}")
 
 for case in vectors["human_response_frames"]:
@@ -106,7 +119,7 @@ for case in vectors["human_response_frames"]:
         if case["valid"]:
             fail(f"Team HTTP human response vector differs: {case['name']}")
     else:
-        if not case["valid"] or value != case["frame"]:
+        if not case["valid"] or not same(value, case["frame"]):
             fail(f"Team HTTP human response vector differs: {case['name']}")
 
 for case in vectors["chat_stream"]:
@@ -116,7 +129,7 @@ for case in vectors["chat_stream"]:
         if case["valid"]:
             fail(f"Team HTTP chat stream vector differs: {case['name']}")
     else:
-        if not case["valid"] or value != case["record"]:
+        if not case["valid"] or not same(value, case["record"]):
             fail(f"Team HTTP chat stream vector differs: {case['name']}")
 
 for case in vectors["chat_stream_lines"]:
@@ -130,7 +143,7 @@ for case in vectors["chat_stream_lines"]:
         if case["valid"]:
             fail(f"Team HTTP chat stream line vector differs: {case['name']}")
     else:
-        if not case["valid"] or value != case["record"]:
+        if not case["valid"] or not same(value, case["record"]):
             fail(f"Team HTTP chat stream line vector differs: {case['name']}")
 
 
@@ -151,7 +164,7 @@ if not conversations.get("valid") or not conversations.get("invalid"):
     fail("Team HTTP chat conversation vectors are missing")
 for case in conversations["valid"]:
     window = _conversation_case(case)
-    if payload.canonical_conversation(window) != window:
+    if not same(payload.canonical_conversation(window), window):
         fail("Team HTTP chat conversation positive vector differs")
 for case in conversations["invalid"]:
     if payload.canonical_conversation(_conversation_case(case)) is not None:
@@ -168,7 +181,7 @@ validators = {
 }
 for kind, validator in validators.items():
     cases = identifiers.get(kind, {})
-    if any(validator(value) != value for value in cases.get("valid", [])):
+    if any(not same(validator(value), value) for value in cases.get("valid", [])):
         fail(f"Team HTTP {kind} positive vector differs")
     if any(validator(value) is not None for value in cases.get("invalid", [])):
         fail(f"Team HTTP {kind} negative vector differs")
@@ -176,7 +189,7 @@ for kind, validator in validators.items():
 chat_limits = vectors.get("chat_limit", {})
 if not chat_limits.get("valid") or not chat_limits.get("invalid"):
     fail("Team HTTP chat limit vectors are missing")
-if any(payload.canonical_chat_limit(value) != value for value in chat_limits["valid"]):
+if any(not same(payload.canonical_chat_limit(value), value) for value in chat_limits["valid"]):
     fail("Team HTTP chat limit positive vector differs")
 if any(payload.canonical_chat_limit(value) is not None for value in chat_limits["invalid"]):
     fail("Team HTTP chat limit negative vector differs")
@@ -184,23 +197,23 @@ if any(payload.canonical_chat_limit(value) is not None for value in chat_limits[
 clarifications = vectors.get("clarification", {})
 if not clarifications.get("valid") or not clarifications.get("invalid"):
     fail("clarification vectors are missing")
-if any(payload.canonical_clarification(value) != value for value in clarifications["valid"]):
+if any(not same(payload.canonical_clarification(value), value) for value in clarifications["valid"]):
     fail("a valid clarification vector was not admitted exactly")
 if any(payload.canonical_clarification(value) is not None for value in clarifications["invalid"]):
     fail("an invalid clarification vector was admitted")
-if [payload.render_clarification(value) for value in clarifications["valid"]] != clarifications.get("rendered"):
+if not same([payload.render_clarification(value) for value in clarifications["valid"]], clarifications.get("rendered")):
     fail("a clarification rendering vector differs")
 for kind, validator in (("memory", payload.canonical_memory), ("memory_changes", payload.canonical_memory_changes)):
     cases = vectors.get(kind, {})
     if not cases.get("valid") or not cases.get("invalid"):
         fail(f"{kind} vectors are missing")
-    if any(validator(value) != value for value in cases["valid"]):
+    if any(not same(validator(value), value) for value in cases["valid"]):
         fail(f"a valid {kind} vector was not admitted exactly")
     if any(validator(value) is not None for value in cases["invalid"]):
         fail(f"an invalid {kind} vector was admitted")
 applied = vectors.get("memory_apply", [])
 if not applied or any(
-    payload.apply_memory_changes(case["memory"], case["changes"]) != case["result"] for case in applied
+    not same(payload.apply_memory_changes(case["memory"], case["changes"]), case["result"]) for case in applied
 ):
     fail("a memory application vector differs")
 for name, admit in (
@@ -237,7 +250,7 @@ for name, admit in (
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
         fail(f"Team HTTP {name} vectors are missing")
-    if any(admit(value) != value for value in cases["valid"]):
+    if any(not same(admit(value), value) for value in cases["valid"]):
         fail(f"Team HTTP {name} positive vector differs")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"Team HTTP {name} negative vector differs")
@@ -245,7 +258,7 @@ rendered_copy = vectors.get("rendered_copy", {})
 if not rendered_copy.get("valid") or not rendered_copy.get("invalid"):
     fail("Team HTTP rendered copy vectors are missing")
 if any(
-    challenge.canonical_rendered(case["rendered"], case["request"]) != case["rendered"]
+    not same(challenge.canonical_rendered(case["rendered"], case["request"]), case["rendered"])
     for case in rendered_copy["valid"]
 ):
     fail("Team HTTP rendered copy positive vector differs")
@@ -261,12 +274,12 @@ if not all(routine.exact_schedule(value) for value in schedules["valid"]):
     fail("a valid routine schedule vector was not admitted exactly")
 if any(routine.canonical_schedule(value) is not None for value in schedules["invalid"]):
     fail("an invalid routine schedule vector was admitted")
-if any(routine.daily_cap(case["schedule"]) != case["cap"] for case in schedules["daily_cap"]):
+if any(not same(routine.daily_cap(case["schedule"]), case["cap"]) for case in schedules["daily_cap"]):
     fail("a routine daily cap vector differs")
 timezones = vectors.get("routine_timezone", {})
 if not timezones.get("valid") or not timezones.get("invalid"):
     fail("routine timezone vectors are missing")
-if any(routine.canonical_timezone(value) != value for value in timezones["valid"]):
+if any(not same(routine.canonical_timezone(value), value) for value in timezones["valid"]):
     fail("a valid routine timezone vector was not admitted exactly")
 if any(routine.canonical_timezone(value) is not None for value in timezones["invalid"]):
     fail("an invalid routine timezone vector was admitted")
@@ -294,7 +307,7 @@ if set(views) != set(admit_view) or any(
 ):
     fail("routine view vectors are missing")
 for kind, admit in admit_view.items():
-    if any(admit(value) != value for value in views[kind]["valid"]):
+    if any(not same(admit(value), value) for value in views[kind]["valid"]):
         fail(f"a valid routine {kind} vector was not admitted exactly")
     if any(admit(value) is not None for value in views[kind]["invalid"]):
         fail(f"an invalid routine {kind} vector was admitted")
@@ -302,7 +315,9 @@ for kind, admit in admit_view.items():
 positions = vectors.get("routine_position", {})
 if not positions.get("valid") or not positions.get("invalid"):
     fail("routine position vectors are missing")
-if any(routine.canonical_position(case["value"], case["steps"]) != case["value"] for case in positions["valid"]):
+if any(
+    not same(routine.canonical_position(case["value"], case["steps"]), case["value"]) for case in positions["valid"]
+):
     fail("a valid routine position vector was not admitted exactly")
 if any(routine.canonical_position(case["value"], case["steps"]) is not None for case in positions["invalid"]):
     fail("an invalid routine position vector was admitted")
@@ -340,7 +355,7 @@ if (
 largest = _proposal_case("largest-unicode", proposals["valid"])
 if (
     routine.encoded_bytes(largest) != routine_proposal.MAX_PROPOSAL_BYTES
-    or routine_proposal.canonical_proposal(largest) != largest
+    or not same(routine_proposal.canonical_proposal(largest), largest)
     or any(
         routine_proposal.canonical_proposal(_proposal_case(name, proposals["valid"]))
         for name in ("one-byte-over", "over-steps")
@@ -400,13 +415,30 @@ for name, admit in (
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
         fail(f"{name} vectors are missing")
-    if any(admit(value) != value for value in cases["valid"]):
+    if any(not same(admit(value), value) for value in cases["valid"]):
         fail(f"a valid {name} vector was not admitted exactly")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"an invalid {name} vector was admitted")
 
 if routine_context.LAST_RUN_STATUSES != routine_run.RUN_STEP_STATUSES + routine_run.RUN_STEP_GAPS:
     fail("the latest run's step outcomes differ from a run step's statuses and gaps")
+
+
+def _literal_rerun(literal: object) -> list[object]:
+    """A rerun of one call whose one value input shows ``literal``, so the rerun admits it exactly when it is one."""
+    shown = {"member": "page", "kind": "value", "value": literal, "chosen": False, "source": None}
+    return [{"assistant": "shimpz-cloudflare", "action": "list-dns-records", "count": 1, "inputs": [shown]}]
+
+
+literals = vectors.get("routine_rerun_literal", {})
+if not literals.get("valid") or not literals.get("invalid"):
+    fail("routine rerun literal vectors are missing")
+if any(
+    not same(routine_context.canonical_rerun(_literal_rerun(text)), _literal_rerun(text)) for text in literals["valid"]
+):
+    fail("a valid routine rerun literal vector was not admitted exactly")
+if any(routine_context.canonical_rerun(_literal_rerun(text)) is not None for text in literals["invalid"]):
+    fail("an invalid routine rerun literal vector was admitted")
 
 date_words = vectors.get("routine_date_words", [])
 if {case["dated"] for case in date_words} != {True, False}:
@@ -416,7 +448,7 @@ for case in date_words:
         fail("a routine date word vector differs")
 number_tokens = vectors.get("routine_number_tokens", [])
 if not number_tokens or any(
-    [match.group() for match in routine_context.NUMBER_TOKEN_RE.finditer(case["text"])] != case["tokens"]
+    not same([match.group() for match in routine_context.NUMBER_TOKEN_RE.finditer(case["text"])], case["tokens"])
     for case in number_tokens
 ):
     fail("a routine number token vector differs")
@@ -424,7 +456,7 @@ if not number_tokens or any(
 diagnostics = vectors.get("routine_diagnostics", {})
 if not diagnostics.get("valid") or not diagnostics.get("invalid"):
     fail("routine diagnostics vectors are missing")
-if any(routine_run.canonical_diagnostics(value) != value for value in diagnostics["valid"]):
+if any(not same(routine_run.canonical_diagnostics(value), value) for value in diagnostics["valid"]):
     fail("a valid routine diagnostics vector was not admitted exactly")
 if any(routine_run.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
     fail("an invalid routine diagnostics vector was admitted")
@@ -445,7 +477,7 @@ if set(browser_vectors) != set(admit_browser) or any(
 ):
     fail("Browser vectors are missing")
 for kind, admit in admit_browser.items():
-    if any(admit(value) != value for value in browser_vectors[kind]["valid"]):
+    if any(not same(admit(value), value) for value in browser_vectors[kind]["valid"]):
         fail(f"a valid Browser {kind} vector was not admitted exactly")
     if any(admit(value) is not None for value in browser_vectors[kind]["invalid"]):
         fail(f"an invalid Browser {kind} vector was admitted")
@@ -485,18 +517,18 @@ over_bounds = (
 if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")
 at_bound = {**empty, "folded": [wait] * lines, "memory": "a" * browser.MAX_MEMORY_BYTES}
-if browser.canonical_thread(at_bound) != at_bound:
+if not same(browser.canonical_thread(at_bound), at_bound):
     fail("a Browser thread at its bounds was not admitted")
 # A request's measure covers its thread's history, its page, its objective, and its downloads.
 measured = browser.request_text_bytes("objective", at_bound, "page", None)
 if measured < browser.history_bytes(at_bound) + len(b"objective") + len(b"page"):
     fail("a Browser request measure is smaller than what it renders")
 blank_notes = vectors.get("browser_blank_note")
-if not blank_notes or any(browser.canonical_step(case["step"]) != case["canonical"] for case in blank_notes):
+if not blank_notes or any(not same(browser.canonical_step(case["step"]), case["canonical"]) for case in blank_notes):
     fail("a blank Browser note vector differs")
 
 accepts = vectors.get("browser_view_accept")
-if not accepts or any(browser_view.accept(case["key"]) != case["accept"] for case in accepts):
+if not accepts or any(not same(browser_view.accept(case["key"]), case["accept"]) for case in accepts):
     fail("a Browser view accept vector differs")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
@@ -508,10 +540,10 @@ if set(payload.CLARIFICATION_LABELS) != set(routine.LOCALES):
     fail("the clarification labels do not cover every interface language")
 for case in labels["composed"]:
     composed = payload.compose_clarified(case["original"], case["question"], case["answer"], case["locale"])
-    if composed != case["message"]:
+    if not same(composed, case["message"]):
         fail("a composed clarification vector differs")
 for case in labels["authored_segments"]:
-    if list(payload.authored_segments(case["message"])) != case["segments"]:
+    if not same(list(payload.authored_segments(case["message"])), case["segments"]):
         fail("an authored-segments vector differs")
 
 choices = routine_proposal.OUTPUT_CHOICES
@@ -549,5 +581,54 @@ for name, read, key in (
     ("outputs", phrase.outputs, "outputs"),
     ("zones", phrase.zones, "zones"),
 ):
-    if any(list(read(case["text"])) != case[key] for case in readings[name]):
+    if any(not same(list(read(case["text"])), case[key]) for case in readings[name]):
         fail(f"a routine phrase {name} vector differs")
+
+# Shimpz canonical JSON v1 (teams/core/canonical_json.py): sorted keys, compact separators, UTF-8 without escapes for
+# non-ASCII, Python float repr; every json.dumps byte measure and record encoding the protocol uses rides on it.
+canonical_json = vectors.get("canonical_json", {})
+if not all(canonical_json.get(name) for name in ("canonical", "dumps", "encoded_bytes", "encode_record")):
+    fail("canonical JSON vectors are missing")
+for case in canonical_json["canonical"]:
+    encoded = json.dumps(case["value"], allow_nan=False, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if encoded != case["utf8"] or not same(json.loads(case["utf8"]), case["value"]):
+        fail("a canonical JSON vector differs")
+for case in canonical_json["dumps"]:
+    separators = (",", ":") if case["compact"] else (", ", ": ")
+    text = json.dumps(
+        case["value"], ensure_ascii=case["ensure_ascii"], sort_keys=case["sort_keys"], separators=separators
+    )
+    if text != case["text"]:
+        fail("a JSON encoding vector differs")
+if any(not same(routine.encoded_bytes(case["value"]), case["bytes"]) for case in canonical_json["encoded_bytes"]):
+    fail("an encoded size vector differs")
+for case in canonical_json["encode_record"]:
+    try:
+        line = progress.encode_record(case["record"]).decode()
+    except progress.ProgressContractError:
+        line = None
+    if not same(line, case["line"]):
+        fail("a chat stream record encoding vector differs")
+claims = canonical_json.get("claims_json")
+if not claims or {case["utf8"] is None for case in claims} != {True, False}:
+    fail("Supervisor claims encoding vectors are missing")
+for case in claims:
+    try:
+        encoded = supervisor.claims_json(case["claims"], audience=case["audience"]).decode()
+    except supervisor.SupervisorAssertionError:
+        encoded = None
+    if not same(encoded, case["utf8"]):
+        fail("a Supervisor claims encoding vector differs")
+
+url_vectors = vectors.get("url_canonicalization", {})
+if (
+    not url_vectors.get("named")
+    or not url_vectors.get("corpus")
+    or any(
+        not same(websocket.canonical_origin(case["url"]), case["origin"])
+        or not same(browser.canonical_url(case["url"]), case["browser_url"])
+        or not same(sign_in.start_site(case["url"]), case["start_site"])
+        for case in [*url_vectors["named"], *url_vectors["corpus"]]
+    )
+):
+    fail("a URL canonicalization vector differs")

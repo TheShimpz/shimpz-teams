@@ -68,7 +68,7 @@ def _body(value: object) -> dict[str, object]:
         raise SupervisorAssertionError("invalid assertion body")
     kind = value.get("kind")
     if kind == "none":
-        if set(value) != {"kind", "length", "sha256"} or value["length"] != 0:
+        if set(value) != {"kind", "length", "sha256"} or type(value["length"]) is not int or value["length"] != 0:
             raise SupervisorAssertionError("invalid empty assertion body")
         digest = _digest(value["sha256"], label="empty body digest")
         if digest != EMPTY_SHA256:

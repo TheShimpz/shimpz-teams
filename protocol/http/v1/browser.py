@@ -105,14 +105,34 @@ def _plain(value: object, limit: int, *, multiline: bool = False) -> bool:
     return all(character.isprintable() or character in allowed for character in value)
 
 
+# The scheme and authority an http(s) URL starts with: the scheme in any ASCII case, `://`, and the authority up to the
+# first `/`, `?`, or `#`.
+_WEB_AUTHORITY_RE = re.compile(r"(https?)://([^/?#]*)", re.IGNORECASE | re.ASCII)
+
+
+def web_authority(url: str) -> tuple[str, str] | None:
+    """The lowercase scheme and the authority of an http(s) URL whose authority is ASCII without brackets, else None.
+
+    Parsing such a URL never lowers or normalizes a host beyond ASCII and never validates a bracketed IPv6 host.
+    """
+    match = _WEB_AUTHORITY_RE.match(url)
+    if match is None or not match[2].isascii() or "[" in match[2] or "]" in match[2]:
+        return None
+    return match[1].lower(), match[2]
+
+
 def canonical_url(value: object) -> str | None:
-    """An absolute `https` or `http` URL with a host and no credentials; the Browser's policy upgrades `http`."""
-    if not isinstance(value, str) or not value or len(value) > MAX_URL_CHARS or not value.isprintable():
+    """An absolute `https` or `http` URL with an ASCII host and no credentials; the Browser's policy upgrades `http`."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_URL_CHARS
+        or not value.isprintable()
+        or web_authority(value) is None
+    ):
         return None
-    try:
-        parts = urlsplit(value)
-    except ValueError:
-        return None
+    # An ASCII authority without brackets leaves urlsplit nothing to refuse.
+    parts = urlsplit(value)
     if parts.scheme not in {"https", "http"} or not parts.hostname or parts.username or parts.password:
         return None
     if " " in value:
@@ -397,6 +417,7 @@ def canonical_file_reference(value: object) -> dict[str, object] | None:
     size = value["size"]
     if (
         payload.canonical_file_id(value["id"]) is None
+        or not isinstance(value["name"], str)
         or payload.canonical_filename(value["name"]) != value["name"]
         or payload.canonical_media_type(value["media_type"]) != value["media_type"]
         or type(size) is not int
@@ -408,7 +429,12 @@ def canonical_file_reference(value: object) -> dict[str, object] | None:
 
 def _canonical_loss(value: object) -> dict[str, str] | None:
     """One named download a reply says it did not keep, with its closed reason."""
-    if not isinstance(value, dict) or set(value) != {"name", "reason"} or value["reason"] not in TERMINAL_LOSSES:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"name", "reason"}
+        or not isinstance(value["reason"], str)
+        or value["reason"] not in TERMINAL_LOSSES
+    ):
         return None
     name = value["name"]
     if not isinstance(name, str) or not name or len(name.encode()) > MAX_NAME_BYTES or not name.isprintable():

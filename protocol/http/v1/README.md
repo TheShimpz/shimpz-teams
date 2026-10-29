@@ -19,6 +19,11 @@ An Assistant id (at most 40 characters) and an Assistant's Integration, provider
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.
 `websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
+An Origin (`websocket.canonical_origin`) is printable ASCII without spaces, brackets, `?`, or `#`, and the authority
+of a Browser URL (`browser.canonical_url`) or a sign-in URL (`sign_in.start_site`), after `http://` or `https://` in
+any ASCII case up to the first `/`, `?`, or `#`, is ASCII without brackets (`browser.web_authority`), so no URL is
+read with Unicode case or NFKC rules, stripped of whitespace, or validated as a bracketed IPv6 host. The
+`url_canonicalization` vectors pin all three over a seeded corpus.
 `browser.py` owns the Browser agent's closed step set, the `browser-step` exchange bounds (the task's thread: folded
 step records, fold notes, and unfolded steps, each bounded, with the byte measures both sides bound a request by), the
 completeness check's verdict, and the `browser` field of a chat terminal (ADR-0117); the Brain consumes it as a pinned

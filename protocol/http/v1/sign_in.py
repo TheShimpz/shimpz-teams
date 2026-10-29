@@ -15,10 +15,12 @@ import re
 from urllib.parse import urlsplit
 
 if __package__:
-    from . import payload, websocket
+    from . import browser, payload, websocket
 else:  # The protocol verifier runs every module of this directory flat.
     import payload
     import websocket
+
+    import browser
 
 ID_RE = re.compile(r"[0-9a-f]{32}")
 # A Team incarnation: the Team network's Docker id.
@@ -64,11 +66,15 @@ def canonical_site(value: object) -> str | None:
 
 
 def start_site(url: object) -> str | None:
-    """The site an https sign-in URL names, or None: no credentials or other port, nothing unprintable or spaced."""
+    """The site an https sign-in URL names, or None.
+
+    Its host is ASCII; it has no credentials, no port but 443, and nothing unprintable or spaced.
+    """
     if (
         not isinstance(url, str)
         or len(url) > MAX_URL_CHARS
         or any(character.isspace() or not character.isprintable() for character in url)
+        or browser.web_authority(url) is None
     ):
         return None
     try:
@@ -137,6 +143,7 @@ def canonical_delete(value: object) -> dict[str, object] | None:
         or not _generation(value["generation"])
         or not isinstance(value["team_incarnation"], str)
         or INCARNATION_RE.fullmatch(value["team_incarnation"]) is None
+        or not isinstance(value["factor"], str)
         or value["factor"] not in FACTORS
         or canonical_origin(value["origin"]) is None
     ):
@@ -161,6 +168,7 @@ def canonical_sign_in(value: object) -> dict[str, object] | None:
     times = (value["created_at"], value["saved_at"], value["last_used_at"], value["expires_at"])
     if (
         not _id(value["sign_in_id"])
+        or not isinstance(value["state"], str)
         or value["state"] not in STATES
         or not _generation(value["generation"])
         or not isinstance(value["team_incarnation"], str)
@@ -198,7 +206,9 @@ def canonical_saved(value: object) -> dict[str, object] | None:
 
 def canonical_deleted(value: object) -> dict[str, object] | None:
     """`{deletion}`: `deleted` once its absence is proven, else `pending` while Team retries."""
-    return value if isinstance(value, dict) and set(value) == {"deletion"} and value["deletion"] in DELETIONS else None
+    if not isinstance(value, dict) or set(value) != {"deletion"} or not isinstance(value["deletion"], str):
+        return None
+    return value if value["deletion"] in DELETIONS else None
 
 
 def canonical_cancelled(value: object) -> dict[str, object] | None:

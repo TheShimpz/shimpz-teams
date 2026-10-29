@@ -18,6 +18,7 @@ CHALLENGE_ID_RE = HEX_ID_RE
 MAX_HUMAN_TEXT_CHARS = 16_000
 MAX_HUMAN_CHOICES = 32
 MAX_HUMAN_CHOICE_CHARS = 128
+_ORIGIN_REFUSED = frozenset("[]?#")
 
 
 class FrameError(ValueError):
@@ -29,8 +30,17 @@ class FrameError(ValueError):
 
 
 def canonical_origin(value: str | None) -> str | None:
-    """Return one exact HTTP(S) Origin, preserving an explicitly supplied port."""
-    if not value or value == "null":
+    """Return one exact HTTP(S) Origin, preserving an explicitly supplied port.
+
+    An Origin is printable ASCII without spaces, brackets, `?`, or `#`, so its parsing never strips, lowers, or
+    normalizes beyond ASCII, never validates a bracketed IPv6 host, and never drops an empty query or fragment.
+    """
+    if (
+        not value
+        or value == "null"
+        or not all("!" <= character <= "~" for character in value)
+        or _ORIGIN_REFUSED & set(value)
+    ):
         return None
     try:
         parsed = urlparse(value)
