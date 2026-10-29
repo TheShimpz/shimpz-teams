@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from tests import catalog_fixtures
 from tests.assistant_archive_fixtures import FileContainer, ManifestContainer, archive
@@ -731,8 +730,6 @@ class AssistantManifestTests(unittest.TestCase):
                     contract, assistant_manifest.ManifestContract((), reviewed.integrations, ()), **FIXTURE_COPY
                 )
 
-        with self.assertRaisesRegex(action_schema.ActionSchemaError, "subschema"):
-            action_schema._reject_open_or_boolean_subschema([])
         schema_with_list = {
             "type": "object",
             "additionalProperties": False,

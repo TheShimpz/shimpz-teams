@@ -318,7 +318,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
             "required": ["value"],
             "properties": {"value": {"type": "string"}},
         }
-        action_schema._check_schema_json.cache_clear()
+        action_protocol._CHECKED.clear()
         check_schema = assistant_manifest.Draft202012Validator.check_schema
         try:
             with mock.patch.object(
@@ -343,7 +343,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                     assistant_manifest._machine_schema(schema, kind="input")
                 self.assertEqual(checked.call_count, 4)
         finally:
-            action_schema._check_schema_json.cache_clear()
+            action_protocol._CHECKED.clear()
 
     def test_deep_machine_schema_fails_closed_on_validator_recursion(self) -> None:
         schema: dict[str, object] = {"type": "object", "additionalProperties": False}
@@ -354,9 +354,10 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 "properties": {"child": schema},
             }
         json.dumps(schema)
-        with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid") as raised:
+        with self.assertRaises(RecursionError):
+            assistant_manifest.Draft202012Validator.check_schema(schema)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid"):
             assistant_manifest._machine_schema(schema, kind="input")
-        self.assertIsInstance(raised.exception.__cause__, RecursionError)
 
 
 if __name__ == "__main__":

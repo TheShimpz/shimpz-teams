@@ -7,14 +7,18 @@ holds it), and uses only patterns in the dialect `pattern.py` admits; `schema_pr
 These are the rules Developers publication applies (its `action-schema` crate), so every predicate that admits an
 Action schema is one predicate. Validation evaluates every `pattern` and `patternProperties` with RE2, never Python
 `re`, whose backtracking would hold the GIL for time exponential in the subject, and charges each search its subject's
-UTF-8 length times the pattern's program bound against one MAX_PATTERN_WORK budget per payload. Team-only admission
-rules, such as closed objects, stay with Team; the Brain only re-checks what it receives and validates what its model
-proposes.
+UTF-8 length times the pattern's program bound against one MAX_PATTERN_WORK budget per payload. `admission_problem`
+is the whole predicate, closed objects and the Draft 2020-12 metaschema included: Team admits an Assistant's schemas
+with it, and the Brain re-checks every schema it receives with it before it offers or validates anything.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import threading
+from collections import OrderedDict
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -22,7 +26,7 @@ from typing import Any
 
 import re2
 from jsonschema import Draft202012Validator, validators
-from jsonschema.exceptions import ValidationError
+from jsonschema.exceptions import SchemaError, ValidationError
 
 from . import pattern as dialect
 
@@ -51,6 +55,11 @@ PREPARATION_WEIGHT = 256
 # (.tests/action-schema/benchmark.py) measures at under a quarter second of RE2's slowest work on one CPU, while
 # SDK-generated patterns on bounded strings charge a small fraction of it.
 MAX_PATTERN_WORK = 1 << 27
+# Checking a schema against the Draft 2020-12 metaschema takes milliseconds, and Team re-reads every Assistant's
+# schemas while the Brain re-checks each schema of every turn it starts or resumes: the verdict on plain JSON is kept
+# per SHA-256 of its exact encoding, never the encoding itself, for at most this many schemas, the oldest used dropped
+# first. It holds every schema one chat turn can carry: 16 Assistants of at most 128 Actions, two schemas each.
+MAX_CHECKED_SCHEMAS = 4096
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
 _PATTERN_OPTIONS = re2.Options()
@@ -402,3 +411,120 @@ def _without_dialects(node: object) -> object:
 def payload_validator(schema: Mapping[str, Any], registry) -> Draft202012Validator:
     """Validate against an admitted schema with the linear-time matcher, resolving references only through registry."""
     return _ActionValidator(_without_dialects(schema), registry=registry)
+
+
+def admission_problem(value: object) -> str | None:
+    """Why value is not an admissible Action input or output schema, or None when it is.
+
+    The rules are checked in the order Developers publication applies them: the root describes an object, the JSON value
+    bound (before any encoding or metaschema work spends time on the excess), the Draft 2020-12 metaschema, the byte
+    bound, `schema_problem`, and closed objects with no boolean subschema.
+    """
+    if not isinstance(value, Mapping) or value.get("type") != "object":
+        return "must describe an object"
+    if json_nodes(value, MAX_NODES) > MAX_NODES:
+        return "is too large"
+    try:
+        encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
+    except TypeError, ValueError, RecursionError:
+        return "is invalid"
+    if not _metaschema_valid(value, encoded):
+        return "is invalid"
+    if len(encoded) > MAX_BYTES:
+        return "is too large"
+    return schema_problem(value) or _open_problem(value)
+
+
+_CHECKED: OrderedDict[bytes, bool] = OrderedDict()
+_CHECKED_LOCK = threading.Lock()
+
+
+def _metaschema_valid(value: Mapping[str, Any], encoded: bytes) -> bool:
+    if not _plain_json(value):
+        # A tuple or a non-string member name has a JSON encoding that differs from it, so its verdict is never kept.
+        return _metaschema_admits(value)
+    digest = hashlib.sha256(encoded).digest()
+    with _CHECKED_LOCK:
+        known = _CHECKED.get(digest)
+        if known is not None:
+            _CHECKED.move_to_end(digest)
+            return known
+    valid = _metaschema_admits(json.loads(encoded))
+    with _CHECKED_LOCK:
+        _CHECKED[digest] = valid
+        while len(_CHECKED) > MAX_CHECKED_SCHEMAS:
+            _CHECKED.popitem(last=False)
+    return valid
+
+
+def _metaschema_admits(schema: object) -> bool:
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError, RecursionError, OverflowError:
+        # The metaschema's `regex` format compiles each pattern with Python `re`, which raises OverflowError for a
+        # repetition count beyond its range and RecursionError for deeply nested groups.
+        return False
+    return True
+
+
+def _plain_json(value: object) -> bool:
+    if type(value) is dict:
+        return all(type(key) is str and _plain_json(child) for key, child in value.items())
+    if type(value) is list:
+        return all(_plain_json(child) for child in value)
+    return value is None or type(value) in (str, int, float, bool)
+
+
+# The positions the closed-object rule descends into, besides the list applicators.
+_CLOSED_APPLICATORS = frozenset(
+    {"additionalProperties", "contains", "else", "if", "items", "not", "propertyNames", "then"}
+)
+_CLOSED_MAP_APPLICATORS = frozenset({"$defs", "definitions", "dependentSchemas", "patternProperties", "properties"})
+# The keywords that make an untyped subschema describe an object.
+_OBJECT_KEYWORDS = frozenset(
+    {
+        "additionalProperties",
+        "dependentRequired",
+        "dependentSchemas",
+        "maxProperties",
+        "minProperties",
+        "patternProperties",
+        "properties",
+        "propertyNames",
+        "required",
+    }
+)
+
+
+def _permits_object(node: Mapping[str, Any]) -> bool:
+    schema_type = node.get("type")
+    return (
+        schema_type == "object"
+        or (isinstance(schema_type, list) and "object" in schema_type)
+        or (schema_type is None and bool(node.keys() & _OBJECT_KEYWORDS))
+    )
+
+
+def _open_problem(schema: Mapping[str, Any]) -> str | None:
+    """Whether a metaschema-valid schema leaves an object open or uses a boolean subschema.
+
+    Every subschema that may describe an object declares `additionalProperties: false`, which is the closing marker and
+    not a boolean subschema; the metaschema admits only an object or a boolean at every other position walked.
+    """
+    pending: list[object] = [schema]
+    while pending:
+        node = pending.pop()
+        if not isinstance(node, Mapping):
+            return "must not use a boolean subschema"
+        if _permits_object(node) and node.get("additionalProperties") is not False:
+            return "must close every object"
+        pending.extend(
+            node[keyword]
+            for keyword in _CLOSED_APPLICATORS & node.keys()
+            if not (keyword == "additionalProperties" and node[keyword] is False)
+        )
+        for keyword in _APPLICATOR_LIST_KEYWORDS & node.keys():
+            pending.extend(node[keyword])
+        for keyword in _CLOSED_MAP_APPLICATORS & node.keys():
+            pending.extend(node[keyword].values())
+    return None
