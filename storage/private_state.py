@@ -195,10 +195,8 @@ def read_json_record(path: Path, maximum: int) -> object | None:
         os.close(descriptor)
     if len(payload) > maximum:
         raise ValueError(f"{path.name} exceeds its byte limit")
-    try:
-        document = strict_json.loads(payload)
-    except RecursionError as exc:
-        raise ValueError(f"{path.name} is nested too deeply") from exc
+    # The strict decoder refuses nesting deeper than 512 itself, as a ValueError.
+    document = strict_json.loads(payload)
     if document is None:
         raise ValueError(f"{path.name} holds no document")
     return document
