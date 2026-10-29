@@ -4,287 +4,380 @@
     {
       "name": "empty pattern costs one instruction and the search",
       "pattern": "",
-      "program": 17
+      "program": 17,
+      "preparation": 69888
     },
     {
       "name": "global flags cost nothing",
       "pattern": "(?i)",
-      "program": 16
+      "program": 16,
+      "preparation": 69632
     },
     {
       "name": "literal",
       "pattern": "a",
-      "program": 24
+      "program": 24,
+      "preparation": 71680
     },
     {
       "name": "dot",
       "pattern": ".",
-      "program": 32
+      "program": 32,
+      "preparation": 73728
     },
     {
       "name": "assertions",
       "pattern": "^\\A\\b\\B$",
-      "program": 26
+      "program": 26,
+      "preparation": 72192
     },
     {
       "name": "Perl class",
       "pattern": "\\d",
-      "program": 48
+      "program": 48,
+      "preparation": 77824
     },
     {
       "name": "negated Perl class",
       "pattern": "\\W",
-      "program": 48
+      "program": 48,
+      "preparation": 77824
     },
     {
       "name": "ASCII class costs 32 plus 4 per member",
       "pattern": "[a-z0-9_]",
-      "program": 60
+      "program": 60,
+      "preparation": 83264
     },
     {
       "name": "class with a non-ASCII member costs 128 plus 32 per member",
       "pattern": "[a-zé]",
-      "program": 208
+      "program": 208,
+      "preparation": 120512
     },
     {
       "name": "class with a negated Perl class costs 128 plus 32 per member",
       "pattern": "[\\W]",
-      "program": 176
+      "program": 176,
+      "preparation": 12431360
     },
     {
       "name": "negated ASCII class",
       "pattern": "[^a-z]",
-      "program": 52
+      "program": 52,
+      "preparation": 80512
     },
     {
       "name": "class of one leading dash",
       "pattern": "[-a]",
-      "program": 56
+      "program": 56,
+      "preparation": 80000
     },
     {
       "name": "class of one trailing dash",
       "pattern": "[a-]",
-      "program": 56
+      "program": 56,
+      "preparation": 80000
     },
     {
       "name": "class with a dash between members is refused",
       "pattern": "[a-b-c]",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "class with two leading dashes is refused",
       "pattern": "[--a]",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "range ending in an opening bracket",
       "pattern": "[!-[]",
-      "program": 52
+      "program": 52,
+      "preparation": 82624
     },
     {
       "name": "star, plus, and question mark add two",
       "pattern": "a*b+c?",
-      "program": 46
+      "program": 46,
+      "preparation": 77312
     },
     {
       "name": "lazy repetitions",
       "pattern": "a*?b+?c??",
-      "program": 46
+      "program": 46,
+      "preparation": 77312
     },
     {
       "name": "counted repetition copies its operand",
       "pattern": "[a-z]{100}",
-      "program": 3717
+      "program": 3717,
+      "preparation": 1018752
     },
     {
       "name": "open-ended counted repetition counts its lower bound",
       "pattern": "a{5,}",
-      "program": 62
+      "program": 62,
+      "preparation": 81408
     },
     {
       "name": "range repetition counts its upper bound",
       "pattern": "a{2,5}",
-      "program": 62
+      "program": 62,
+      "preparation": 81408
     },
     {
       "name": "zero repetition counts once",
       "pattern": "a{0}",
-      "program": 26
+      "program": 26,
+      "preparation": 72192
     },
     {
       "name": "count with a leading zero is refused",
       "pattern": "a{01}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "range with a leading zero is refused",
       "pattern": "a{1,05}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "count above 1,000 is refused",
       "pattern": "a{1001}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "nested counts multiplying to 1,000",
       "pattern": "(?:a{100}){10}",
-      "program": 9057
+      "program": 9057,
+      "preparation": 2384128
     },
     {
       "name": "nested counts multiplying beyond 1,000 are refused",
       "pattern": "(?:a{100}){11}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "groups add two",
       "pattern": "(a)(?:b)(?P<name>c)(?i:d)",
-      "program": 56
+      "program": 56,
+      "preparation": 79872
     },
     {
       "name": "duplicate group name is refused",
       "pattern": "(?P<a>x)(?P<a>y)",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "alternatives add one each",
       "pattern": "a|b|",
-      "program": 36
+      "program": 36,
+      "preparation": 74752
     },
     {
       "name": "global flags only at the start",
       "pattern": "a(?i)b",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "negated global flags are refused",
       "pattern": "(?-i)a",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "scoped negated flags",
       "pattern": "(?i-s:a)",
-      "program": 26
+      "program": 26,
+      "preparation": 72192
     },
     {
       "name": "verbose flag is refused",
       "pattern": "(?x:a)",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "syntax tree 32 levels deep",
       "pattern": "((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))",
-      "program": 88
+      "program": 88,
+      "preparation": 88064
     },
     {
       "name": "syntax tree 33 levels deep is refused",
       "pattern": "(((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "class union counts one level",
       "pattern": "(((((((((((((((((((((((((((((([ab]))))))))))))))))))))))))))))))",
-      "program": 116
+      "program": 116,
+      "preparation": 95360
     },
     {
       "name": "class union one level too deep is refused",
       "pattern": "((((((((((((((((((((((((((((((([ab])))))))))))))))))))))))))))))))",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "longest literal run within the bound",
       "pattern": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "program": 16384
+      "program": 16384,
+      "preparation": 4259840
     },
     {
       "name": "literal run one beyond the bound is refused",
       "pattern": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "folded multibyte literals",
       "pattern": "(?i)жжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжx",
-      "program": 8024
+      "program": 8024,
+      "preparation": 2119680
     },
     {
       "name": "hex escape",
       "pattern": "\\x41\\xe9",
-      "program": 32
+      "program": 32,
+      "preparation": 73728
     },
     {
       "name": "braced hex escape is refused",
       "pattern": "\\x{41}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "escaped punctuation",
       "pattern": "\\.\\%\\!\\_\\ \\-\\~",
-      "program": 72
+      "program": 72,
+      "preparation": 83968
     },
     {
       "name": "special escapes",
       "pattern": "\\a\\f\\n\\r\\t\\v",
-      "program": 64
+      "program": 64,
+      "preparation": 81920
     },
     {
       "name": "backreference is refused",
       "pattern": "(a)\\1",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "end of text assertion is refused",
       "pattern": "a\\z",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "word start assertion is refused",
       "pattern": "\\<a",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "repeated assertion is refused",
       "pattern": "\\b{2}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "lookahead is refused",
       "pattern": "(?=a)",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "Unicode class is refused",
       "pattern": "\\p{L}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "nested class is refused",
       "pattern": "[[a]]",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "class intersection is refused",
       "pattern": "[a&&b]",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "repetition missing its operand is refused",
       "pattern": "*a",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "repeated repetition is refused",
       "pattern": "a**",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "whitespace inside a count is refused",
       "pattern": "a{1, 2}",
-      "program": null
+      "program": null,
+      "preparation": null
     },
     {
       "name": "unclosed group is refused",
       "pattern": "(a",
-      "program": null
+      "program": null,
+      "preparation": null
+    },
+    {
+      "name": "case folding a wide class charges every code point it covers",
+      "pattern": "(?i:[A-￿])",
+      "program": 178,
+      "preparation": 4301248
+    },
+    {
+      "name": "a class past the cased planes charges the code points beyond them less",
+      "pattern": "[A-􏿿]",
+      "program": 176,
+      "preparation": 12427200
+    },
+    {
+      "name": "a class wholly beyond the cased planes only scans",
+      "pattern": "[𠀀-𯿿]",
+      "program": 176,
+      "preparation": 372736
+    },
+    {
+      "name": "a negated Perl class among class members covers every code point",
+      "pattern": "[\\Wa]",
+      "program": 208,
+      "preparation": 12439616
+    },
+    {
+      "name": "a Perl class among class members covers the ASCII range",
+      "pattern": "[\\da]",
+      "program": 56,
+      "preparation": 88128
+    },
+    {
+      "name": "a repeated class is folded once",
+      "pattern": "(?i:[ɐ-￿]){90}",
+      "program": 14687,
+      "preparation": 7981824
     }
   ]
 }

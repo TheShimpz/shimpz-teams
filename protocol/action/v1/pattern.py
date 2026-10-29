@@ -10,6 +10,11 @@ global `i`, `m`, or `s` flags only as one group at the very start. Its syntax tr
 the Rust `regex-syntax` parser counts them, and `pattern_program` bounds its RE2 program within 16,384 instructions.
 That bound, the search overhead included, is also what one search charges per byte of its subject.
 
+`pattern_preparation` is what preparing the pattern (reading its syntax and compiling its program) charges, once per
+payload validation: a fixed PREPARATION_BASE for building a matcher, PREPARATION_WEIGHT per unit of the program bound,
+and, for every bracketed class, the case-folding work the Rust engine spends on it under the `i` flag, which visits
+every code point the class's members cover and is therefore charged by code point, not by program size.
+
 This module reproduces, construct by construct, the Developers publication rule (`action-schema`'s `pattern.rs`, over
 the `regex-syntax` 0.8 parse); the Assistant protocol's vectors and a seeded differential corpus pin the equality.
 """
@@ -21,6 +26,17 @@ MAX_REPEAT = 1000
 MAX_PATTERN_PROGRAM = 16_384
 # Instructions RE2 spends on an empty pattern and an unanchored search.
 PROGRAM_OVERHEAD = 16
+# What preparing any pattern charges for building its matcher, and what it charges per unit of the program bound:
+# compiling costs far more per instruction than a search does per subject byte.
+PREPARATION_BASE = 1 << 16
+PREPARATION_WEIGHT = 256
+# Case folding a class visits every code point its members cover, a literal as one and a Perl class as the ASCII range
+# or, negated, every code point, whatever the flags. FOLD_WEIGHT is charged per code point below CASED_END, where
+# every case mapping lies, and SCAN_WEIGHT per code point at or above it, which the fold only scans.
+FOLD_WEIGHT = 64
+SCAN_WEIGHT = 4
+CASED_END = 0x20000
+MAX_CODE_POINT = 0x10FFFF
 
 _META = frozenset("\\.+*?()|[]{}^$#&-~")
 _SPECIAL = {"a": "\x07", "f": "\x0c", "t": "\t", "n": "\n", "r": "\r", "v": "\x0b"}
@@ -39,8 +55,8 @@ class _RefusedError(Exception):
     """The pattern is outside the admitted dialect."""
 
 
-def pattern_program(pattern: str) -> int | None:
-    """The upper bound of an admitted pattern's RE2 program, the search overhead included, or None when refused."""
+def pattern_costs(pattern: str) -> tuple[int, int] | None:
+    """An admitted pattern's program bound, the search overhead included, and its preparation; None when refused."""
     try:
         # A lone surrogate is no Unicode text: neither RE2 nor the Rust engine can read it.
         pattern.encode()
@@ -50,7 +66,19 @@ def pattern_program(pattern: str) -> int | None:
     bound = PROGRAM_OVERHEAD + _bound(tree)
     if _depth(tree) > MAX_PATTERN_NESTING or _budget(tree, MAX_REPEAT) <= 0 or bound > MAX_PATTERN_PROGRAM:
         return None
-    return bound
+    return bound, PREPARATION_BASE + PREPARATION_WEIGHT * bound + _folds(tree)
+
+
+def pattern_program(pattern: str) -> int | None:
+    """The upper bound of an admitted pattern's RE2 program, the search overhead included, or None when refused."""
+    costs = pattern_costs(pattern)
+    return None if costs is None else costs[0]
+
+
+def pattern_preparation(pattern: str) -> int | None:
+    """What preparing an admitted pattern charges against the matching budget, or None when refused."""
+    costs = pattern_costs(pattern)
+    return None if costs is None else costs[1]
 
 
 def pattern_admitted(pattern: str) -> bool:
@@ -59,7 +87,7 @@ def pattern_admitted(pattern: str) -> bool:
 
 
 # The syntax tree, as `regex-syntax` shapes it: ("empty",), ("flags",), ("literal",), ("dot",), ("assertion",),
-# ("perl", negated), ("class", ascii, members), ("repeat", count, operand) with count None for `*`, `+`, and `?`,
+# ("perl", negated), ("class", ascii, members, folds), ("repeat", count, operand) with count None for `*`, `+`, and `?`,
 # ("group", child), ("alternation", children), and ("concat", children) of two or more items.
 
 
@@ -287,7 +315,17 @@ def _class(members: list[tuple]) -> tuple:
         or (member[0] == "perl" and not member[1])
         for member in members
     )
-    return ("class", ascii_only, len(members))
+    return ("class", ascii_only, len(members), sum(_member_folds(member) for member in members))
+
+
+def _member_folds(member: tuple) -> int:
+    """The folding work of one class member: the code points it covers, weighted by FOLD_WEIGHT or SCAN_WEIGHT."""
+    if member[0] == "perl":
+        low, high = 0, MAX_CODE_POINT if member[1] else 0x7F
+    else:
+        low, high = ord(member[1]), ord(member[2] if member[0] == "range" else member[1])
+    cased = max(0, min(high, CASED_END - 1) - low + 1)
+    return FOLD_WEIGHT * cased + SCAN_WEIGHT * (high - low + 1 - cased)
 
 
 def _depth(node: tuple) -> int:
@@ -316,6 +354,18 @@ def _budget(node: tuple, budget: int) -> int:
     if kind in ("alternation", "concat"):
         return min([budget, *(_budget(child, budget) for child in node[1])])
     return budget
+
+
+def _folds(node: tuple) -> int:
+    """The folding work of every bracketed class in the tree, once each however often a repetition copies it."""
+    kind = node[0]
+    if kind == "class":
+        return node[3]
+    if kind in ("repeat", "group"):
+        return _folds(node[-1])
+    if kind in ("alternation", "concat"):
+        return sum(_folds(child) for child in node[1])
+    return 0
 
 
 _LEAF_BOUNDS = {"empty": 1, "flags": 0, "literal": 8, "dot": 16, "assertion": 2, "perl": 32}

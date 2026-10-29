@@ -8,6 +8,7 @@ from unittest import mock
 from protocol_manifest import assert_manifest_holds
 
 from assistant import action_schema
+from protocol.action.v1 import pattern as action_pattern
 from protocol.action.v1 import schema as action_protocol
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "action" / "v1"
@@ -60,6 +61,22 @@ class TeamActionProtocolTests(unittest.TestCase):
         for _ in range(509):
             nested = [nested]
         self.assertIsNone(action_protocol.admission_problem({**CLOSED, "default": nested}))
+
+    def test_the_distinct_patterns_of_a_schema_prepare_within_half_the_matching_budget(self) -> None:
+        def wide(count: int, *, distinct: bool = True) -> dict:
+            patterns = (f"(?P<p{index if distinct else 0}>(?i:[A-\uffff]))?" for index in range(count))
+            return {**CLOSED, "properties": {f"p{index}": {"pattern": text} for index, text in enumerate(patterns)}}
+
+        preparation = action_pattern.pattern_preparation("(?P<p0>(?i:[A-\uffff]))?")
+        self.assertEqual(preparation, (1 << 16) + 256 * 182 + 64 * (0xFFFF - 0x41 + 1))
+        self.assertLessEqual(15 * preparation, action_protocol.MAX_PREPARATION_WORK)
+        self.assertIsNone(action_protocol.admission_problem(wide(15)))
+        for schema in (wide(16), wide(512)):
+            self.assertEqual(
+                action_protocol.admission_problem(schema), "must prepare its patterns within half the matching budget"
+            )
+        # One pattern at many positions is prepared once.
+        self.assertIsNone(action_protocol.admission_problem(wide(512, distinct=False)))
 
     def test_the_metaschema_verdict_is_kept_only_for_exact_plain_json(self) -> None:
         action_protocol._CHECKED.clear()

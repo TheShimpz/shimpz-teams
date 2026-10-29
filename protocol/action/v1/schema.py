@@ -46,15 +46,18 @@ MAX_SUBSCHEMA_DEPTH = 32
 # of the text, and `i` folds Unicode case. Every admitted pattern's RE2 program fits this bound by `pattern.py`'s upper
 # bound of it.
 MAX_PATTERN_PROGRAM = dialect.MAX_PATTERN_PROGRAM
-# Preparing a pattern (reading its syntax and compiling its program) charges this many times its program bound, once
-# per distinct pattern of one payload validation, which then reuses it: the compilation costs far more per program
-# instruction than a search does per subject byte, and the charge does not depend on any subject.
-PREPARATION_WEIGHT = 256
+# Preparing a pattern (reading its syntax and compiling its program) charges `pattern.py`'s pattern_preparation once
+# per distinct pattern of one payload validation, which then reuses it: a fixed base, this many times its program bound,
+# and its classes' case-folding work. The charge does not depend on any subject.
+PREPARATION_WEIGHT = dialect.PREPARATION_WEIGHT
 # Each search charges its subject's UTF-8 length, at least 1, times its pattern's program bound. One payload
 # validation may charge at most this much, preparations included, which the budget benchmark
 # (.tests/action-schema/benchmark.py) measures at under a quarter second of RE2's slowest work on one CPU, while
 # SDK-generated patterns on bounded strings charge a small fraction of it.
 MAX_PATTERN_WORK = 1 << 27
+# The preparations of an admitted schema's distinct patterns sum to at most half the budget, so one validation can
+# prepare every pattern of its schema and keeps the other half for its searches.
+MAX_PREPARATION_WORK = MAX_PATTERN_WORK // 2
 # Checking a schema against the Draft 2020-12 metaschema takes milliseconds, and Team re-reads every Assistant's
 # schemas while the Brain re-checks each schema of every turn it starts or resumes: the verdict on plain JSON is kept
 # per SHA-256 of its exact encoding, never the encoding itself, for at most this many schemas, the oldest used dropped
@@ -96,10 +99,11 @@ def _prepared(pattern: str, work: _Work) -> tuple[object, int]:
     """The pattern's program and bound, prepared once per validation and charged before it compiles."""
     prepared = work.prepared.get(pattern)
     if prepared is None:
-        bound = dialect.pattern_program(pattern)
-        if bound is None:
+        costs = dialect.pattern_costs(pattern)
+        if costs is None:
             raise PatternError("pattern is outside the linear-time matcher")
-        work.charge(PREPARATION_WEIGHT * bound)
+        bound, preparation = costs
+        work.charge(preparation)
         try:
             prepared = work.prepared[pattern] = (re2.compile(pattern, _PATTERN_OPTIONS), bound)
         except re2.error as exc:
@@ -281,11 +285,17 @@ def _node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None:
     return None
 
 
-def _patterns_admitted(node: Mapping[str, Any]) -> bool:
+def _patterns_admitted(node: Mapping[str, Any], preparations: dict[str, int]) -> bool:
+    """Whether every pattern of the node is admitted, recording each one's preparation."""
     patterns = [*node.get("patternProperties", ())]
     if isinstance(node.get("pattern"), str):
         patterns.append(node["pattern"])
-    return all(dialect.pattern_admitted(pattern) for pattern in patterns)
+    for pattern in patterns:
+        preparation = dialect.pattern_preparation(pattern)
+        if preparation is None:
+            return False
+        preparations[pattern] = preparation
+    return True
 
 
 def reference_target(schema: Mapping[str, Any], reference: str) -> object:
@@ -351,13 +361,16 @@ def _expansion(schema: Mapping[str, Any]) -> tuple[int, int] | None:
 
 
 def schema_problem(schema: Mapping[str, Any]) -> str | None:
-    """The first reference, dialect, depth, or pattern problem of a metaschema-valid schema, or None when admissible.
+    """The first reference, dialect, depth, pattern, or preparation problem of a metaschema-valid schema, or None.
 
     Every reference must land on a schema position this walk has checked.
     """
-    problem = _walk_problem(schema)
+    preparations: dict[str, int] = {}
+    problem = _walk_problem(schema, preparations)
     if problem is not None:
         return problem
+    if sum(preparations.values()) > MAX_PREPARATION_WORK:
+        return "must prepare its patterns within half the matching budget"
     expansion = _expansion(schema)
     if expansion is None:
         return "must resolve every reference without a cycle"
@@ -368,7 +381,7 @@ def schema_problem(schema: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _walk_problem(schema: Mapping[str, Any]) -> str | None:
+def _walk_problem(schema: Mapping[str, Any], preparations: dict[str, int]) -> str | None:
     """The first problem of a walked subschema.
 
     The legacy `dependencies` keyword applies nothing in Draft 2020-12: only its patterns and depth are checked.
@@ -383,7 +396,7 @@ def _walk_problem(schema: Mapping[str, Any]) -> str | None:
         problem = _node_problem(node, nested=node is not schema) if applied else None
         if problem is not None:
             return problem
-        if not _patterns_admitted(node):
+        if not _patterns_admitted(node, preparations):
             return "must use only patterns the linear-time matcher admits"
         pending.extend((child, depth + 1, applied) for child in applied_subschemas(node))
         dependencies = node.get("dependencies")

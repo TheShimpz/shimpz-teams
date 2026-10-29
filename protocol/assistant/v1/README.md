@@ -128,8 +128,15 @@ Each such pattern fits 16,384 instructions by an upper bound of its RE2 program,
 search, 8 per literal, 16 per `.`, 32 per Perl class, 2 per assertion, 1 per empty expression, 2 more per group, 1 more
 per alternative, 32 plus 4 per member for a bracketed class of ASCII members without a negated Perl class and 128 plus
 32 per member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or
-lower count when unbounded, and at least 1) times one more than its operand, plus 1. `vectors/pattern-program.json`
-freezes admitted patterns with their program bound and refused patterns with `null`.
+lower count when unbounded, and at least 1) times one more than its operand, plus 1. Each such pattern also has a
+preparation, what compiling it charges: 65,536, plus 256 times its program bound, plus, for every bracketed class
+(once, however often a repetition copies it), its case-folding work. Folding a class under the `i` flag visits every
+code point its members cover, so each literal counts one code point, each range its span, a Perl class the ASCII range,
+and a negated Perl class every code point; each code point below U+20000, where every case mapping lies, charges 64,
+and each one above it charges 4. The class's fold is charged whatever the flags. A schema's distinct patterns (each
+`pattern` value and `patternProperties` name at a walked position, legacy `dependencies` included) may prepare at most
+67,108,864 together, half the matching budget below. `vectors/pattern-program.json` freezes admitted patterns with
+their program bound and preparation and refused patterns with `null` for both.
 
 These are the admission rules of one predicate: Developers publication, Team, and the Brain admit an Action schema by
 exactly the same rules (the `action-schema` crate in Rust, Team's `protocol/action/v1` in Python). Publication adds
@@ -144,13 +151,15 @@ other than newline, and the `i` flag folds Unicode case. A subject that is not v
 surrogate, fails validation. `vectors/pattern.json` freezes these semantics as pattern, subject, and outcome cases.
 One payload validation's matching work is bounded, in the order and as often as Draft 2020-12 validation searches.
 The first search of each distinct pattern first prepares it (reads its syntax and compiles its program), which
-charges 256 times its program bound once; later searches of that pattern in the same validation reuse it. Each search
+charges its preparation once; later searches of that pattern in the same validation reuse it. Each search
 then charges its subject's UTF-8 length, counted as at least 1, times the bound. A validation may charge at most
 134,217,728 (2^27); the preparation or search whose charge exceeds what remains is refused before it runs, and the
 payload with it, though earlier searches of the same payload may have run. The protocol's budget benchmark measures
 the largest passing charges (`(?i)` with 1,000 `ж` and `x` against the most `Ж` the budget leaves, long classes,
 nested repetitions, cumulative searches) and the costliest preparations (one long pattern searched from 1,000
-references, 512 distinct case-folded patterns) at under a quarter second each on one CPU. SDK-generated patterns on
+references, and, for each costly shape, as many distinct patterns as an admitted schema may prepare: case-folded
+literals, wide case-folded classes within and beyond the cased planes, classes holding a negated Perl class, repeated
+wide classes, small non-ASCII classes, and single literals) at under a quarter second each on one CPU. SDK-generated patterns on
 bounded strings charge a small fraction of the budget. The SDK's own native validator enforces no cumulative budget:
 it validates a value against its own schema locally, and Team and the Brain apply the budget at every trust boundary.
 

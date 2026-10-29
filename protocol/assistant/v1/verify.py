@@ -123,14 +123,23 @@ def vector_cases(filename: str, label: str) -> list[dict]:
 
 
 def verify_program_vectors() -> None:
-    """Admitted patterns name their program bound within MAX_PATTERN_PROGRAM, refused ones null; both occur."""
+    """Admitted patterns name their program bound and preparation, refused ones null for both; both occur."""
     cases = vector_cases("vectors/pattern-program.json", "pattern program")
     for case in cases:
         program = case.get("program")
+        preparation = case.get("preparation")
         if (
-            set(case) != {"name", "pattern", "program"}
+            set(case) != {"name", "pattern", "program", "preparation"}
             or not isinstance(case["pattern"], str)
-            or not (program is None or (type(program) is int and 16 <= program <= MAX_PATTERN_PROGRAM))
+            or not (
+                (program is None and preparation is None)
+                or (
+                    type(program) is int
+                    and 16 <= program <= MAX_PATTERN_PROGRAM
+                    and type(preparation) is int
+                    and preparation > program
+                )
+            )
         ):
             fail("Assistant pattern program vector case is invalid")
     if not {None, MAX_PATTERN_PROGRAM} <= {case["program"] for case in cases}:

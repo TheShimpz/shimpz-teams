@@ -49,6 +49,11 @@ class DialectVectorTests(unittest.TestCase):
         for case in _cases("pattern-program.json"):
             with self.subTest(case=case["name"]):
                 self.assertEqual(dialect.pattern_program(case["pattern"]), case["program"])
+                self.assertEqual(dialect.pattern_preparation(case["pattern"]), case["preparation"])
+                self.assertEqual(
+                    dialect.pattern_costs(case["pattern"]),
+                    None if case["program"] is None else (case["program"], case["preparation"]),
+                )
                 self.assertIs(dialect.pattern_admitted(case["pattern"]), case["program"] is not None)
 
     def test_every_schema_vector_is_admitted_as_published(self) -> None:
@@ -143,7 +148,7 @@ class DialectConstructTests(unittest.TestCase):
             action_protocol.pattern_work_budget(),
             mock.patch.object(action_protocol.re2, "compile", wraps=action_protocol.re2.compile) as compile_,
         ):
-            spent = action_protocol.MAX_PATTERN_WORK // 24 - action_protocol.PREPARATION_WEIGHT
+            spent = (action_protocol.MAX_PATTERN_WORK - dialect.pattern_preparation("a")) // 24
             self.assertTrue(action_protocol.pattern_matches("a", "a" * spent))
             with self.assertRaisesRegex(action_protocol.PatternError, "work budget"):
                 action_protocol.pattern_matches("b", "b")

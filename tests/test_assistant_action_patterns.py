@@ -132,12 +132,12 @@ class PatternSemanticsTests(unittest.TestCase):
 
 
 class PatternWorkBudgetTests(unittest.TestCase):
-    # `a.{900}c` is bounded by 15,333 instructions: its preparation charges 256 times that once per validation, and each
-    # search charges it per subject byte.
+    # `a.{900}c` is bounded by 15,333 instructions: its preparation is charged once per validation, and each search
+    # charges the bound per subject byte.
     HEAVY = "a.{900}c"
     PROGRAM = 15_333
     # The subject bytes one validation's searches of HEAVY may charge once the pattern is prepared.
-    FITS = (action_protocol.MAX_PATTERN_WORK - action_protocol.PREPARATION_WEIGHT * PROGRAM) // PROGRAM
+    FITS = (action_protocol.MAX_PATTERN_WORK - dialect.pattern_preparation(HEAVY)) // PROGRAM
 
     def test_one_validation_charges_every_search_against_one_budget(self) -> None:
         self.assertEqual(dialect.pattern_program(self.HEAVY), self.PROGRAM)
