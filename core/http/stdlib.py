@@ -1,7 +1,6 @@
 """Small fail-closed primitives for stdlib HTTP control-plane services."""
 
 import hmac
-import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -50,18 +49,20 @@ def bearer_authorized(headers: object, token: str) -> bool:
     return bool(supplied) and supplied.isascii() and hmac.compare_digest(supplied, token)
 
 
-def read_json_body(headers: object, stream: BinaryIO, *, max_bytes: int) -> dict[str, object]:
+def read_json_body(
+    headers: object, stream: BinaryIO, *, max_bytes: int, loads: Callable[[bytes], object]
+) -> dict[str, object]:
+    """Read one bounded JSON object, decoded by the caller's strict decoder."""
     raw_length = headers.get("Content-Length", "0") or "0"
-    try:
-        length = int(raw_length)
-    except ValueError as exc:
-        raise HttpError(HTTPStatus.BAD_REQUEST, "invalid Content-Length") from exc
-    if length < 0 or length > max_bytes:
+    if not (raw_length.isascii() and raw_length.isdigit()):
+        raise HttpError(HTTPStatus.BAD_REQUEST, "invalid Content-Length")
+    length = int(raw_length)
+    if length > max_bytes:
         raise HttpError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body is too large")
     if length == 0:
         return {}
     try:
-        body = json.loads(stream.read(length))
+        body = loads(stream.read(length))
     # Malformed text, bytes that are not UTF-8, and nesting too deep to decode are all the client's invalid body.
     except (ValueError, RecursionError) as exc:
         raise HttpError(HTTPStatus.BAD_REQUEST, "invalid JSON body") from exc

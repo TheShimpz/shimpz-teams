@@ -15,6 +15,7 @@ from core.http import stdlib
 from core.http import strict as strict_http
 from local.http import dispatch as local_dispatch
 from local.http import token as local_token
+from protocol.http.v1 import strict_json
 
 
 class _Headers:
@@ -45,9 +46,9 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
         self.assertTrue(stdlib.bearer_authorized(_Headers(authorization=["Bearer token"]), "token"))
         self.assertFalse(stdlib.bearer_authorized(_Headers(), "token"))
 
-        self.assertEqual(stdlib.read_json_body(_Headers(), io.BytesIO(), max_bytes=10), {})
+        self.assertEqual(stdlib.read_json_body(_Headers(), io.BytesIO(), max_bytes=10, loads=strict_json.loads), {})
         self.assertEqual(
-            stdlib.read_json_body(_Headers(length="2"), io.BytesIO(b"{}"), max_bytes=10),
+            stdlib.read_json_body(_Headers(length="2"), io.BytesIO(b"{}"), max_bytes=10, loads=strict_json.loads),
             {},
         )
         for headers, stream, status in (
@@ -57,7 +58,7 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
             (_Headers(length="2"), io.BytesIO(b"[]"), 400),
         ):
             with self.subTest(status=status), self.assertRaises(stdlib.HttpError) as raised:
-                stdlib.read_json_body(headers, stream, max_bytes=10)
+                stdlib.read_json_body(headers, stream, max_bytes=10, loads=strict_json.loads)
             self.assertEqual(raised.exception.status, status)
 
         route = stdlib.Route("GET", re.compile(r"/teams/(?P<team_id>[a-z0-9_]+)"), "team-get")
