@@ -5,9 +5,10 @@ JSON value and byte bounds Team admits, the reference walk (only the root or a n
 4,096 subschemas once every reference is expanded, and no subschema more than 32 levels below the root, a reference's
 target one level below the subschema holding it), the Draft 2020-12 dialect rule, and payload validation that
 evaluates every `pattern` and `patternProperties` with bounded RE2 under one work budget per payload. `pattern.py`
-defines the pattern dialect and each pattern's program bound. Each search charges its subject's UTF-8 length times its
-pattern's program bound, and one payload validation may charge at most 134,217,728 (2^27); the search that would
-exceed it is refused before it runs. `uniqueItems` is exact JSON Schema equality, and a `multipleOf` that Python cannot
+defines the pattern dialect and each pattern's program bound. Preparing a pattern charges 256 times its program bound
+once per validation, which then reuses it; each search charges its subject's UTF-8 length, at least 1, times the bound;
+and one payload validation may charge at most 134,217,728 (2^27): the preparation or search that would exceed it is
+refused before it runs. `uniqueItems` is exact JSON Schema equality, and a `multipleOf` that Python cannot
 evaluate refuses the payload. These are the rules of the Developers Assistant protocol, which its `action-schema`
 crate implements for publication and its vectors pin, so Developers, Team, and the Brain admit and validate Action
 schemas with one predicate. Team admission adds the rules a schema position needs, such as closed objects and no

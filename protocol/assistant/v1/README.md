@@ -142,14 +142,17 @@ anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII
 carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
 other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
 surrogate, fails validation. `vectors/pattern.json` freezes these semantics as pattern, subject, and outcome cases.
-One payload validation's matching work is bounded: each search charges its subject's UTF-8 length times its
-pattern's program bound, in the order and as often as Draft 2020-12 validation searches, and a validation may charge
-at most 134,217,728 (2^27); the search whose charge exceeds what remains is refused before it runs, and the payload
-with it, though earlier searches of the same payload may have run. The protocol's budget benchmark measures the
-largest passing charges, `(?i)` with 1,000 `ж` and `x` against 8,363 `Ж`, long classes, nested repetitions, and
-cumulative searches, at under a quarter second each on one CPU. SDK-generated patterns on bounded strings charge
-a small fraction of the budget. The SDK's own native validator enforces no cumulative budget: it validates a value
-against its own schema locally, and Team and the Brain apply the budget at every trust boundary.
+One payload validation's matching work is bounded, in the order and as often as Draft 2020-12 validation searches.
+The first search of each distinct pattern first prepares it (reads its syntax and compiles its program), which
+charges 256 times its program bound once; later searches of that pattern in the same validation reuse it. Each search
+then charges its subject's UTF-8 length, counted as at least 1, times the bound. A validation may charge at most
+134,217,728 (2^27); the preparation or search whose charge exceeds what remains is refused before it runs, and the
+payload with it, though earlier searches of the same payload may have run. The protocol's budget benchmark measures
+the largest passing charges (`(?i)` with 1,000 `ж` and `x` against the most `Ж` the budget leaves, long classes,
+nested repetitions, cumulative searches) and the costliest preparations (one long pattern searched from 1,000
+references, 512 distinct case-folded patterns) at under a quarter second each on one CPU. SDK-generated patterns on
+bounded strings charge a small fraction of the budget. The SDK's own native validator enforces no cumulative budget:
+it validates a value against its own schema locally, and Team and the Brain apply the budget at every trust boundary.
 
 Payload validation follows the Draft 2020-12 vocabulary as `jsonschema` 4.25.1 evaluates it, with two exceptions that
 refuse rather than accept: `uniqueItems` is exact JSON Schema equality (`1` equals `1.0`, `true` equals only `true`,

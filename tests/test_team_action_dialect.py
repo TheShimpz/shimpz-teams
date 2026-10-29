@@ -40,7 +40,7 @@ def _outcome(schema: dict, payload: object) -> tuple[str, int]:
             verdict = "invalid"
         except action_protocol.PatternError as error:
             verdict = "arithmetic" if "arithmetic" in str(error) else "exhausted"
-        charged = action_protocol.MAX_PATTERN_WORK - action_protocol._pattern_work.get()[0]
+        charged = action_protocol.MAX_PATTERN_WORK - action_protocol._pattern_work.get().remaining
     return verdict, charged
 
 
@@ -132,16 +132,29 @@ class DialectConstructTests(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertEqual(dialect.pattern_program(pattern), bound)
 
-    def test_a_pattern_outside_the_dialect_never_compiles(self) -> None:
-        with self.assertRaisesRegex(action_protocol.PatternError, "linear-time matcher"):
-            action_protocol.compiled_pattern("\\p{L}")
+    def test_a_pattern_outside_the_dialect_is_refused_before_any_charge(self) -> None:
+        with action_protocol.pattern_work_budget():
+            with self.assertRaisesRegex(action_protocol.PatternError, "linear-time matcher"):
+                action_protocol.pattern_matches("\\p{L}", "a")
+            self.assertEqual(action_protocol._pattern_work.get().remaining, action_protocol.MAX_PATTERN_WORK)
+
+    def test_a_preparation_beyond_the_budget_is_refused_before_the_pattern_compiles(self) -> None:
+        with (
+            action_protocol.pattern_work_budget(),
+            mock.patch.object(action_protocol.re2, "compile", wraps=action_protocol.re2.compile) as compile_,
+        ):
+            spent = action_protocol.MAX_PATTERN_WORK // 24 - action_protocol.PREPARATION_WEIGHT
+            self.assertTrue(action_protocol.pattern_matches("a", "a" * spent))
+            with self.assertRaisesRegex(action_protocol.PatternError, "work budget"):
+                action_protocol.pattern_matches("b", "b")
+            self.assertEqual(compile_.call_count, 1)
 
     def test_a_pattern_re2_cannot_compile_fails_closed(self) -> None:
         with (
             mock.patch.object(action_protocol.re2, "compile", side_effect=action_protocol.re2.error("refused")),
             self.assertRaisesRegex(action_protocol.PatternError, "linear-time matcher"),
         ):
-            action_protocol.compiled_pattern("a")
+            action_protocol.pattern_matches("a", "a")
 
     def test_unique_items_and_multiple_of_refuse_what_they_cannot_decide(self) -> None:
         unique = action_schema.payload_validator({"uniqueItems": True})

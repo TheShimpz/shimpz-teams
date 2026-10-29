@@ -42,9 +42,14 @@ MAX_SUBSCHEMA_DEPTH = 32
 # of the text, and `i` folds Unicode case. Every admitted pattern's RE2 program fits this bound by `pattern.py`'s upper
 # bound of it.
 MAX_PATTERN_PROGRAM = dialect.MAX_PATTERN_PROGRAM
-# One search charges its subject's UTF-8 length times its pattern's program bound. One payload validation may charge at
-# most this much, which the budget benchmark (.tests/action-schema/benchmark.py) measures at under a quarter second of
-# RE2's slowest matching on one CPU, while SDK-generated patterns on bounded strings charge a small fraction of it.
+# Preparing a pattern (reading its syntax and compiling its program) charges this many times its program bound, once
+# per distinct pattern of one payload validation, which then reuses it: the compilation costs far more per program
+# instruction than a search does per subject byte, and the charge does not depend on any subject.
+PREPARATION_WEIGHT = 256
+# Each search charges its subject's UTF-8 length, at least 1, times its pattern's program bound. One payload
+# validation may charge at most this much, preparations included, which the budget benchmark
+# (.tests/action-schema/benchmark.py) measures at under a quarter second of RE2's slowest work on one CPU, while
+# SDK-generated patterns on bounded strings charge a small fraction of it.
 MAX_PATTERN_WORK = 1 << 27
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
@@ -52,7 +57,22 @@ _PATTERN_OPTIONS = re2.Options()
 _PATTERN_OPTIONS.max_mem = 1 << 20
 _PATTERN_OPTIONS.never_capture = True
 _PATTERN_OPTIONS.log_errors = False
-_pattern_work: ContextVar[list[int] | None] = ContextVar("pattern_work", default=None)
+
+
+class _Work:
+    """One payload validation's matching work: what remains of the budget, and each pattern prepared so far."""
+
+    def __init__(self) -> None:
+        self.remaining = MAX_PATTERN_WORK
+        self.prepared: dict[str, tuple[object, int]] = {}
+
+    def charge(self, units: int) -> None:
+        if units > self.remaining:
+            raise PatternError("pattern matching exceeds its work budget")
+        self.remaining -= units
+
+
+_pattern_work: ContextVar[_Work | None] = ContextVar("pattern_work", default=None)
 
 
 class PatternError(ValueError):
@@ -63,21 +83,25 @@ class PatternError(ValueError):
     """
 
 
-def compiled_pattern(pattern: str):
-    """The RE2 program of one admitted pattern and its program bound; raises PatternError outside the dialect."""
-    bound = dialect.pattern_program(pattern)
-    if bound is None:
-        raise PatternError("pattern is outside the linear-time matcher")
-    try:
-        return re2.compile(pattern, _PATTERN_OPTIONS), bound
-    except re2.error as exc:
-        raise PatternError("pattern is outside the linear-time matcher") from exc
+def _prepared(pattern: str, work: _Work) -> tuple[object, int]:
+    """The pattern's program and bound, prepared once per validation and charged before it compiles."""
+    prepared = work.prepared.get(pattern)
+    if prepared is None:
+        bound = dialect.pattern_program(pattern)
+        if bound is None:
+            raise PatternError("pattern is outside the linear-time matcher")
+        work.charge(PREPARATION_WEIGHT * bound)
+        try:
+            prepared = work.prepared[pattern] = (re2.compile(pattern, _PATTERN_OPTIONS), bound)
+        except re2.error as exc:
+            raise PatternError("pattern is outside the linear-time matcher") from exc
+    return prepared
 
 
 @contextmanager
 def pattern_work_budget() -> Iterator[None]:
-    """Charge every search inside the block against one MAX_PATTERN_WORK budget."""
-    token = _pattern_work.set([MAX_PATTERN_WORK])
+    """Charge every preparation and search inside the block against one MAX_PATTERN_WORK budget."""
+    token = _pattern_work.set(_Work())
     try:
         yield
     finally:
@@ -89,15 +113,13 @@ def pattern_matches(pattern: str, subject: str) -> bool:
 
     Outside pattern_work_budget, the search alone is charged against a fresh budget.
     """
-    compiled, bound = compiled_pattern(pattern)
+    work = _pattern_work.get() or _Work()
+    compiled, bound = _prepared(pattern, work)
     try:
         size = len(subject.encode())
     except UnicodeEncodeError as exc:
         raise PatternError("subject is not valid Unicode") from exc
-    remaining = _pattern_work.get() or [MAX_PATTERN_WORK]
-    if size * bound > remaining[0]:
-        raise PatternError("pattern matching exceeds its work budget")
-    remaining[0] -= size * bound
+    work.charge(max(size, 1) * bound)
     return compiled.search(subject) is not None
 
 
