@@ -1,0 +1,24 @@
+[package]
+name = "strict-json"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+license = "Apache-2.0"
+description = "Strict JSON admission equal to the neutral Python oracle .standards/strict_json.py"
+
+[dependencies]
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cognitive_complexity = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
