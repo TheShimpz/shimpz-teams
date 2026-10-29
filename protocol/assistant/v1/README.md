@@ -140,8 +140,10 @@ their program bound and preparation and refused patterns with `null` for both.
 
 These are the admission rules of one predicate: Developers publication, Team, and the Brain admit an Action schema by
 exactly the same rules (the `action-schema` crate in Rust, Team's `protocol/action/v1` in Python). Publication adds
-one guard of its own before them: it decodes a contract with a decoder that reads an integer beyond 64 bits as a
-float, so it counts such a value at its widest decimal length toward the 128 KiB.
+two guards of its own before them: it decodes a contract with a decoder that reads an integer beyond 64 bits as a
+float, so it counts such a value at its widest decimal length toward the 128 KiB, and that decoder refuses a contract
+whose JSON nests more than 128 levels, although the predicate itself admits deeper annotations such as a `default`.
+Neither guard admits anything the predicate refuses.
 
 Team and the Brain evaluate every `pattern` value and `patternProperties` name with RE2 or an equivalent linear-time
 matcher, never Python `re`, so one search runs in time linear in the subject. A pattern matches when it matches
