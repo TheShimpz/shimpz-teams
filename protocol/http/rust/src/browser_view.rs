@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use sha1::{Digest, Sha1};
 use strict_json::Value;
 
-use crate::base64::{self, STANDARD};
+use crate::python::base64::{self, STANDARD};
 use crate::python::regex::{Pattern, declared};
 use crate::python::value::{exact_object, field, string};
 

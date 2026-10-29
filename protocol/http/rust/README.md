@@ -24,6 +24,8 @@ where Python raises by contract). It depends on `fancy-regex` and `unicode-norma
   adversarial sentence reads in under a second).
 - `value`: Python's type tests and `==` over strict JSON values, and exact non-negative integer arithmetic.
 - `datetime`: `datetime.datetime.fromisoformat` exactly as the C implementation of Python 3.14.
+- `base64`: the padded encoding `base64` writes in the standard and URL-safe alphabets, and decoding of text a
+  grammar already admitted.
 
 ## Phrase readers (`src/phrase/`)
 

@@ -6,7 +6,6 @@
 //! differential harness against the Python modules prove the equality; [`python`] holds the Python semantics they
 //! share.
 
-mod base64;
 pub mod browser;
 pub mod browser_view;
 pub mod challenge;

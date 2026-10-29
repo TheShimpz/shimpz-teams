@@ -8,10 +8,10 @@ use std::sync::LazyLock;
 
 use strict_json::Value;
 
-use crate::base64::{self, URL_SAFE};
 use crate::payload::{
     MAX_FILE_UPLOAD_BYTES, MAX_FILENAME_BYTES, MAX_MEDIA_TYPE_CHARS, MEDIA_TYPE_RE,
 };
+use crate::python::base64::{self, URL_SAFE};
 use crate::python::json::{CANONICAL, dumps};
 use crate::python::regex::{Pattern, declared};
 use crate::python::text;
