@@ -1,0 +1,15 @@
+[
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\"}", "line": "{\"object\":[[\"length\",{\"int\":\"1\"}],[\"sha256\",\"0000000000000000000000000000000000000000000000000000000000000000\"]]}"},
+{"name": "content.canonical_framing", "input": "{\"length\": 26214400, \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}", "line": "{\"object\":[[\"length\",{\"int\":\"26214400\"}],[\"sha256\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]]}"},
+{"name": "content.canonical_framing", "input": "{\"length\": 0, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 26214401, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1.0, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": true, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"00000000000000000000000000000000000000000000000000000000000000000\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "{\"length\": 1, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"name\": \"brief.pdf\"}", "line": "refuse"},
+{"name": "content.canonical_framing", "input": "[]", "line": "refuse"}
+]

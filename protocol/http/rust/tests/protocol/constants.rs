@@ -1,0 +1,944 @@
+//! Every integer constant the crate shares with a Python module has the Python value (read from the module itself
+//! when this table was written), so no bound drifts by arithmetic.
+
+use team_protocol::{
+    browser, challenge, content, identifiers, payload, preview, progress, purpose, routine,
+    routine_context, routine_notice, routine_proposal, routine_run, sign_in, supervisor, turn,
+    websocket,
+};
+
+fn n<T: TryInto<i128>>(value: T) -> i128 {
+    value.try_into().ok().expect("an integer constant")
+}
+
+fn check(constants: &[(&str, i128, i128)]) {
+    for (name, rust, python) in constants {
+        assert_eq!(rust, python, "{name}");
+    }
+}
+
+#[test]
+fn constants_00() {
+    check(&[
+        (
+            "browser.MAX_UNSCREENED_URLS",
+            n(browser::MAX_UNSCREENED_URLS),
+            20,
+        ),
+        (
+            "browser.MAX_DOWNLOAD_NAMES",
+            n(browser::MAX_DOWNLOAD_NAMES),
+            20,
+        ),
+        (
+            "browser.MAX_PENDING_DOWNLOADS",
+            n(browser::MAX_PENDING_DOWNLOADS),
+            1_000,
+        ),
+        (
+            "browser.MAX_TERMINAL_FILES",
+            n(browser::MAX_TERMINAL_FILES),
+            8,
+        ),
+        (
+            "browser.MAX_TERMINAL_LOSSES",
+            n(browser::MAX_TERMINAL_LOSSES),
+            128,
+        ),
+        (
+            "browser.MAX_TERMINAL_SKIPPED",
+            n(browser::MAX_TERMINAL_SKIPPED),
+            1_000,
+        ),
+        ("browser.MAX_NAME_BYTES", n(browser::MAX_NAME_BYTES), 255),
+        (
+            "browser.MAX_OBJECTIVE_CHARS",
+            n(browser::MAX_OBJECTIVE_CHARS),
+            2_000,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_01() {
+    check(&[
+        (
+            "browser.MAX_SUMMARY_BYTES",
+            n(browser::MAX_SUMMARY_BYTES),
+            4_096,
+        ),
+        (
+            "browser.MAX_SENTENCE_CHARS",
+            n(browser::MAX_SENTENCE_CHARS),
+            300,
+        ),
+        ("browser.MAX_TEXT_CHARS", n(browser::MAX_TEXT_CHARS), 2_000),
+        ("browser.MAX_URL_CHARS", n(browser::MAX_URL_CHARS), 2_048),
+        ("browser.MAX_NOTE_CHARS", n(browser::MAX_NOTE_CHARS), 300),
+        ("browser.MAX_TITLE_CHARS", n(browser::MAX_TITLE_CHARS), 300),
+        (
+            "browser.MAX_OBSERVATION_BYTES",
+            n(browser::MAX_OBSERVATION_BYTES),
+            24_576,
+        ),
+        ("browser.MAX_STEPS", n(browser::MAX_STEPS), 300),
+    ]);
+}
+
+#[test]
+fn constants_02() {
+    check(&[
+        (
+            "browser.MAX_TASK_SECONDS",
+            n(browser::MAX_TASK_SECONDS),
+            1_800,
+        ),
+        ("browser.MAX_READ_REFS", n(browser::MAX_READ_REFS), 10),
+        (
+            "browser.MAX_HISTORY_BYTES",
+            n(browser::MAX_HISTORY_BYTES),
+            131_072,
+        ),
+        (
+            "browser.MAX_MEMORY_BYTES",
+            n(browser::MAX_MEMORY_BYTES),
+            12_288,
+        ),
+        (
+            "browser.MAX_FOLDED_LINE_BYTES",
+            n(browser::MAX_FOLDED_LINE_BYTES),
+            300,
+        ),
+        (
+            "browser.MAX_FOLDED_BYTES",
+            n(browser::MAX_FOLDED_BYTES),
+            8_192,
+        ),
+        (
+            "browser.ENTRY_OVERHEAD_BYTES",
+            n(browser::ENTRY_OVERHEAD_BYTES),
+            512,
+        ),
+        (
+            "browser.MAX_REQUEST_TEXT_BYTES",
+            n(browser::MAX_REQUEST_TEXT_BYTES),
+            176_128,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_03() {
+    check(&[
+        (
+            "browser.MAX_CALL_ATTEMPTS",
+            n(browser::MAX_CALL_ATTEMPTS),
+            3,
+        ),
+        (
+            "browser.MAX_CALL_INPUT_TOKENS",
+            n(browser::MAX_CALL_INPUT_TOKENS),
+            200_000,
+        ),
+        (
+            "browser.MAX_CALL_OUTPUT_TOKENS",
+            n(browser::MAX_CALL_OUTPUT_TOKENS),
+            4_096,
+        ),
+        (
+            "challenge.MAX_ACTION_FILE_BYTES",
+            n(challenge::MAX_ACTION_FILE_BYTES),
+            8_388_608,
+        ),
+        (
+            "challenge.INPUT_PROJECTION_MAX_FIELDS",
+            n(challenge::INPUT_PROJECTION_MAX_FIELDS),
+            16,
+        ),
+        (
+            "challenge.INPUT_PROJECTION_NAME_CHARS",
+            n(challenge::INPUT_PROJECTION_NAME_CHARS),
+            128,
+        ),
+        (
+            "challenge.INPUT_PROJECTION_VALUE_CHARS",
+            n(challenge::INPUT_PROJECTION_VALUE_CHARS),
+            400,
+        ),
+        (
+            "challenge.INPUT_PROJECTION_MAX_OMITTED",
+            n(challenge::INPUT_PROJECTION_MAX_OMITTED),
+            4_096,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_04() {
+    check(&[
+        (
+            "content.MAX_CONTENT_BYTES",
+            n(content::MAX_CONTENT_BYTES),
+            26_214_400,
+        ),
+        (
+            "identifiers.MAX_ASSISTANT_ID_CHARS",
+            n(identifiers::MAX_ASSISTANT_ID_CHARS),
+            40,
+        ),
+        (
+            "identifiers.MAX_IDENTIFIER_CHARS",
+            n(identifiers::MAX_IDENTIFIER_CHARS),
+            64,
+        ),
+        (
+            "identifiers.MAX_ACTION_ID_CHARS",
+            n(identifiers::MAX_ACTION_ID_CHARS),
+            128,
+        ),
+        (
+            "payload.MAX_TURN_DURATION_MS",
+            n(payload::MAX_TURN_DURATION_MS),
+            86_400_000,
+        ),
+        (
+            "payload.MAX_TURN_USAGE_MODELS",
+            n(payload::MAX_TURN_USAGE_MODELS),
+            16,
+        ),
+        (
+            "payload.MAX_TURN_USAGE_TOKENS",
+            n(payload::MAX_TURN_USAGE_TOKENS),
+            1_000_000_000,
+        ),
+        (
+            "payload.MAX_LOCAL_ASSISTANTS",
+            n(payload::MAX_LOCAL_ASSISTANTS),
+            50,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_05() {
+    check(&[
+        (
+            "payload.MAX_LOCAL_ASSISTANT_CREATORS",
+            n(payload::MAX_LOCAL_ASSISTANT_CREATORS),
+            4,
+        ),
+        (
+            "payload.MAX_LOCAL_ASSISTANT_TEXT_CHARS",
+            n(payload::MAX_LOCAL_ASSISTANT_TEXT_CHARS),
+            80,
+        ),
+        (
+            "payload.MAX_DETAILS_NAME_CHARS",
+            n(payload::MAX_DETAILS_NAME_CHARS),
+            80,
+        ),
+        (
+            "payload.MAX_DETAILS_DESCRIPTION_CHARS",
+            n(payload::MAX_DETAILS_DESCRIPTION_CHARS),
+            500,
+        ),
+        (
+            "payload.MAX_DETAILS_LINE_CHARS",
+            n(payload::MAX_DETAILS_LINE_CHARS),
+            120,
+        ),
+        (
+            "payload.MAX_DETAILS_CREATORS",
+            n(payload::MAX_DETAILS_CREATORS),
+            16,
+        ),
+        (
+            "payload.MAX_DETAILS_ACTIONS",
+            n(payload::MAX_DETAILS_ACTIONS),
+            128,
+        ),
+        (
+            "payload.MAX_DETAILS_INTEGRATIONS",
+            n(payload::MAX_DETAILS_INTEGRATIONS),
+            16,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_06() {
+    check(&[
+        (
+            "payload.MAX_DETAILS_STORED_INPUTS",
+            n(payload::MAX_DETAILS_STORED_INPUTS),
+            8,
+        ),
+        (
+            "payload.MAX_HELP_URL_CHARS",
+            n(payload::MAX_HELP_URL_CHARS),
+            2_048,
+        ),
+        (
+            "payload.MAX_STORED_INPUT_HELP_CHARS",
+            n(payload::MAX_STORED_INPUT_HELP_CHARS),
+            500,
+        ),
+        (
+            "payload.MAX_CREATOR_LINK_CHARS",
+            n(payload::MAX_CREATOR_LINK_CHARS),
+            256,
+        ),
+        ("payload.MAX_CHAT_FILES", n(payload::MAX_CHAT_FILES), 8),
+        (
+            "payload.MAX_TEAM_ASSISTANTS",
+            n(payload::MAX_TEAM_ASSISTANTS),
+            16,
+        ),
+        (
+            "payload.MAX_CHAT_ASSISTANTS",
+            n(payload::MAX_CHAT_ASSISTANTS),
+            16,
+        ),
+        (
+            "payload.MAX_TEAM_REGISTRY_BYTES",
+            n(payload::MAX_TEAM_REGISTRY_BYTES),
+            262_144,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_07() {
+    check(&[
+        ("payload.MAX_TEAM_FILES", n(payload::MAX_TEAM_FILES), 256),
+        (
+            "payload.MAX_TEAM_NAME_CHARS",
+            n(payload::MAX_TEAM_NAME_CHARS),
+            80,
+        ),
+        (
+            "payload.MAX_FILE_UPLOAD_BYTES",
+            n(payload::MAX_FILE_UPLOAD_BYTES),
+            26_214_400,
+        ),
+        (
+            "payload.MAX_FILENAME_BYTES",
+            n(payload::MAX_FILENAME_BYTES),
+            255,
+        ),
+        (
+            "payload.MAX_MEDIA_TYPE_CHARS",
+            n(payload::MAX_MEDIA_TYPE_CHARS),
+            127,
+        ),
+        (
+            "payload.MAX_CONVERSATION_ENTRIES",
+            n(payload::MAX_CONVERSATION_ENTRIES),
+            8,
+        ),
+        (
+            "payload.MAX_CONVERSATION_TEXT_CHARS",
+            n(payload::MAX_CONVERSATION_TEXT_CHARS),
+            512,
+        ),
+        (
+            "payload.MAX_CONVERSATION_CHARS",
+            n(payload::MAX_CONVERSATION_CHARS),
+            4_096,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_08() {
+    check(&[
+        (
+            "payload.REQUEST_IDENTITY_SECONDS",
+            n(payload::REQUEST_IDENTITY_SECONDS),
+            900,
+        ),
+        (
+            "payload.REQUEST_IDENTITY_SKEW_SECONDS",
+            n(payload::REQUEST_IDENTITY_SKEW_SECONDS),
+            60,
+        ),
+        (
+            "payload.MAX_SNAPSHOT_SUMMARY_CHARS",
+            n(payload::MAX_SNAPSHOT_SUMMARY_CHARS),
+            80,
+        ),
+        ("payload.MAX_CHAT_LIMIT", n(payload::MAX_CHAT_LIMIT), 2),
+        (
+            "preview.MAX_PREVIEW_BYTES",
+            n(preview::MAX_PREVIEW_BYTES),
+            524_288,
+        ),
+        ("preview.MAX_PDF_PAGES", n(preview::MAX_PDF_PAGES), 50),
+        ("progress.MAX_EVENTS", n(progress::MAX_EVENTS), 2_048),
+        (
+            "progress.MAX_ACTION_COUNT",
+            n(progress::MAX_ACTION_COUNT),
+            512,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_09() {
+    check(&[
+        (
+            "progress.MAX_ELAPSED_MS",
+            n(progress::MAX_ELAPSED_MS),
+            86_400_000,
+        ),
+        (
+            "progress.MAX_PROGRESS_LINE_BYTES",
+            n(progress::MAX_PROGRESS_LINE_BYTES),
+            311,
+        ),
+        (
+            "progress.MAX_LINE_BYTES",
+            n(progress::MAX_LINE_BYTES),
+            262_144,
+        ),
+        (
+            "progress.MAX_STREAM_BYTES",
+            n(progress::MAX_STREAM_BYTES),
+            899_072,
+        ),
+        (
+            "purpose.MAX_PURPOSE_CHARS",
+            n(purpose::MAX_PURPOSE_CHARS),
+            280,
+        ),
+        ("routine.MAX_ROUTINES", n(routine::MAX_ROUTINES), 8),
+        (
+            "routine.MAX_ROUTINE_NAME_CHARS",
+            n(routine::MAX_ROUTINE_NAME_CHARS),
+            80,
+        ),
+        (
+            "routine.MAX_ROUTINE_DESCRIPTION_CHARS",
+            n(routine::MAX_ROUTINE_DESCRIPTION_CHARS),
+            600,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_10() {
+    check(&[
+        (
+            "routine.MAX_ROUTINE_STEPS",
+            n(routine::MAX_ROUTINE_STEPS),
+            256,
+        ),
+        (
+            "routine.MIN_CONTINUOUS_GAP_SECONDS",
+            n(routine::MIN_CONTINUOUS_GAP_SECONDS),
+            5,
+        ),
+        (
+            "routine.MAX_CONTINUOUS_GAP_SECONDS",
+            n(routine::MAX_CONTINUOUS_GAP_SECONDS),
+            31_622_400,
+        ),
+        ("routine.DAY_SECONDS", n(routine::DAY_SECONDS), 86_400),
+        ("routine.MAX_ROLLUP_RUNS", n(routine::MAX_ROLLUP_RUNS), 60),
+        (
+            "routine.MAX_ROUTINE_ASSISTANTS",
+            n(routine::MAX_ROUTINE_ASSISTANTS),
+            16,
+        ),
+        ("routine.MAX_PERMITTED", n(routine::MAX_PERMITTED), 256),
+        (
+            "routine.MAX_FAILURE_STREAK",
+            n(routine::MAX_FAILURE_STREAK),
+            3,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_11() {
+    check(&[
+        ("routine.MAX_OUTPUT_DEPTH", n(routine::MAX_OUTPUT_DEPTH), 4),
+        ("routine.MAX_OUTPUT_ITEMS", n(routine::MAX_OUTPUT_ITEMS), 50),
+        (
+            "routine.MAX_OUTPUT_FIELDS",
+            n(routine::MAX_OUTPUT_FIELDS),
+            24,
+        ),
+        (
+            "routine.MAX_OUTPUT_TEXT_CHARS",
+            n(routine::MAX_OUTPUT_TEXT_CHARS),
+            300,
+        ),
+        (
+            "routine.MAX_OUTPUT_KEY_CHARS",
+            n(routine::MAX_OUTPUT_KEY_CHARS),
+            64,
+        ),
+        (
+            "routine.MAX_OUTPUT_NUMBER_CHARS",
+            n(routine::MAX_OUTPUT_NUMBER_CHARS),
+            64,
+        ),
+        (
+            "routine.MAX_OUTPUT_BYTES",
+            n(routine::MAX_OUTPUT_BYTES),
+            16_384,
+        ),
+        (
+            "routine.MAX_PREVIEW_CHARS",
+            n(routine::MAX_PREVIEW_CHARS),
+            120,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_12() {
+    check(&[
+        ("routine.MAX_STEP_INPUTS", n(routine::MAX_STEP_INPUTS), 64),
+        (
+            "routine.MAX_STEP_STORED_INPUTS",
+            n(routine::MAX_STEP_STORED_INPUTS),
+            8,
+        ),
+        (
+            "routine.MAX_MEMBER_CHARS",
+            n(routine::MAX_MEMBER_CHARS),
+            128,
+        ),
+        (
+            "routine.MAX_POINTER_CHARS",
+            n(routine::MAX_POINTER_CHARS),
+            256,
+        ),
+        (
+            "routine.MAX_WHERE_CHARS",
+            n(routine::MAX_WHERE_CHARS),
+            4_096,
+        ),
+        (
+            "routine.MAX_STEP_VIEW_BYTES",
+            n(routine::MAX_STEP_VIEW_BYTES),
+            24_576,
+        ),
+        ("routine.MAX_PAGE_STEPS", n(routine::MAX_PAGE_STEPS), 64),
+        ("routine.MAX_PAGE_BYTES", n(routine::MAX_PAGE_BYTES), 98_304),
+    ]);
+}
+
+#[test]
+fn constants_13() {
+    check(&[
+        ("routine.MAX_SUMMARY_RUNS", n(routine::MAX_SUMMARY_RUNS), 16),
+        (
+            "routine_context.MAX_LISTED_DAILY_STEPS",
+            n(routine_context::MAX_LISTED_DAILY_STEPS),
+            4_423_680,
+        ),
+        (
+            "routine_context.MAX_LISTED_STEPS_BYTES",
+            n(routine_context::MAX_LISTED_STEPS_BYTES),
+            262_144,
+        ),
+        (
+            "routine_context.MAX_LISTING_STEPS_BYTES",
+            n(routine_context::MAX_LISTING_STEPS_BYTES),
+            1_048_576,
+        ),
+        (
+            "routine_context.MAX_RERUN_ENTRIES",
+            n(routine_context::MAX_RERUN_ENTRIES),
+            256,
+        ),
+        (
+            "routine_context.MAX_RERUN_CALLS",
+            n(routine_context::MAX_RERUN_CALLS),
+            256,
+        ),
+        (
+            "routine_context.MAX_RERUN_INPUTS",
+            n(routine_context::MAX_RERUN_INPUTS),
+            64,
+        ),
+        (
+            "routine_context.MAX_RERUN_MEMBER_CHARS",
+            n(routine_context::MAX_RERUN_MEMBER_CHARS),
+            128,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_14() {
+    check(&[
+        (
+            "routine_context.MAX_RERUN_LITERAL_CHARS",
+            n(routine_context::MAX_RERUN_LITERAL_CHARS),
+            1_024,
+        ),
+        (
+            "routine_context.MIN_IDENTIFIER_CHARS",
+            n(routine_context::MIN_IDENTIFIER_CHARS),
+            6,
+        ),
+        (
+            "routine_context.MIN_IDENTIFIER_DIGITS",
+            n(routine_context::MIN_IDENTIFIER_DIGITS),
+            6,
+        ),
+        (
+            "routine_context.MAX_DATE_OFFSET_DAYS",
+            n(routine_context::MAX_DATE_OFFSET_DAYS),
+            31,
+        ),
+        (
+            "routine_context.MAX_SELECTED_BYTES",
+            n(routine_context::MAX_SELECTED_BYTES),
+            262_144,
+        ),
+        (
+            "routine_context.MAX_REFINE_EDITS",
+            n(routine_context::MAX_REFINE_EDITS),
+            256,
+        ),
+        (
+            "routine_notice.MAX_CREATION_STEPS",
+            n(routine_notice::MAX_CREATION_STEPS),
+            64,
+        ),
+        (
+            "routine_notice.MAX_NOTICE_BATCH",
+            n(routine_notice::MAX_NOTICE_BATCH),
+            1_024,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_15() {
+    check(&[
+        (
+            "routine_notice.MAX_NOTICE_BATCH_BYTES",
+            n(routine_notice::MAX_NOTICE_BATCH_BYTES),
+            114_688,
+        ),
+        (
+            "routine_notice.MAX_UNRESOLVED_INCIDENTS",
+            n(routine_notice::MAX_UNRESOLVED_INCIDENTS),
+            32,
+        ),
+        (
+            "routine_notice.MAX_SUMMARY_BYTES",
+            n(routine_notice::MAX_SUMMARY_BYTES),
+            4_096,
+        ),
+        (
+            "routine_notice.MAX_ROUTINE_LIST_BYTES",
+            n(routine_notice::MAX_ROUTINE_LIST_BYTES),
+            241_664,
+        ),
+        (
+            "routine_proposal.MAX_PROPOSAL_BYTES",
+            n(routine_proposal::MAX_PROPOSAL_BYTES),
+            163_840,
+        ),
+        (
+            "routine_proposal.MAX_QUESTION_OPTIONS",
+            n(routine_proposal::MAX_QUESTION_OPTIONS),
+            8,
+        ),
+        (
+            "routine_proposal.MAX_QUESTION_OPTION_CHARS",
+            n(routine_proposal::MAX_QUESTION_OPTION_CHARS),
+            120,
+        ),
+        (
+            "routine_proposal.MAX_QUESTION_VALUE_CHARS",
+            n(routine_proposal::MAX_QUESTION_VALUE_CHARS),
+            242,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_16() {
+    check(&[
+        (
+            "routine_run.SHORT_ACTIVE_SECONDS",
+            n(routine_run::SHORT_ACTIVE_SECONDS),
+            600,
+        ),
+        (
+            "routine_run.MAX_ACTIVE_SECONDS",
+            n(routine_run::MAX_ACTIVE_SECONDS),
+            7_200,
+        ),
+        (
+            "routine_run.MAX_ACK_DELIVERIES",
+            n(routine_run::MAX_ACK_DELIVERIES),
+            256,
+        ),
+        (
+            "routine_run.MAX_RUN_DIAGNOSTICS",
+            n(routine_run::MAX_RUN_DIAGNOSTICS),
+            32,
+        ),
+        (
+            "routine_run.MAX_DIAGNOSTIC_ATTEMPTS",
+            n(routine_run::MAX_DIAGNOSTIC_ATTEMPTS),
+            64,
+        ),
+        (
+            "routine_run.MAX_DIAGNOSTIC_TEXT_BYTES",
+            n(routine_run::MAX_DIAGNOSTIC_TEXT_BYTES),
+            2_048,
+        ),
+        ("sign_in.MAX_URL_CHARS", n(sign_in::MAX_URL_CHARS), 2_048),
+        (
+            "sign_in.MAX_ORIGIN_CHARS",
+            n(sign_in::MAX_ORIGIN_CHARS),
+            255,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_17() {
+    check(&[
+        ("sign_in.MAX_SITES", n(sign_in::MAX_SITES), 64),
+        (
+            "sign_in.MAX_GENERATION",
+            n(sign_in::MAX_GENERATION),
+            2_147_483_647,
+        ),
+        (
+            "supervisor.ASSERTION_MAX_TTL_SECONDS",
+            n(supervisor::ASSERTION_MAX_TTL_SECONDS),
+            15,
+        ),
+        (
+            "supervisor.ASSERTION_CLOCK_SKEW_SECONDS",
+            n(supervisor::ASSERTION_CLOCK_SKEW_SECONDS),
+            5,
+        ),
+        (
+            "supervisor.ASSERTION_MAX_BYTES",
+            n(supervisor::ASSERTION_MAX_BYTES),
+            4_096,
+        ),
+        (
+            "supervisor.MAX_JSON_BODY_BYTES",
+            n(supervisor::MAX_JSON_BODY_BYTES),
+            262_144,
+        ),
+        (
+            "turn.MAX_CHAT_MESSAGE_CHARS",
+            n(turn::MAX_CHAT_MESSAGE_CHARS),
+            16_000,
+        ),
+        (
+            "turn.MAX_CLARIFICATION_QUESTION_CHARS",
+            n(turn::MAX_CLARIFICATION_QUESTION_CHARS),
+            240,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_18() {
+    check(&[
+        (
+            "turn.MAX_CLARIFICATION_LABEL_CHARS",
+            n(turn::MAX_CLARIFICATION_LABEL_CHARS),
+            80,
+        ),
+        (
+            "turn.MAX_CLARIFICATION_DESCRIPTION_CHARS",
+            n(turn::MAX_CLARIFICATION_DESCRIPTION_CHARS),
+            160,
+        ),
+        (
+            "turn.MIN_CLARIFICATION_OPTIONS",
+            n(turn::MIN_CLARIFICATION_OPTIONS),
+            2,
+        ),
+        (
+            "turn.MAX_CLARIFICATION_OPTIONS",
+            n(turn::MAX_CLARIFICATION_OPTIONS),
+            5,
+        ),
+        ("turn.MAX_MEMORIES", n(turn::MAX_MEMORIES), 32),
+        (
+            "turn.MAX_MEMORY_PREFERENCE_CHARS",
+            n(turn::MAX_MEMORY_PREFERENCE_CHARS),
+            280,
+        ),
+        ("turn.MAX_MEMORY_CHANGES", n(turn::MAX_MEMORY_CHANGES), 32),
+        ("turn.MAX_REPLY_CHARS", n(turn::MAX_REPLY_CHARS), 60_000),
+    ]);
+}
+
+#[test]
+fn constants_19() {
+    check(&[
+        ("turn.MAX_ACTION_REQUESTS", n(turn::MAX_ACTION_REQUESTS), 64),
+        (
+            "turn.MAX_OBJECTIVE_CHARS",
+            n(turn::MAX_OBJECTIVE_CHARS),
+            16_000,
+        ),
+        (
+            "turn.MAX_CAPABILITY_CANDIDATES",
+            n(turn::MAX_CAPABILITY_CANDIDATES),
+            8,
+        ),
+        (
+            "turn.MAX_CAPABILITY_SELECTED",
+            n(turn::MAX_CAPABILITY_SELECTED),
+            4,
+        ),
+        (
+            "turn.MAX_CAPABILITY_NAME_CHARS",
+            n(turn::MAX_CAPABILITY_NAME_CHARS),
+            80,
+        ),
+        (
+            "turn.MAX_CAPABILITY_SUMMARY_CHARS",
+            n(turn::MAX_CAPABILITY_SUMMARY_CHARS),
+            80,
+        ),
+        (
+            "turn.MAX_CAPABILITY_ACTIONS",
+            n(turn::MAX_CAPABILITY_ACTIONS),
+            64,
+        ),
+        (
+            "turn.MAX_CAPABILITY_INTEGRATIONS",
+            n(turn::MAX_CAPABILITY_INTEGRATIONS),
+            16,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_20() {
+    check(&[
+        (
+            "turn.MAX_INTENT_ROUTE_CANDIDATES",
+            n(turn::MAX_INTENT_ROUTE_CANDIDATES),
+            8,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_SELECTED",
+            n(turn::MAX_INTENT_ROUTE_SELECTED),
+            4,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_QUERY_CHARS",
+            n(turn::MAX_INTENT_ROUTE_QUERY_CHARS),
+            160,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_NAME_CHARS",
+            n(turn::MAX_INTENT_ROUTE_NAME_CHARS),
+            80,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_SUMMARY_CHARS",
+            n(turn::MAX_INTENT_ROUTE_SUMMARY_CHARS),
+            80,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_REPLY_CHARS",
+            n(turn::MAX_INTENT_ROUTE_REPLY_CHARS),
+            240,
+        ),
+        (
+            "turn.MAX_CAPABILITY_PLAN_BODY_BYTES",
+            n(turn::MAX_CAPABILITY_PLAN_BODY_BYTES),
+            262_144,
+        ),
+        (
+            "turn.MAX_INTENT_ROUTE_BODY_BYTES",
+            n(turn::MAX_INTENT_ROUTE_BODY_BYTES),
+            196_608,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_21() {
+    check(&[
+        (
+            "turn.MAX_ATTACHMENT_IMAGES",
+            n(turn::MAX_ATTACHMENT_IMAGES),
+            4,
+        ),
+        (
+            "turn.MAX_ATTACHMENT_TEXT_CHARS",
+            n(turn::MAX_ATTACHMENT_TEXT_CHARS),
+            32_768,
+        ),
+        (
+            "turn.MAX_ATTACHMENT_TEXT_BYTES",
+            n(turn::MAX_ATTACHMENT_TEXT_BYTES),
+            131_072,
+        ),
+        (
+            "turn.MAX_ATTACHED_TEXT_CHARS",
+            n(turn::MAX_ATTACHED_TEXT_CHARS),
+            131_072,
+        ),
+        (
+            "turn.MAX_ATTACHED_TEXT_BYTES",
+            n(turn::MAX_ATTACHED_TEXT_BYTES),
+            524_288,
+        ),
+        (
+            "turn.ATTACHMENT_IMAGE_EDGE",
+            n(turn::ATTACHMENT_IMAGE_EDGE),
+            1_568,
+        ),
+        (
+            "turn.ATTACHMENT_IMAGE_PIXELS",
+            n(turn::ATTACHMENT_IMAGE_PIXELS),
+            1_200_000,
+        ),
+        (
+            "turn.MAX_ATTACHMENT_IMAGE_BYTES",
+            n(turn::MAX_ATTACHMENT_IMAGE_BYTES),
+            524_288,
+        ),
+    ]);
+}
+
+#[test]
+fn constants_22() {
+    check(&[
+        (
+            "turn.MAX_ATTACHMENTS_FIELD_BYTES",
+            n(turn::MAX_ATTACHMENTS_FIELD_BYTES),
+            1_572_864,
+        ),
+        (
+            "websocket.MAX_HUMAN_TEXT_CHARS",
+            n(websocket::MAX_HUMAN_TEXT_CHARS),
+            16_000,
+        ),
+        (
+            "websocket.MAX_HUMAN_CHOICES",
+            n(websocket::MAX_HUMAN_CHOICES),
+            32,
+        ),
+        (
+            "websocket.MAX_HUMAN_CHOICE_CHARS",
+            n(websocket::MAX_HUMAN_CHOICE_CHARS),
+            128,
+        ),
+    ]);
+}

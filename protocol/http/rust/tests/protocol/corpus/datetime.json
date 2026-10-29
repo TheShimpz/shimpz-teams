@@ -1,0 +1,22 @@
+[
+{"name": "datetime.fromisoformat", "input": "\"2027-W01-1\"", "line": "[{\"int\":\"2027\"},{\"int\":\"1\"},{\"int\":\"4\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-01-01T12:30x00\"", "line": "refuse"},
+{"name": "datetime.fromisoformat", "input": "\"2026-W01x1\"", "line": "refuse"},
+{"name": "datetime.fromisoformat", "input": "\"2026-08-28T17:00:00Z\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"28\"},{\"int\":\"17\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-08-28 17:00:00.123456789+05:30\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"28\"},{\"int\":\"17\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"123456\"},{\"int\":\"19800000000\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"20260828T170000+0100\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"28\"},{\"int\":\"17\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"3600000000\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"20260828T1700\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"28\"},{\"int\":\"17\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-W35-5T17:00:00-03:00\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"28\"},{\"int\":\"17\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"-10800000000\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"2026W355T24:00:00Z\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"29\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"2026W35T12\"", "line": "[{\"int\":\"2026\"},{\"int\":\"8\"},{\"int\":\"24\"},{\"int\":\"12\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-W53\"", "line": "[{\"int\":\"2026\"},{\"int\":\"12\"},{\"int\":\"28\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2020-W53-7\"", "line": "[{\"int\":\"2021\"},{\"int\":\"1\"},{\"int\":\"3\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-12-31T24:00:00.000000+00:00\"", "line": "[{\"int\":\"2027\"},{\"int\":\"1\"},{\"int\":\"1\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-02-29T00:00:00+23:59:59.999999\"", "line": "refuse"},
+{"name": "datetime.fromisoformat", "input": "\"2024-02-29T23:59:59,5-00:00:00.000001\"", "line": "[{\"int\":\"2024\"},{\"int\":\"2\"},{\"int\":\"29\"},{\"int\":\"23\"},{\"int\":\"59\"},{\"int\":\"59\"},{\"int\":\"500000\"},{\"int\":\"0\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-01-01\"", "line": "[{\"int\":\"2026\"},{\"int\":\"1\"},{\"int\":\"1\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},null]"},
+{"name": "datetime.fromisoformat", "input": "\"2026-01-01T\"", "line": "refuse"},
+{"name": "datetime.fromisoformat", "input": "\"2026-01-01\u00e9\"", "line": "refuse"},
+{"name": "datetime.fromisoformat", "input": "\"0001-01-01T00:00Z\"", "line": "[{\"int\":\"1\"},{\"int\":\"1\"},{\"int\":\"1\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"},{\"int\":\"0\"}]"},
+{"name": "datetime.fromisoformat", "input": "\"9999-12-31T23:59:59.999999-23:59\"", "line": "[{\"int\":\"9999\"},{\"int\":\"12\"},{\"int\":\"31\"},{\"int\":\"23\"},{\"int\":\"59\"},{\"int\":\"59\"},{\"int\":\"999999\"},{\"int\":\"-86340000000\"}]"}
+]

@@ -1,0 +1,33 @@
+[package]
+name = "team-protocol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+license = "Apache-2.0"
+description = "The Team HTTP protocol v1 in Rust, equal to the Python modules of teams/protocol/http/v1"
+
+[dependencies]
+fancy-regex = { version = "=0.19.2", default-features = false, features = ["std", "unicode"] }
+sha1 = { version = "=0.11.0", default-features = false }
+strict-json = { path = "../../../vendor/strict-json" }
+unicode-normalization = { version = "=0.1.24", default-features = false, features = ["std"] }
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cognitive_complexity = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+
+# The regex engines run optimized in test builds too: an exhausted search walks ten million backtracking steps, which
+# the unoptimized engine takes seconds to reach. The crate itself stays unoptimized, so its coverage is exact.
+[profile.dev.package."*"]
+opt-level = 3
