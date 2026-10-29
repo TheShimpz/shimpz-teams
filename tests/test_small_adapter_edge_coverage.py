@@ -23,11 +23,10 @@ class _Headers:
         self.authorization = list(authorization or [])
         self.length = length
 
-    def get_all(self, _name: str, *, failobj):
+    def get_all(self, name: str, *, failobj):
+        if name == "Content-Length":
+            return [self.length] if self.length is not None else failobj
         return self.authorization or failobj
-
-    def get(self, _name: str, default=None):
-        return self.length if self.length is not None else default
 
 
 class _ProblemError(Exception):
@@ -45,15 +44,25 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
         self.assertEqual(stdlib.bearer_token(_Headers(authorization=["Bearer token"])), "token")
         self.assertTrue(stdlib.bearer_authorized(_Headers(authorization=["Bearer token"]), "token"))
         self.assertFalse(stdlib.bearer_authorized(_Headers(), "token"))
+        self.assertFalse(stdlib.bearer_authorized(_Headers(authorization=["Bearer token"]), "t\u00f6ken"))
 
         self.assertEqual(stdlib.read_json_body(_Headers(), io.BytesIO(), max_bytes=10, loads=strict_json.loads), {})
         self.assertEqual(
             stdlib.read_json_body(_Headers(length="2"), io.BytesIO(b"{}"), max_bytes=10, loads=strict_json.loads),
             {},
         )
+        self.assertEqual(
+            stdlib.read_json_body({"Content-Length": "002"}, io.BytesIO(b"{}"), max_bytes=10, loads=strict_json.loads),
+            {},
+        )
+        repeated = Message()
+        repeated["Content-Length"] = "2"
+        repeated["Content-Length"] = "2"
         for headers, stream, status in (
             (_Headers(length="bad"), io.BytesIO(), 400),
+            (repeated, io.BytesIO(b"{}"), 400),
             (_Headers(length="11"), io.BytesIO(), 413),
+            ({"Content-Length": "9" * 21}, io.BytesIO(), 413),
             (_Headers(length="1"), io.BytesIO(b"{"), 400),
             (_Headers(length="2"), io.BytesIO(b"[]"), 400),
         ):
@@ -66,6 +75,10 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
         with self.assertRaises(stdlib.HttpError) as missing:
             stdlib.resolve_route([route], "POST", "/teams/team_1")
         self.assertEqual(missing.exception.status, 404)
+        for target in ("/teams/team 1", "//[::1/teams/team_1"):
+            with self.subTest(target=target), self.assertRaises(stdlib.HttpError) as invalid:
+                stdlib.resolve_route([route], "GET", target)
+            self.assertEqual(invalid.exception.status, 400)
 
     def test_stdlib_dispatch_redacts_unclassified_errors(self) -> None:
         emitted = mock.Mock()
@@ -90,7 +103,7 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
         )
         failure = emitted.call_args.args[0]
         self.assertEqual(failure.public_message, "internal")
-        self.assertEqual(failure.audit_reason, "ValueError")
+        self.assertEqual(failure.audit_reason, "unclassified")
 
     def test_local_dispatch_classifies_and_projects_each_result(self) -> None:
         problem = _ProblemError(409, "conflict", "conflict")
