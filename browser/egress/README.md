@@ -6,7 +6,8 @@ a time; only the proxy joins an outbound network.
 
 The proxy accepts `CONNECT` to any public DNS hostname on port 443. It refuses every other port, every IP literal,
 and every malformed or single-label name, and it never names a refused target in its audit. The neutral transport
-(`.egress/connect.py`, ADR-0104) resolves only public addresses, refuses a mixed public and private answer, records
+(the `egress-transport` crate in `.egress/transport`, ADR-0104), which this directory's Rust package is built with,
+resolves only public addresses, refuses a mixed public and private answer, records
 the decision durably before any upstream connection attempt, and after the `200` relays nothing until the
 Browser's first TLS ClientHello names exactly the admitted host with no ECH.
 
