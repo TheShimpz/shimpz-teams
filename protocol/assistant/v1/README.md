@@ -107,41 +107,56 @@ bounds do not show. Starting from the root, count one for every value at a subsc
 its target again as if it were written there, so a subschema reached along two paths counts twice. This expanded count
 is at most 4,096. Every reference must resolve, with `~1` and `~0` in a definition name decoding to `/` and `~`, and no
 reference may lead back into a subschema that contains it: recursive schemas are refused, and so is every `#`
-reference, because the root contains it. Developers, Team, and the Brain apply this rule alike. A schema without
-references, which is all the SDK generates, never counts more than its JSON values.
+reference, because the root contains it. A schema without references, which is all the SDK generates, never counts
+more than its JSON values. Along those same paths, no object subschema lies more than 32 levels below the root, where a
+reference's target lies one level below the subschema holding the reference; the values of the legacy `dependencies`
+keyword, which applies nothing, nest at most 32 levels below the root too. So validation never recurses deeper than
+any validator can.
 
-Team and the Brain evaluate every `pattern` value and `patternProperties` name with RE2, never Python `re`, so one
-search runs in time linear in the subject. Team refuses a pattern that RE2 cannot compile under 1 MiB of memory, whose
-compiled program exceeds 16,384 instructions, or that Python `re` cannot compile. A pattern matches when it matches
+Each `pattern` value and `patternProperties` name nests its syntax tree at most 32 levels deep and uses only this
+subset that RE2, Python `re`, and the Rust `regex` engine read alike: literals, escaped punctuation, `\a`, `\f`, `\n`,
+`\r`, `\t`, `\v`, and `\xHH`; `.`, `^`, `$`, `\A`, `\b`, `\B`, `\d`, `\D`, `\s`, `\S`, `\w`, and `\W`; optionally
+negated bracketed classes of literals, ranges, and those Perl classes, with an unescaped `-` only first or last;
+alternation; greedy or lazy `*`, `+`, `?`, `{m}`, `{m,}`, and `{m,n}` written without whitespace or a leading zero
+(RE2 reads `{01}` as literal text), applied to a literal, `.`, class, or group, with every count at most 1,000 and the
+counts of nested counted repetitions multiplying to at most 1,000 on every path; `(...)`, `(?P<name>...)` with an
+ASCII identifier name used once, `(?:...)`, and scoped `i`, `m`, or `s` flags that may be negated; and global `i`, `m`,
+or `s` flags only as one group at the very start. Everything else, including the `x` flag, `\uHHHH` and
+`\UHHHHHHHH`, lookaround, backreferences, octal and braced escapes, `\z`, Unicode property classes, nested and POSIX
+classes, class set operations, possessive or nested repetition, `(?<name>...)`, and a lone surrogate, is refused.
+Each such pattern fits 16,384 instructions by an upper bound of its RE2 program, its program bound: 16 for the
+search, 8 per literal, 16 per `.`, 32 per Perl class, 2 per assertion, 1 per empty expression, 2 more per group, 1 more
+per alternative, 32 plus 4 per member for a bracketed class of ASCII members without a negated Perl class and 128 plus
+32 per member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or
+lower count when unbounded, and at least 1) times one more than its operand, plus 1. `vectors/pattern-program.json`
+freezes admitted patterns with their program bound and refused patterns with `null`.
+
+These are the admission rules of one predicate: Developers publication, Team, and the Brain admit an Action schema by
+exactly the same rules (the `action-schema` crate in Rust, Team's `protocol/action/v1` in Python). Publication adds
+one guard of its own before them: it decodes a contract with a decoder that reads an integer beyond 64 bits as a
+float, so it counts such a value at its widest decimal length toward the 128 KiB.
+
+Team and the Brain evaluate every `pattern` value and `patternProperties` name with RE2 or an equivalent linear-time
+matcher, never Python `re`, so one search runs in time linear in the subject. A pattern matches when it matches
 anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII (`\s` is tab, newline, form feed,
 carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
 other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
 surrogate, fails validation. `vectors/pattern.json` freezes these semantics as pattern, subject, and outcome cases.
-One search costs at most its subject's UTF-8 length times its compiled program size, so Team and the Brain also bound
-the matching work of one payload validation: each search charges that product, and the validation fails once its
-charges exceed 67,108,864 (2^26), well under a second of RE2's slowest matching. SDK-generated patterns on bounded
-strings charge a small fraction of it.
+One payload validation's matching work is bounded: each search charges its subject's UTF-8 length times its
+pattern's program bound, in the order and as often as Draft 2020-12 validation searches, and a validation may charge
+at most 134,217,728 (2^27); the search whose charge exceeds what remains is refused before it runs, and the payload
+with it, though earlier searches of the same payload may have run. The protocol's budget benchmark measures the
+largest passing charges, `(?i)` with 1,000 `ж` and `x` against 8,363 `Ж`, long classes, nested repetitions, and
+cumulative searches, at under a quarter second each on one CPU. SDK-generated patterns on bounded strings charge
+a small fraction of the budget. The SDK's own native validator enforces no cumulative budget: it validates a value
+against its own schema locally, and Team and the Brain apply the budget at every trust boundary.
 
-Developers refuses a build artifact that Team would refuse, and publication is stricter than Team in exactly three
-ways:
-
-- Subschemas nest at most 32 levels below the root schema.
-- Each `pattern` value and `patternProperties` name nests its syntax tree at most 32 levels deep and uses only this
-  subset that RE2 and Python `re` read alike: literals, escaped punctuation, `\a`, `\f`, `\n`, `\r`, `\t`, `\v`, and
-  `\xHH`; `.`, `^`, `$`, `\A`, `\b`, `\B`, `\d`, `\D`, `\s`, `\S`, `\w`, and `\W`; optionally negated bracketed
-  classes of literals, ranges, and those Perl classes, with an unescaped `-` only first or last; alternation; greedy
-  or lazy `*`, `+`, `?`, `{m}`, `{m,}`, and `{m,n}` written without whitespace, applied to a literal, `.`, class, or
-  group, with every count at most 1,000 and the counts of nested counted repetitions multiplying to at most 1,000 on
-  every path; `(...)`, `(?P<name>...)` with an ASCII identifier name, `(?:...)`, and scoped `i`, `m`, or `s` flags
-  that may be negated; and global `i`, `m`, or `s` flags only as one group at the very start. Everything else,
-  including the `x` flag, `\uHHHH` and `\UHHHHHHHH`, lookaround, backreferences, octal and braced escapes, `\z`,
-  Unicode property classes, nested and POSIX classes, class set operations, possessive or nested repetition, and
-  `(?<name>...)`, is refused.
-- Each such pattern fits 16,384 instructions by an upper bound of its RE2 program: 16 for the search, 8 per literal,
-  16 per `.`, 32 per Perl class, 2 per assertion, 1 per empty expression, 2 more per group, 1 more per alternative,
-  32 plus 4 per member for a bracketed class of ASCII members without a negated Perl class and 128 plus 32 per
-  member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or lower
-  count when unbounded, and at least 1) times one more than its operand, plus 1.
+Payload validation follows the Draft 2020-12 vocabulary as `jsonschema` 4.25.1 evaluates it, with two exceptions that
+refuse rather than accept: `uniqueItems` is exact JSON Schema equality (`1` equals `1.0`, `true` equals only `true`,
+and objects compare whatever their member order), and a `multipleOf` whose arithmetic overflows a float refuses the
+payload. A payload is one object that nests at most 32 levels. `vectors/payload.json` freezes schema and payload
+cases with their outcome (`valid`, `invalid`, `exhausted`, `arithmetic`, or `shape`) and the matching work their
+searches charged.
 
 `vectors/action-schema.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.

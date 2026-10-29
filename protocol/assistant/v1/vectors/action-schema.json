@@ -9728,6 +9728,449 @@
           }
         }
       }
+    },
+    {
+      "name": "references reaching 32 levels below the root",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "d0": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d1"
+              }
+            ]
+          },
+          "d1": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d2"
+              }
+            ]
+          },
+          "d2": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d3"
+              }
+            ]
+          },
+          "d3": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d4"
+              }
+            ]
+          },
+          "d4": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d5"
+              }
+            ]
+          },
+          "d5": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d6"
+              }
+            ]
+          },
+          "d6": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d7"
+              }
+            ]
+          },
+          "d7": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d8"
+              }
+            ]
+          },
+          "d8": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d9"
+              }
+            ]
+          },
+          "d9": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d10"
+              }
+            ]
+          },
+          "d10": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d11"
+              }
+            ]
+          },
+          "d11": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d12"
+              }
+            ]
+          },
+          "d12": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d13"
+              }
+            ]
+          },
+          "d13": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d14"
+              }
+            ]
+          },
+          "d14": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d15"
+              }
+            ]
+          },
+          "d15": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/d0"
+          }
+        }
+      }
+    },
+    {
+      "name": "references reaching 33 levels below the root",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "d0": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d1"
+              }
+            ]
+          },
+          "d1": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d2"
+              }
+            ]
+          },
+          "d2": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d3"
+              }
+            ]
+          },
+          "d3": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d4"
+              }
+            ]
+          },
+          "d4": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d5"
+              }
+            ]
+          },
+          "d5": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d6"
+              }
+            ]
+          },
+          "d6": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d7"
+              }
+            ]
+          },
+          "d7": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d8"
+              }
+            ]
+          },
+          "d8": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d9"
+              }
+            ]
+          },
+          "d9": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d10"
+              }
+            ]
+          },
+          "d10": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d11"
+              }
+            ]
+          },
+          "d11": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d12"
+              }
+            ]
+          },
+          "d12": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d13"
+              }
+            ]
+          },
+          "d13": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d14"
+              }
+            ]
+          },
+          "d14": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d15"
+              }
+            ]
+          },
+          "d15": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "a": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d0"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy dependencies nesting 32 levels below the root",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "dependencies": {
+          "a": {
+            "not": {
+              "not": {
+                "not": {
+                  "not": {
+                    "not": {
+                      "not": {
+                        "not": {
+                          "not": {
+                            "not": {
+                              "not": {
+                                "not": {
+                                  "not": {
+                                    "not": {
+                                      "not": {
+                                        "not": {
+                                          "not": {
+                                            "not": {
+                                              "not": {
+                                                "not": {
+                                                  "not": {
+                                                    "not": {
+                                                      "not": {
+                                                        "not": {
+                                                          "not": {
+                                                            "not": {
+                                                              "not": {
+                                                                "not": {
+                                                                  "not": {
+                                                                    "not": {
+                                                                      "not": {
+                                                                        "not": {
+                                                                          "type": "string"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy dependencies nesting 33 levels below the root",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "dependencies": {
+          "a": {
+            "not": {
+              "not": {
+                "not": {
+                  "not": {
+                    "not": {
+                      "not": {
+                        "not": {
+                          "not": {
+                            "not": {
+                              "not": {
+                                "not": {
+                                  "not": {
+                                    "not": {
+                                      "not": {
+                                        "not": {
+                                          "not": {
+                                            "not": {
+                                              "not": {
+                                                "not": {
+                                                  "not": {
+                                                    "not": {
+                                                      "not": {
+                                                        "not": {
+                                                          "not": {
+                                                            "not": {
+                                                              "not": {
+                                                                "not": {
+                                                                  "not": {
+                                                                    "not": {
+                                                                      "not": {
+                                                                        "not": {
+                                                                          "not": {
+                                                                            "type": "string"
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern inside legacy dependencies",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "dependencies": {
+          "a": {
+            "pattern": "\\p{L}"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern count with a leading zero",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^a{01}$"
+          }
+        }
+      }
+    },
+    {
+      "name": "integer literal beyond 64 bits",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "integer",
+            "maximum": 18446744073709551617
+          }
+        }
+      }
     }
   ]
 }
