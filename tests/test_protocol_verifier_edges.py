@@ -378,6 +378,34 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                     lambda root, mutation=mutation: _rewrite_json(root, "vectors/action-schema.json", mutation),
                 )
 
+    def test_rejects_pattern_program_and_payload_vector_drift(self) -> None:
+        def first(filename: str, change):
+            return lambda root: _rewrite_json(root, filename, lambda value: change(value["cases"][0]))
+
+        def keep(filename: str, predicate):
+            return lambda root: _rewrite_json(
+                root,
+                filename,
+                lambda value: value.update({"cases": [case for case in value["cases"] if predicate(case)]}),
+            )
+
+        program = "vectors/pattern-program.json"
+        payload = "vectors/payload.json"
+        mutations = (
+            lambda root: _rewrite_json(root, program, lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(root, program, lambda value: value["cases"].append(value["cases"][0])),
+            first(program, lambda case: case.update({"pattern": 1})),
+            first(program, lambda case: case.update({"program": 16_385})),
+            keep(program, lambda case: case["program"] is not None),
+            lambda root: _rewrite_json(root, payload, lambda value: value["cases"].append([])),
+            first(payload, lambda case: case.update({"outcome": "maybe"})),
+            first(payload, lambda case: case.update({"charged": 1.0})),
+            keep(payload, lambda case: case["outcome"] != "exhausted"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
+                _execute(ASSISTANT / "verify.py", mutate)
+
 
 class AssistantInstallVerifierEdgeTests(unittest.TestCase):
     @classmethod

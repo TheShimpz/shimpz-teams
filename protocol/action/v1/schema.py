@@ -1,11 +1,15 @@
 """Validation semantics of an admitted Action input or output schema, which Team and the Brain apply alike.
 
 Team admits a schema only when it fits MAX_NODES JSON values and MAX_BYTES, references only its root or a named
-definition, resolves every reference without a cycle within MAX_EXPANDED_SUBSCHEMAS once each is expanded, and uses only
-patterns the linear-time matcher admits; `schema_problem` names the first reference or pattern problem. Validation
-evaluates every `pattern` and `patternProperties` with RE2, never Python `re`, whose backtracking would hold the GIL for
-time exponential in the subject, and bounds the matching work of one payload. Team-only admission rules, such as closed
-objects, stay with Team; the Brain only re-checks what it receives and validates what its model proposes.
+definition, resolves every reference without a cycle within MAX_EXPANDED_SUBSCHEMAS once each is expanded, nests no
+subschema more than MAX_SUBSCHEMA_DEPTH levels below the root (a reference's target one level below the subschema that
+holds it), and uses only patterns in the dialect `pattern.py` admits; `schema_problem` names the first such problem.
+These are the rules Developers publication applies (its `action-schema` crate), so every predicate that admits an
+Action schema is one predicate. Validation evaluates every `pattern` and `patternProperties` with RE2, never Python
+`re`, whose backtracking would hold the GIL for time exponential in the subject, and charges each search its subject's
+UTF-8 length times the pattern's program bound against one MAX_PATTERN_WORK budget per payload. Team-only admission
+rules, such as closed objects, stay with Team; the Brain only re-checks what it receives and validates what its model
+proposes.
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ import re2
 from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError
 
+from . import pattern as dialect
+
 # Bytes alone do not bound what a decoded document retains: dense `default`, `examples`, `const`, or `enum` data costs
 # tens of bytes of memory per encoded byte. Every JSON value therefore counts against this bound, which holds real
 # SDK-generated schemas (at most a few hundred values) with wide headroom.
@@ -28,15 +34,18 @@ MAX_BYTES = 128 * 1024
 # Validation visits a subschema once for every path that reaches it, so references multiply work the literal bounds do
 # not show. The Assistant protocol pins this bound and its counting rule, and Developers publication applies it alike.
 MAX_EXPANDED_SUBSCHEMAS = 4096
+# Validation recurses once per subschema level, a reference's target included, so this bound keeps every validation
+# far inside Python's recursion limit: no admitted schema can fail validation for its depth alone.
+MAX_SUBSCHEMA_DEPTH = 32
 # RE2 matches in time linear in the subject and releases the GIL while it searches. Its semantics are pinned by the
 # Assistant protocol's pattern vectors: `\d`, `\w`, `\s`, and `\b` are ASCII, `$` without `m` matches only at the end
-# of the text, and `i` folds Unicode case. The memory and program bounds keep the constant of one search bounded;
-# Developers publication admits only patterns whose program provably fits MAX_PATTERN_PROGRAM.
-MAX_PATTERN_PROGRAM = 16_384
-# One search costs at most its subject's UTF-8 length times its program size; RE2's slowest path, which it takes when a
-# program outgrows its DFA memory, measured at up to 9 ns per unit. One payload validation may charge at most this
-# much, about 0.6 s at that rate, so no schema can apply large programs to long subjects without bound.
-MAX_PATTERN_WORK = 1 << 26
+# of the text, and `i` folds Unicode case. Every admitted pattern's RE2 program fits this bound by `pattern.py`'s upper
+# bound of it.
+MAX_PATTERN_PROGRAM = dialect.MAX_PATTERN_PROGRAM
+# One search charges its subject's UTF-8 length times its pattern's program bound. One payload validation may charge at
+# most this much, which the budget benchmark (.tests/action-schema/benchmark.py) measures at under a quarter second of
+# RE2's slowest matching on one CPU, while SDK-generated patterns on bounded strings charge a small fraction of it.
+MAX_PATTERN_WORK = 1 << 27
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
 _PATTERN_OPTIONS = re2.Options()
@@ -47,18 +56,22 @@ _pattern_work: ContextVar[list[int] | None] = ContextVar("pattern_work", default
 
 
 class PatternError(ValueError):
-    """The matcher refused a pattern, or a subject that is not valid Unicode; validation must fail closed."""
+    """Validation cannot complete, so it must fail closed.
+
+    The matcher refused a pattern, a subject is not valid Unicode, the matching work is spent, or a number is beyond
+    the arithmetic its keyword needs.
+    """
 
 
 def compiled_pattern(pattern: str):
-    """The RE2 program of one admitted pattern; raises PatternError outside the matcher's bounds."""
+    """The RE2 program of one admitted pattern and its program bound; raises PatternError outside the dialect."""
+    bound = dialect.pattern_program(pattern)
+    if bound is None:
+        raise PatternError("pattern is outside the linear-time matcher")
     try:
-        compiled = re2.compile(pattern, _PATTERN_OPTIONS)
-    except (re2.error, UnicodeEncodeError) as exc:
+        return re2.compile(pattern, _PATTERN_OPTIONS), bound
+    except re2.error as exc:
         raise PatternError("pattern is outside the linear-time matcher") from exc
-    if compiled.programsize > MAX_PATTERN_PROGRAM:
-        raise PatternError("pattern exceeds the linear-time matcher bound")
-    return compiled
 
 
 @contextmanager
@@ -76,15 +89,15 @@ def pattern_matches(pattern: str, subject: str) -> bool:
 
     Outside pattern_work_budget, the search alone is charged against a fresh budget.
     """
-    compiled = compiled_pattern(pattern)
+    compiled, bound = compiled_pattern(pattern)
     try:
         size = len(subject.encode())
     except UnicodeEncodeError as exc:
         raise PatternError("subject is not valid Unicode") from exc
     remaining = _pattern_work.get() or [MAX_PATTERN_WORK]
-    remaining[0] -= size * compiled.programsize
-    if remaining[0] < 0:
+    if size * bound > remaining[0]:
         raise PatternError("pattern matching exceeds its work budget")
+    remaining[0] -= size * bound
     return compiled.search(subject) is not None
 
 
@@ -124,14 +137,48 @@ def _unevaluated_properties(validator, unevaluated, instance, schema):
     raise PatternError("unevaluatedProperties is outside the linear-time matcher")
 
 
+_STOCK_MULTIPLE_OF = Draft202012Validator.VALIDATORS["multipleOf"]
+
+
+def _multiple_of(validator, divisor, instance, schema):
+    # An integer beyond the float range divided by a float divisor raises OverflowError; the payload is refused.
+    try:
+        yield from _STOCK_MULTIPLE_OF(validator, divisor, instance, schema)
+    except OverflowError as exc:
+        raise PatternError("number is outside the arithmetic of multipleOf") from exc
+
+
+def _equality_key(value: object) -> object:
+    # Two values have equal keys exactly when JSON Schema equality holds: numbers by value, so 1 and 1.0 hash and
+    # compare alike, a boolean only as a boolean, arrays in order, and objects whatever their member order.
+    if value is True or value is False:
+        return ("boolean", value)
+    if isinstance(value, list):
+        return ("array", tuple(_equality_key(item) for item in value))
+    if isinstance(value, dict):
+        return ("object", frozenset((name, _equality_key(item)) for name, item in value.items()))
+    return ("value", value)
+
+
+def _unique_items(validator, unique, instance, schema):
+    # Exact uniqueness under JSON Schema equality in linear time; jsonschema's sort shortcut misses a duplicate that
+    # sorts apart, and its fallback compares every pair.
+    if unique and validator.is_type(instance, "array"):
+        keys = {_equality_key(item) for item in instance}
+        if len(keys) != len(instance):
+            yield ValidationError("array items are not unique")
+
+
 # Every keyword that reads a pattern goes through pattern_matches; `format` is never asserted.
 _ActionValidator = validators.extend(
     Draft202012Validator,
     {
         "additionalProperties": _additional_properties,
+        "multipleOf": _multiple_of,
         "pattern": _pattern,
         "patternProperties": _pattern_properties,
         "unevaluatedProperties": _unevaluated_properties,
+        "uniqueItems": _unique_items,
     },
 )
 
@@ -200,15 +247,14 @@ def _node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None:
         return "must not declare a nested identifier"
     if "unevaluatedProperties" in node:
         return "must not use unevaluatedProperties"
+    return None
+
+
+def _patterns_admitted(node: Mapping[str, Any]) -> bool:
     patterns = [*node.get("patternProperties", ())]
     if isinstance(node.get("pattern"), str):
         patterns.append(node["pattern"])
-    try:
-        for pattern in patterns:
-            compiled_pattern(pattern)
-    except PatternError:
-        return "must use only patterns the linear-time matcher admits"
-    return None
+    return all(dialect.pattern_admitted(pattern) for pattern in patterns)
 
 
 def reference_target(schema: Mapping[str, Any], reference: str) -> object:
@@ -233,47 +279,85 @@ def expanded_subschemas(schema: Mapping[str, Any]) -> int | None:
     again at every subschema holding that reference, so a `#` reference is always a cycle. Each subschema's count is
     computed once, so the walk is linear in the document however large the expansion.
     """
-    counts: dict[int, int] = {}
+    expansion = _expansion(schema)
+    return None if expansion is None else expansion[0]
+
+
+def _expansion(schema: Mapping[str, Any]) -> tuple[int, int] | None:
+    """The expanded subschema count and the deepest object subschema's level, or None for a missing or cyclic reference.
+
+    A reference's target lies one level below the subschema holding the reference.
+    """
+    known: dict[int, tuple[int, int]] = {}
     open_nodes = {id(schema)}
-    frames: list[tuple[Mapping[str, Any], list[object], list[int]]] = [(schema, _expansion_edges(schema, schema), [1])]
+    frames: list[tuple[Mapping[str, Any], list[object], list[int]]] = [
+        (schema, _expansion_edges(schema, schema), [1, 0])
+    ]
     while frames:
         node, edges, total = frames[-1]
         if edges:
             edge = edges.pop()
             if edge is None or id(edge) in open_nodes:
                 return None
-            if isinstance(edge, Mapping) and id(edge) not in counts:
-                open_nodes.add(id(edge))
-                frames.append((edge, _expansion_edges(schema, edge), [1]))
+            if not isinstance(edge, Mapping):
+                total[0] += 1
+            elif id(edge) in known:
+                count, depth = known[id(edge)]
+                total[0] += count
+                total[1] = max(total[1], depth + 1)
             else:
-                total[0] += counts.get(id(edge), 1)
+                open_nodes.add(id(edge))
+                frames.append((edge, _expansion_edges(schema, edge), [1, 0]))
             continue
         frames.pop()
         open_nodes.discard(id(node))
-        counts[id(node)] = total[0]
+        known[id(node)] = (total[0], total[1])
         if frames:
-            frames[-1][2][0] += total[0]
-    return counts[id(schema)]
+            parent = frames[-1][2]
+            parent[0] += total[0]
+            parent[1] = max(parent[1], total[1] + 1)
+    return known[id(schema)]
 
 
 def schema_problem(schema: Mapping[str, Any]) -> str | None:
-    """The first reference, dialect, or pattern problem of a metaschema-valid schema, or None when it is admissible.
+    """The first reference, dialect, depth, or pattern problem of a metaschema-valid schema, or None when admissible.
 
     Every reference must land on a schema position this walk has checked.
     """
-    pending: list[object] = [schema]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, Mapping):
-            problem = _node_problem(node, nested=node is not schema)
-            if problem is not None:
-                return problem
-            pending.extend(applied_subschemas(node))
-    expanded = expanded_subschemas(schema)
-    if expanded is None:
+    problem = _walk_problem(schema)
+    if problem is not None:
+        return problem
+    expansion = _expansion(schema)
+    if expansion is None:
         return "must resolve every reference without a cycle"
-    if expanded > MAX_EXPANDED_SUBSCHEMAS:
+    if expansion[0] > MAX_EXPANDED_SUBSCHEMAS:
         return "is too large once its references are expanded"
+    if expansion[1] > MAX_SUBSCHEMA_DEPTH:
+        return "nests subschemas too deeply"
+    return None
+
+
+def _walk_problem(schema: Mapping[str, Any]) -> str | None:
+    """The first problem of a walked subschema.
+
+    The legacy `dependencies` keyword applies nothing in Draft 2020-12: only its patterns and depth are checked.
+    """
+    pending: list[tuple[object, int, bool]] = [(schema, 0, True)]
+    while pending:
+        node, depth, applied = pending.pop()
+        if not isinstance(node, Mapping):
+            continue
+        if depth > MAX_SUBSCHEMA_DEPTH:
+            return "nests subschemas too deeply"
+        problem = _node_problem(node, nested=node is not schema) if applied else None
+        if problem is not None:
+            return problem
+        if not _patterns_admitted(node):
+            return "must use only patterns the linear-time matcher admits"
+        pending.extend((child, depth + 1, applied) for child in applied_subschemas(node))
+        dependencies = node.get("dependencies")
+        if isinstance(dependencies, Mapping):
+            pending.extend((child, depth + 1, False) for child in dependencies.values())
     return None
 
 

@@ -63,7 +63,10 @@ class PatternSemanticsTests(unittest.TestCase):
                     self.assertRaisesRegex(assistant_manifest.ManifestError, "linear-time matcher admits"),
                 ):
                     _admitted(schema)
-        self.assertEqual(_admitted(_closed({"value": {"pattern": "a" * 16_000}}))["type"], "object")
+        # The longest literal run whose program bound fits 16,384 instructions, and one more character.
+        self.assertEqual(_admitted(_closed({"value": {"pattern": "a" * 2046}}))["type"], "object")
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "linear-time matcher admits"):
+            _admitted(_closed({"value": {"pattern": "a" * 2047}}))
 
     def test_refuses_unevaluated_properties_whose_evaluation_would_bypass_the_matcher(self) -> None:
         for schema in (
@@ -128,11 +131,12 @@ class PatternSemanticsTests(unittest.TestCase):
 
 
 class PatternWorkBudgetTests(unittest.TestCase):
-    # `a.{900}c` compiles to 7,206 instructions; RE2 runs it without its DFA at several nanoseconds per subject byte.
+    # `a.{900}c` is bounded by 15,333 instructions, which each search charges per subject byte.
     HEAVY = "a.{900}c"
 
     def test_one_validation_charges_every_search_against_one_budget(self) -> None:
-        program = action_protocol.compiled_pattern(self.HEAVY).programsize
+        program = action_protocol.compiled_pattern(self.HEAVY)[1]
+        self.assertEqual(program, 15_333)
         fits = action_protocol.MAX_PATTERN_WORK // program
         self.assertFalse(action_schema.pattern_matches(self.HEAVY, "b" * fits))
         with self.assertRaisesRegex(action_schema.PatternError, "work budget"):
@@ -155,7 +159,7 @@ class PatternWorkBudgetTests(unittest.TestCase):
                 **{"$defs": {"heavy": {"type": "string", "not": {"pattern": self.HEAVY}}}},
             )
         )
-        program = action_protocol.compiled_pattern(self.HEAVY).programsize
+        program = action_protocol.compiled_pattern(self.HEAVY)[1]
         short = "b" * (action_protocol.MAX_PATTERN_WORK // program // 64)
         self.assertEqual(_validate(schema, {"value": short}), {"value": short})
         started = time.perf_counter()

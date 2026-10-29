@@ -155,7 +155,9 @@ def admitted(value: object) -> dict[str, Any]:
             _check_schema_json(encoded)
         else:
             Draft202012Validator.check_schema(value)
-    except (SchemaError, RecursionError) as exc:
+    except (SchemaError, RecursionError, OverflowError) as exc:
+        # The meta-schema's `regex` format compiles each pattern with Python `re`, which raises OverflowError for a
+        # repetition count beyond its range and RecursionError for deeply nested groups.
         raise ActionSchemaError("is invalid") from exc
     if len(encoded) > MAX_BYTES:
         raise ActionSchemaError("is too large")

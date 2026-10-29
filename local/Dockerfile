@@ -137,7 +137,7 @@ COPY --link install/__init__.py install/artifact_trust.py install/bindings.py in
     install/update.py ./install/
 COPY --link protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
     ./protocol/install/v1/
-COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
+COPY --link protocol/action/v1/pattern.py protocol/action/v1/schema.py ./protocol/action/v1/
 COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/http/v1/identifiers.py \
     protocol/http/v1/payload.py protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py \
     protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \

@@ -46,6 +46,7 @@ ASSISTANT_PROTOCOL_RUNTIME = {
 }
 LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
+    "protocol/action/v1/pattern.py",
     "protocol/action/v1/schema.py",
     "protocol/http/v1/browser.py",
     "protocol/http/v1/browser_view.py",
