@@ -395,6 +395,7 @@ impl Assistants {
         }
         let admission = crate::assistant::containers::Admission::manifest(
             self.admission.as_ref(),
+            team_id,
             &admitted.id,
             container_spec,
         );

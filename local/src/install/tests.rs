@@ -259,6 +259,7 @@ impl Admission for Reviewed {
     fn manifest<'a>(
         &'a self,
         _: &'a str,
+        _: &'a str,
         spec: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
         let refused = self.refused.lock().expect("refused").contains(&spec.image);
@@ -295,7 +296,7 @@ impl ChatLimit for Limit {
 }
 
 struct Harness {
-    _directory: tempfile::TempDir,
+    directory: tempfile::TempDir,
     docker: Arc<FakeDocker>,
     developers: Arc<Developers>,
     trust: Arc<Trust>,
@@ -421,7 +422,7 @@ async fn build(review_images: bool) -> Harness {
         audit: Arc::new(MemoryAudit::default()),
     }));
     Harness {
-        _directory: directory,
+        directory,
         docker,
         developers,
         trust,

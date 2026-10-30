@@ -42,12 +42,14 @@ const READY_POLL: Duration = Duration::from_millis(200);
 
 /// What the install workstream proves of a container's image beyond its isolation: its manifest and its Genesis.
 pub trait Admission: Send + Sync {
-    /// The image's manifest declares exactly `spec`'s reviewed contract (hosts and Integrations).
+    /// The image's manifest declares exactly `spec`'s reviewed contract (hosts and Integrations) for a container of
+    /// `team_id`.
     ///
     /// # Errors
     /// `assistant-manifest-invalid` for a contract mismatch, `assistant-manifest-unavailable` when it cannot be read.
     fn manifest<'a>(
         &'a self,
+        team_id: &'a str,
         container: &'a str,
         spec: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>>;
@@ -272,7 +274,7 @@ impl Containers {
     ) -> Result<Admitted, Problem> {
         let admitted = self.admit_profile(inspection, team_id, network, spec)?;
         self.admit_egress(&admitted, team_id, spec)?;
-        self.admission.manifest(&admitted.id, spec).await?;
+        self.admission.manifest(team_id, &admitted.id, spec).await?;
         if current && admitted.image != spec.image {
             return Err(UPDATE_REQUIRED);
         }
@@ -503,7 +505,7 @@ impl Containers {
             return Err(IMAGE_RESOLUTION_MISMATCH.into());
         }
         // The image's manifest must declare exactly the reviewed hosts its policy already admits.
-        self.admission.manifest(created, spec).await?;
+        self.admission.manifest(team_id, created, spec).await?;
         if let Some(authorize) = authorize {
             authorize.authorize().await?;
         }
@@ -653,7 +655,7 @@ impl Containers {
         admitted: &Admitted,
         authorize: Option<&dyn AuthorizeStart>,
     ) -> Result<Ensured, Problem> {
-        self.admission.manifest(&admitted.id, spec).await?;
+        self.admission.manifest(team_id, &admitted.id, spec).await?;
         if !admitted.running {
             self.start(&admitted.id, authorize).await?;
         }

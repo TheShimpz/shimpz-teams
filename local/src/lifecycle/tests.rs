@@ -51,6 +51,7 @@ impl Admission for NoReview {
     fn manifest<'a>(
         &'a self,
         _: &'a str,
+        _: &'a str,
         _: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
         Box::pin(async { Ok(()) })

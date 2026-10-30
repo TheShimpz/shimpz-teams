@@ -15,6 +15,7 @@ use team_assistant::manifest::{
     parse_manifest_contract, parse_manifest_genesis,
 };
 use team_core::future::BoxFuture;
+use team_install::bindings::Binding;
 use team_protocol::python::value::py_eq;
 
 use super::problem::{MANIFEST_INVALID, MANIFEST_UNAVAILABLE};
@@ -72,30 +73,47 @@ impl ImageAdmission {
         container_file(&archive.metadata, &archive.tar, name, maximum).map_err(|_| MANIFEST_INVALID)
     }
 
-    /// The binding whose artifact `spec` runs: a committed one, or the verified successor an open update transaction
-    /// binds, whose container is created and admitted before its binding commits.
-    async fn reviewed(&self, spec: &ContainerSpec) -> Result<AssistantSpec, Problem> {
+    /// The binding whose artifact `spec` runs in `team_id`: a committed one or, only when none is, the verified
+    /// successor this Team's open update transaction of this Assistant binds, whose container is created and admitted
+    /// before its binding commits. No other Team's transaction is read.
+    async fn reviewed(
+        &self,
+        team_id: &str,
+        spec: &ContainerSpec,
+    ) -> Result<AssistantSpec, Problem> {
+        let reviewing = |binding: &Binding| {
+            (binding.assistant_id() == spec.assistant_id)
+                .then(|| AssistantSpec::of(binding))
+                .flatten()
+                .filter(|candidate| candidate.image == spec.image)
+        };
         let bindings = self
             .registry
             .snapshot()
             .await
             .map_err(|_| MANIFEST_UNAVAILABLE)?;
-        let updates = self
+        if let Some(committed) = bindings.iter().find_map(reviewing) {
+            return Ok(committed);
+        }
+        let (team, assistant) = (team_id.to_owned(), spec.assistant_id.clone());
+        let update = self
             .registry
-            .list_updates()
-            .await
+            .updates(move |updates| updates.get(&team, &assistant))
+            .await?
             .map_err(|_| MANIFEST_UNAVAILABLE)?;
-        bindings
-            .iter()
-            .chain(updates.iter().map(|update| &update.successor))
-            .filter(|binding| binding.assistant_id() == spec.assistant_id)
-            .filter_map(AssistantSpec::of)
-            .find(|candidate| candidate.image == spec.image)
+        update
+            .as_ref()
+            .and_then(|update| reviewing(&update.successor))
             .ok_or(MANIFEST_INVALID)
     }
 
-    async fn check_manifest(&self, container: &str, spec: &ContainerSpec) -> Result<(), Problem> {
-        let reviewed = self.reviewed(spec).await?;
+    async fn check_manifest(
+        &self,
+        team_id: &str,
+        container: &str,
+        spec: &ContainerSpec,
+    ) -> Result<(), Problem> {
+        let reviewed = self.reviewed(team_id, spec).await?;
         let raw = self
             .read(container, MANIFEST_PATH, "shimpz.toml", MAX_MANIFEST_BYTES)
             .await?;
@@ -180,13 +198,18 @@ impl ImageAdmission {
 impl Admission for ImageAdmission {
     fn manifest<'a>(
         &'a self,
+        team_id: &'a str,
         container: &'a str,
         spec: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
         Box::pin(async move {
             let key = container_id(container).ok_or(MANIFEST_INVALID)?;
             self.manifests
-                .get(key, |()| 1, || self.check_manifest(container, spec))
+                .get(
+                    key,
+                    |()| 1,
+                    || self.check_manifest(team_id, container, spec),
+                )
                 .await
         })
     }

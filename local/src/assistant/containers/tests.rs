@@ -53,6 +53,7 @@ impl Admission for FakeAdmission {
     fn manifest<'a>(
         &'a self,
         _: &'a str,
+        _: &'a str,
         _: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
         self.events.push("manifest");

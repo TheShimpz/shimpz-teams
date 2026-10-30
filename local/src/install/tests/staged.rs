@@ -204,7 +204,10 @@ async fn the_image_review_refuses_a_manifest_that_differs_from_the_binding() {
         .expect("listed")
         .and_then(|container| container.id)
         .expect("running");
-    assert_eq!(harness.admission.manifest(&container, &spec).await, Ok(()));
+    assert_eq!(
+        harness.admission.manifest(TEAM, &container, &spec).await,
+        Ok(())
+    );
 
     let widened = String::from_utf8(manifest).expect("UTF-8").replace(
         r#"allowed_hosts = ["api.cloudflare.com"]"#,
@@ -217,7 +220,7 @@ async fn the_image_review_refuses_a_manifest_that_differs_from_the_binding() {
     );
     harness.admission.forget(&container);
     assert_eq!(
-        harness.admission.manifest(&container, &spec).await,
+        harness.admission.manifest(TEAM, &container, &spec).await,
         Err(MANIFEST_INVALID)
     );
 }
@@ -252,4 +255,44 @@ async fn a_successor_is_admitted_against_its_update_transaction_before_its_bindi
     );
     let transactions = harness.registry.list_updates().await.expect("readable");
     assert_eq!(transactions.len(), 0);
+}
+
+#[tokio::test]
+async fn another_team_s_unreadable_update_never_blocks_a_committed_binding_s_review() {
+    let harness = reviewing_harness().await;
+    stage(&harness, &reference("shimpz.toml"));
+    harness
+        .assistants
+        .install_local(TEAM, IMAGE, true)
+        .await
+        .expect("installed");
+    let updates = harness.directory.path().join("publications/updates");
+    std::fs::create_dir_all(&updates).expect("created");
+    std::fs::write(
+        updates.join(format!("team_other--{ASSISTANT}.json")),
+        b"not a transaction",
+    )
+    .expect("written");
+    let binding = harness
+        .registry
+        .binding(TEAM, ASSISTANT)
+        .await
+        .expect("readable")
+        .expect("bound");
+    let spec = AssistantSpec::of(&binding)
+        .expect("a spec")
+        .container_spec();
+    let container = harness
+        .assistants
+        .containers
+        .find(TEAM, ASSISTANT)
+        .await
+        .expect("listed")
+        .and_then(|container| container.id)
+        .expect("running");
+    harness.admission.forget(&container);
+    assert_eq!(
+        harness.admission.manifest(TEAM, &container, &spec).await,
+        Ok(())
+    );
 }
