@@ -5,7 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Team attachment preparation: the helper worker for images and PDFs"
+description = "Team attachment preparation: the helper worker for images and PDFs, and the checks of its answers"
+
+[features]
+# Builders of ordinary and hostile attachment fixtures, for the tests of this crate and of the controller.
+testing = []
+
+[dependencies]
+base64.workspace = true
+image.workspace = true
+lopdf.workspace = true
+pdfium-render.workspace = true
+rustix.workspace = true
+sha2.workspace = true
+strict-json.workspace = true
+team-protocol.workspace = true
 
 [lints]
 workspace = true

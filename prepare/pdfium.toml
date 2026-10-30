@@ -1,0 +1,31 @@
+# The PDFium build the attachment worker binds (`team_prepare::pdfium`), per architecture. The Team image installs
+# `lib/libpdfium.so` from the archive at `/usr/local/lib/libpdfium.so` and copies this file beside it as its recorded
+# provenance; the worker's tests verify the library they load against `library_sha256`.
+#
+# The archives are bblanchon/pdfium-binaries' plain builds (not the `-v8` ones) of PDFium branch chromium/8100
+# (version 157.0.8100.0), built with no JavaScript engine and no XFA, as each archive's own `args.gn` records.
+
+release = "chromium/8100"
+version = "157.0.8100.0"
+source = "https://pdfium.googlesource.com/pdfium/+/refs/heads/chromium/8100"
+build = "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/8100"
+args_gn = [
+    "is_component_build = false",
+    "is_debug = false",
+    "pdf_enable_v8 = false",
+    "pdf_enable_xfa = false",
+    "pdf_is_standalone = true",
+    "pdf_use_partition_alloc = false",
+]
+# pdfium-render's newest API level, enabled in teams/Cargo.toml; every function it binds exists in this build.
+binding_api = "pdfium_7881"
+
+[x86_64]
+url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8100/pdfium-linux-x64.tgz"
+archive_sha256 = "1c1894a12d4d96ee01400c3874444126254180c5c7d2ab628576b67f8120320a"
+library_sha256 = "b8784cbd652ad2993332b7695e2c80f3a797f877fc47d9be97b66bca9639539e"
+
+[aarch64]
+url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8100/pdfium-linux-arm64.tgz"
+archive_sha256 = "58c87a95a40a24c914a9c755fae798843f46f06adf9e5e9f2c893302d4bdb040"
+library_sha256 = "51faba3b1b580d8da572b560442f51e1e629180bae70ed37294a19f220623026"
