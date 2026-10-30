@@ -14,5 +14,6 @@ pub(crate) mod fake;
 pub mod release;
 pub mod runtime;
 pub mod service;
+pub mod sign_ins;
 pub mod tunnel;
 pub mod view;
