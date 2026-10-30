@@ -6,6 +6,7 @@
 pub mod custody;
 pub mod durable;
 pub mod envelope;
+pub mod files;
 pub mod json_record;
 pub mod private;
 pub mod record_store;
