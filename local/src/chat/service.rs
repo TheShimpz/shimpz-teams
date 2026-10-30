@@ -46,6 +46,7 @@ pub type HumanChallenges = team_action::challenges::HumanChallengeStore<PendingL
 pub type IntegrationChallenges = IntegrationChallengeStore<PendingLocalChat>;
 
 /// Everything the chat service runs with.
+#[derive(Clone)]
 pub struct ChatParts {
     /// The Space's id, which every Brain thread names.
     pub space_id: String,

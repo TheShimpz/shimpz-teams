@@ -8,7 +8,7 @@ use team_action::stored_input::StoredInputStore;
 use team_core::clock::SystemClock;
 use team_core::entropy::OsEntropy;
 use team_core::secret::Secret;
-use team_core::testing::MemoryAudit;
+use team_core::testing::{FakeClock, MemoryAudit};
 use team_inference::brain::{BrainClient, ModelCredential};
 use team_inference::config::{InferenceConfig, InferenceConfigStore};
 use team_inference::testing::ScriptedBrain;
@@ -33,6 +33,10 @@ pub const TEAM: &str = "team_1";
 
 pub struct Harness {
     pub _directory: tempfile::TempDir,
+    pub preparer: Arc<FakePreparer>,
+    pub parts: ChatParts,
+    pub clock: Arc<FakeClock>,
+    pub integrations: Arc<IntegrationStore>,
     pub service: ChatService,
     pub brain: Arc<ScriptedBrain>,
     pub executor: Arc<FakeExecutor>,
@@ -91,11 +95,11 @@ fn configured(root: &std::path::Path) -> Arc<InferenceConfigStore> {
     inference
 }
 
-fn continuations(root: &std::path::Path) -> Arc<ContinuationStore> {
+fn continuations(root: &std::path::Path, clock: &Arc<FakeClock>) -> Arc<ContinuationStore> {
     let state = root.join("chat-continuations/state/continuations.json");
     let key = root.join("chat-continuations/key/aes256.key");
-    let store =
-        ContinuationStore::new(&state, &key, Arc::new(SystemClock), Arc::new(OsEntropy), 32);
+    let clock = Arc::clone(clock) as Arc<dyn team_core::clock::Clock>;
+    let store = ContinuationStore::new(&state, &key, clock, Arc::new(OsEntropy), 32);
     Arc::new(store.expect("continuations"))
 }
 
@@ -106,52 +110,86 @@ pub fn harness_with(
     harness_on(brain, Arc::new(FakeTeam::with(TEAM, assistants)))
 }
 
-pub fn harness_on(brain: Arc<dyn BrainClientScripted>, team: Arc<FakeTeam>) -> Harness {
-    let directory = tempfile::tempdir().expect("directory");
-    let root = directory.path().to_path_buf();
+/// The stores and fakes a harness's service runs with.
+struct Built {
+    parts: ChatParts,
+    executor: Arc<FakeExecutor>,
+    preparer: Arc<FakePreparer>,
+    transcripts: Arc<FakeTranscripts>,
+    audit: Arc<MemoryAudit>,
+    clock: Arc<FakeClock>,
+    integrations: Arc<IntegrationStore>,
+}
+
+fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam>) -> Built {
     let limit = Arc::new(ChatLimitStore::new(&root.join("inference")));
-    let coordination = Coordination::new(limit.clone());
-    let inference = configured(&root);
-    let continuations = continuations(&root);
-    let (files, integrations, stored_inputs) = stores(&root);
-    let executor = Arc::new(FakeExecutor::default());
-    let transcripts = Arc::new(FakeTranscripts::default());
-    let audit = Arc::new(MemoryAudit::default());
+    let clock = Arc::new(FakeClock::at(std::time::SystemTime::now()));
+    let (files, integrations, stored_inputs) = stores(root);
+    let (executor, preparer) = (
+        Arc::new(FakeExecutor::default()),
+        Arc::new(FakePreparer::default()),
+    );
+    let (transcripts, audit) = (
+        Arc::new(FakeTranscripts::default()),
+        Arc::new(MemoryAudit::default()),
+    );
+    let challenges = team_integrations::pending::default_store(Arc::new(OsEntropy)).expect("store");
     let parts = ChatParts {
         space_id: "local-space".to_owned(),
-        coordination: coordination.clone(),
-        team: team.clone(),
-        brain: Arc::clone(&brain).client(),
+        coordination: Coordination::new(limit.clone()),
+        team,
+        brain,
         actions: executor.clone(),
         transcripts: transcripts.clone(),
-        preparer: Arc::new(FakePreparer),
+        preparer: preparer.clone(),
         files,
-        inference: inference.clone(),
+        inference: configured(root),
         limit,
-        continuations: continuations.clone(),
-        integrations,
+        continuations: continuations(root, &clock),
+        integrations: Arc::clone(&integrations),
         stored_inputs,
-        integration_challenges: Arc::new(
-            team_integrations::pending::default_store(Arc::new(OsEntropy)).expect("store"),
-        ),
+        integration_challenges: Arc::new(challenges),
         pkce: Arc::new(PkceStore::new(PkceLimits::default(), Arc::new(OsEntropy)).expect("pkce")),
         browser: None,
         usage: Arc::new(UsageBook::default()),
         audit: audit.clone(),
-        clock: Arc::new(SystemClock),
+        clock: clock.clone(),
         entropy: Arc::new(OsEntropy),
     };
-    Harness {
-        _directory: directory,
-        service: ChatService::new(parts).expect("service"),
-        brain: brain.scripted(),
+    Built {
+        parts,
         executor,
-        team,
+        preparer,
         transcripts,
         audit,
-        inference,
-        continuations,
-        coordination,
+        clock,
+        integrations,
+    }
+}
+
+pub fn harness_on(brain: Arc<dyn BrainClientScripted>, team: Arc<FakeTeam>) -> Harness {
+    let directory = tempfile::tempdir().expect("directory");
+    let built = built(
+        directory.path(),
+        Arc::clone(&brain).client(),
+        Arc::clone(&team),
+    );
+    let parts = built.parts;
+    Harness {
+        _directory: directory,
+        preparer: built.preparer,
+        clock: built.clock,
+        integrations: built.integrations,
+        service: ChatService::new(parts.clone()).expect("service"),
+        brain: brain.scripted(),
+        executor: built.executor,
+        team,
+        transcripts: built.transcripts,
+        audit: built.audit,
+        inference: Arc::clone(&parts.inference),
+        continuations: Arc::clone(&parts.continuations),
+        coordination: parts.coordination.clone(),
+        parts,
     }
 }
 
@@ -244,6 +282,15 @@ impl Streamed {
 }
 
 impl Harness {
+    /// The same Team after a controller restart: the same stores and Brain, fresh in-memory challenges.
+    pub fn restarted(&self) -> ChatService {
+        let mut parts = self.parts.clone();
+        parts.integration_challenges = Arc::new(
+            team_integrations::pending::default_store(Arc::new(OsEntropy)).expect("store"),
+        );
+        ChatService::new(parts).expect("service")
+    }
+
     /// Calls one operation as the Supervisor with the test model credential.
     pub async fn call(
         &self,

@@ -42,8 +42,14 @@ pub fn action(id: &str) -> ActionSpec {
     )))
 }
 
-/// The title and description every fake request's copy references.
-pub const COPY: [&str; 2] = ["List zones", "Allow listing the zones."];
+/// The title and description every fake request's copy references, a password request's label, and the help text
+/// of the fake Stored Input.
+pub const COPY: [&str; 4] = [
+    "List zones",
+    "Allow listing the zones.",
+    "API key",
+    "Create a test key in the provider dashboard and copy it.",
+];
 
 fn message(text: &str) -> Value {
     team_protocol::python::value::object_of(vec![
@@ -235,6 +241,15 @@ impl TeamView for FakeTeam {
         })
     }
 
+    fn teams(&self) -> BoxFuture<'_, Result<Vec<(String, String)>, Problem>> {
+        Box::pin(async move {
+            Ok(lock(&self.teams)
+                .iter()
+                .map(|(team, state)| (team.clone(), state.network_id.clone()))
+                .collect())
+        })
+    }
+
     fn display_name(&self, team_id: &str, _network_id: &str) -> Result<Option<String>, Problem> {
         Ok(self.state(team_id)?.display_name)
     }
@@ -396,9 +411,12 @@ impl Transcripts for FakeTranscripts {
     }
 }
 
-/// Prepares every selected file as one short text.
+/// Prepares every selected file as one short text, or refuses with the failure a test set.
 #[derive(Debug, Default)]
-pub struct FakePreparer;
+pub struct FakePreparer {
+    /// The failure every preparation answers, when set.
+    pub failure: Mutex<Option<crate::prepare::PrepareError>>,
+}
 
 impl crate::prepare::Preparer for FakePreparer {
     fn prepare_segment<'a>(
@@ -410,6 +428,9 @@ impl crate::prepare::Preparer for FakePreparer {
         Box::pin(async move {
             if stop.is_stopped() {
                 return Err(crate::prepare::PrepareError::Stopped);
+            }
+            if let Some(failure) = *lock(&self.failure) {
+                return Err(failure);
             }
             Ok(file_ids
                 .iter()
@@ -434,4 +455,81 @@ impl crate::prepare::Preparer for FakePreparer {
     ) -> BoxFuture<'a, Result<crate::prepare::Rendition, crate::prepare::PrepareError>> {
         Box::pin(async { Err(crate::prepare::PrepareError::Unavailable) })
     }
+}
+
+/// A password request for the Stored Input `exa-key`, its copy referencing the fake catalog.
+#[must_use]
+pub fn password_request() -> Value {
+    use team_protocol::python::value::{int, object_of};
+    let reference = |text: &str| {
+        object_of(vec![
+            (
+                "message",
+                Value::String(assistant_protocol::catalog::message_id(text)),
+            ),
+            ("params", Value::Object(Vec::new())),
+        ])
+    };
+    let request = object_of(vec![
+        ("kind", Value::String("input:password".to_owned())),
+        ("ordinal", int(0)),
+        ("title", reference(COPY[0])),
+        ("description", reference(COPY[1])),
+        ("label", reference(COPY[2])),
+        ("required", Value::Bool(true)),
+        ("placeholder", Value::Null),
+        ("min_length", int(1)),
+        ("max_length", int(1024)),
+        ("stored_input", Value::String("exa-key".to_owned())),
+    ]);
+    let fingerprint = assistant_protocol::human_request::fingerprint(&request);
+    let Value::Object(mut framed) = request else {
+        unreachable!()
+    };
+    framed.push(("fingerprint".to_owned(), Value::String(fingerprint)));
+    Value::Object(framed)
+}
+
+/// A fake Assistant whose `search` Action asks for the Stored Input `exa-key`.
+#[must_use]
+pub fn searching() -> ActiveAssistant {
+    let search = ActionSpec::of(&json(
+        r#"{"id":"search","input_schema":{"type":"object"},"output_schema":{"type":"object"},"integrations":[],
+        "stored_inputs":["exa-key"],"human_requests":["input:password"],"input_files":[],"effect":"read_only"}"#,
+    ));
+    let mut active = assistant("shimpz-exa", vec![search]);
+    let mut contract = (*active.binding.contract).clone();
+    contract.stored_inputs = vec![team_assistant::manifest::StoredInputDeclaration {
+        id: "exa-key".to_owned(),
+        kind: "password".to_owned(),
+        label: COPY[2].to_owned(),
+        description: COPY[3].to_owned(),
+        help_url: "https://dashboard.exa.ai/api-keys".to_owned(),
+        host: "api.exa.ai".to_owned(),
+        header: Some("x-api-key".to_owned()),
+        query: None,
+        scheme: None,
+        hmac: None,
+        routes: Value::Array(Vec::new()),
+    }];
+    active.binding.contract = Arc::new(contract);
+    active
+}
+
+/// A fake Assistant whose `list-zones` Action needs the Cloudflare Integration.
+#[must_use]
+pub fn connected() -> ActiveAssistant {
+    let list = ActionSpec::of(&json(
+        r#"{"id":"list-zones","input_schema":{"type":"object"},"output_schema":{"type":"object"},
+        "integrations":["cloudflare"],"stored_inputs":[],"human_requests":[],"input_files":[],"effect":"read_only"}"#,
+    ));
+    let mut active = assistant("shimpz-cloudflare", vec![list]);
+    let mut contract = (*active.binding.contract).clone();
+    contract.integrations = vec![team_assistant::manifest::IntegrationDeclaration {
+        id: "cloudflare".to_owned(),
+        provider: "cloudflare".to_owned(),
+        scopes: vec!["dns.read".to_owned(), "zone.read".to_owned()],
+    }];
+    active.binding.contract = Arc::new(contract);
+    active
 }

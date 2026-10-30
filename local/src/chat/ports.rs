@@ -157,6 +157,12 @@ pub trait TeamView: Send + Sync {
         scan: bool,
     ) -> BoxFuture<'a, Result<TeamScope, Problem>>;
 
+    /// Every Team the Space holds, with its network's id: what a Space reset removes.
+    ///
+    /// # Errors
+    /// [`Problem`] when the Teams cannot be listed.
+    fn teams(&self) -> BoxFuture<'_, Result<Vec<(String, String)>, Problem>>;
+
     /// The Team's current display name in its incarnation `network_id`, when it was renamed.
     ///
     /// # Errors

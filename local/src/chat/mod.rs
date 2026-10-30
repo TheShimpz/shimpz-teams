@@ -13,11 +13,13 @@ pub mod pause;
 pub mod pending;
 pub mod ports;
 pub mod problem;
+pub mod restore;
 pub mod route;
 pub mod segment;
 pub mod service;
 pub mod stop;
 pub mod stored;
+pub mod teardown;
 #[cfg(test)]
 mod tests;
 pub mod turn;
