@@ -3,6 +3,7 @@
 
 mod cards;
 mod frozen;
+mod http;
 mod lifecycle;
 mod recovery;
 mod runs;

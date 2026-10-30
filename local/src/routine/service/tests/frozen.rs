@@ -5,9 +5,12 @@ use team_chat::progress::Reporter;
 
 use super::now;
 use crate::chat::fakes::{human_request, json};
+use crate::http::operation::Operation;
+use crate::http::server::ChallengeBook;
 use crate::http::service::Body;
 use crate::routine::executor::fakes::Outcome;
 use crate::routine::service::harness::{Harness, TEAM, action, harness, routine_of, running};
+use crate::routine::service::http::Challenges;
 
 async fn frozen() -> (Harness, String) {
     let active = running(&[action("list-zones", "read_only", None)]);
@@ -61,6 +64,14 @@ async fn an_approval_freezes_the_run_and_a_person_resumes_it_under_the_same_oper
     // A Routine challenge lives in its own store, never beside chat's one pending challenge.
     let chat = harness.chat.human_challenges().current(TEAM).expect("read");
     assert!(chat.is_none());
+    let books = Challenges {
+        chat: harness.chat.clone(),
+        routines: harness.service.clone(),
+    };
+    let pending = books.pending(Operation::RoutineHumanSubmit, TEAM).await;
+    let pending = pending.expect("read").expect("pending");
+    let found = (pending.kind.as_str(), pending.challenge_id.as_str());
+    assert_eq!(found, ("approval", challenge.as_str()));
     let resumed = harness
         .service
         .resume_routine_human(

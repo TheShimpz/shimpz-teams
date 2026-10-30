@@ -26,6 +26,7 @@ use crate::http::service::Problem;
 
 #[cfg(test)]
 pub(crate) mod harness;
+pub mod http;
 #[cfg(test)]
 mod tests;
 
