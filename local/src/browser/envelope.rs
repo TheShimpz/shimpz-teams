@@ -308,6 +308,20 @@ pub fn networks(
     Ok(Some(address))
 }
 
+/// A container's address on the Browser network, whatever other networks it has (the egress has its outbound one).
+#[must_use]
+pub fn networks_address(container: &ContainerInspectResponse) -> Option<String> {
+    container
+        .network_settings
+        .as_ref()?
+        .networks
+        .as_ref()?
+        .get(NETWORK)?
+        .ip_address
+        .clone()
+        .filter(|address| !address.is_empty())
+}
+
 /// The started container against the one created: the same container, image, name, and labels, running, its one
 /// network with an address, and that network's members exactly it and the egress. Its address on the network.
 ///

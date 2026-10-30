@@ -8,6 +8,9 @@ pub mod audit;
 pub mod channel;
 pub mod credentials;
 pub mod envelope;
+#[cfg(test)]
+pub(crate) mod fake;
 pub mod release;
+pub mod runtime;
 pub mod tunnel;
 pub mod view;
