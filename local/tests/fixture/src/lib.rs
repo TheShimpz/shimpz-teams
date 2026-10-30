@@ -153,14 +153,15 @@ impl ArtifactVerifier for SeededVerifier {
     }
 }
 
-/// The production `seams` with resolution and verification answered by the seeded `publication`; every other seam is
-/// left as it is.
+/// The production `seams` with resolution and verification answered by the seeded `publication`, and a registry that
+/// admits the suite's loopback image; every other seam is left as it is.
 #[must_use]
 pub fn adapt(seams: Seams, publication: Publication) -> Seams {
     let publication = Arc::new(publication);
     Seams {
         resolver: Arc::new(SeededResolver(Arc::clone(&publication))),
         verifier: Arc::new(SeededVerifier(publication)),
+        any_resolution: true,
         ..seams
     }
 }

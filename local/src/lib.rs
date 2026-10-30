@@ -21,6 +21,9 @@ pub mod lifecycle;
 pub mod names;
 pub mod prepare;
 pub mod routine;
+pub mod run;
 pub mod seams;
 #[cfg(feature = "testing")]
 pub mod testing;
+
+pub use run::run;

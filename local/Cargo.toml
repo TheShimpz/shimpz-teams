@@ -47,7 +47,7 @@ team-prepare.workspace = true
 team-protocol.workspace = true
 team-routine.workspace = true
 team-storage.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 team-core = { workspace = true, features = ["testing"] }

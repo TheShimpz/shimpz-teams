@@ -20,7 +20,7 @@ path = "src/main.rs"
 strict-json.workspace = true
 team-core.workspace = true
 team-install.workspace = true
-team-local.workspace = true
+team-local = { workspace = true, features = ["testing"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

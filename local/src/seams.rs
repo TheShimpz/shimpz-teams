@@ -31,6 +31,10 @@ pub struct Seams {
     pub resolver: Arc<dyn Resolver>,
     /// Artifact verification.
     pub verifier: Arc<dyn ArtifactVerifier>,
+    /// Whether the publication registry admits a resolution whose image lives outside the production repository, as
+    /// the controller suite's loopback registry needs; only the test-only runner sets it.
+    #[cfg(feature = "testing")]
+    pub any_resolution: bool,
 }
 
 impl std::fmt::Debug for Seams {

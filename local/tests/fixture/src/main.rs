@@ -20,10 +20,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// Serves the controller with the seeded publication through [`team_local_fixture::adapt`] once the composition root
-/// is wired (integration checkpoint I1); until then it reports that it is not available, as `shimpz-team` does.
+/// Serves the controller with the seeded publication through [`team_local_fixture::adapt`].
 fn serve(publication: Publication) -> ExitCode {
-    drop(publication);
-    eprintln!("shimpz-team-fixture: `serve` is not available in this build");
-    ExitCode::from(70)
+    team_local::run(&Command::Serve, |seams| {
+        team_local_fixture::adapt(seams, publication)
+    })
 }
