@@ -264,11 +264,12 @@ async fn exec_fail_stop_proves_not_running_or_blocks() {
     );
 }
 
-/// The real daemon's half-close, run by `cargo test -- --ignored` on a host with Docker and the image named by
-/// `SHIMPZ_TEST_EXEC_IMAGE` (any local image with `cat` and `sleep`; `python:3-alpine` by default).
+/// The real daemon's half-close, run by `cargo test -- --ignored docker_` (the umbrella's live controller-snapshot
+/// lane) on a host with Docker and the image named by `SHIMPZ_TEST_EXEC_IMAGE` (any local image with `cat` and
+/// `sleep`; `python:3-alpine` by default).
 #[tokio::test]
 #[ignore = "needs a Docker daemon"]
-async fn exec_half_close_delivers_eof_on_a_real_daemon() {
+async fn docker_exec_half_close_delivers_eof() {
     use team_core::exec::{ExecEngine, ExecSpec};
 
     use crate::docker::daemon::{Daemon, SOCKET};
