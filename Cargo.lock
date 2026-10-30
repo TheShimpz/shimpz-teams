@@ -149,6 +149,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "assistant-install"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "sha2",
+ "strict-json",
+]
+
+[[package]]
 name = "assistant-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2269,8 +2278,20 @@ dependencies = [
 name = "team-action"
 version = "0.1.0"
 dependencies = [
+ "assistant-protocol",
+ "base64 0.23.1",
+ "rusqlite",
+ "rustix",
+ "sha2",
  "strict-json",
+ "subtle",
  "team-core",
+ "team-integrations",
+ "team-protocol",
+ "team-storage",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -2335,8 +2356,15 @@ dependencies = [
 name = "team-install"
 version = "0.1.0"
 dependencies = [
+ "assistant-install",
+ "assistant-protocol",
+ "rustix",
  "strict-json",
+ "team-assistant",
  "team-core",
+ "team-protocol",
+ "team-storage",
+ "tempfile",
 ]
 
 [[package]]

@@ -6,6 +6,11 @@
 //! [`trust`] is the frozen seam: the controller installs through a [`trust::Resolver`] and a
 //! [`trust::ArtifactVerifier`], which the live artifact-trust lane always runs for real.
 
+pub mod bindings;
+pub mod contract;
+pub mod icons;
+pub mod lock;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod trust;
+pub mod update;

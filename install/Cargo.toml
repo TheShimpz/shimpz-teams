@@ -13,8 +13,17 @@ description = "Team installation: publication resolution, artifact trust, bindin
 testing = []
 
 [dependencies]
+assistant-install.workspace = true
+assistant-protocol.workspace = true
+rustix.workspace = true
 strict-json.workspace = true
+team-assistant.workspace = true
 team-core.workspace = true
+team-protocol.workspace = true
+team-storage.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
