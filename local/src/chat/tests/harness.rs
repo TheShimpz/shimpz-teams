@@ -27,6 +27,11 @@ use crate::chat::usage::UsageBook;
 use crate::coordination::Coordination;
 use crate::http::route::{Method, resolve};
 use crate::http::service::{Answer, Body, Call, Principal, Problem, Service, StreamRecord};
+use crate::routine::diagnostics::DiagnosticStore;
+use crate::routine::proposal::{ProposalBook, RoutineChat};
+use crate::routine::recorder::RecordingBook;
+use crate::routine::state::none_lost;
+use crate::routine::store::RoutineStore;
 
 /// The Team every journey runs in.
 pub const TEAM: &str = "team_1";
@@ -103,6 +108,30 @@ fn continuations(root: &std::path::Path, clock: &Arc<FakeClock>) -> Arc<Continua
     Arc::new(store.expect("continuations"))
 }
 
+/// The Team's Routine state, its diagnostics, and empty recording and card books.
+fn routine_chat(root: &std::path::Path, clock: &Arc<FakeClock>) -> RoutineChat {
+    let clock = Arc::clone(clock) as Arc<dyn team_core::clock::Clock>;
+    let sealed = |name: &str| {
+        (
+            root.join(name).join("state"),
+            root.join(name).join("key/aes256.key"),
+        )
+    };
+    let (state, key) = sealed("routines");
+    let routines = RoutineStore::new(&state, &key, Arc::new(OsEntropy)).expect("routines");
+    let (state, key) = sealed("routine-diagnostics");
+    let diagnostics = DiagnosticStore::new(&state, &key, Arc::new(OsEntropy)).expect("diagnostics");
+    RoutineChat {
+        routines: Arc::new(routines),
+        diagnostics: Arc::new(diagnostics),
+        recordings: Arc::new(RecordingBook::new(Arc::clone(&clock), Arc::new(OsEntropy))),
+        proposals: Arc::new(ProposalBook::new(Arc::clone(&clock))),
+        lost: Arc::new(none_lost),
+        clock,
+        entropy: Arc::new(OsEntropy),
+    }
+}
+
 pub fn harness_with(
     brain: Arc<dyn BrainClientScripted>,
     assistants: Vec<ActiveAssistant>,
@@ -151,6 +180,7 @@ fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam
         integration_challenges: Arc::new(challenges),
         pkce: Arc::new(PkceStore::new(PkceLimits::default(), Arc::new(OsEntropy)).expect("pkce")),
         browser: None,
+        routine: routine_chat(root, &clock),
         usage: Arc::new(UsageBook::default()),
         audit: audit.clone(),
         clock: clock.clone(),

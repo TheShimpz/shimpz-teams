@@ -343,10 +343,16 @@ impl ChatService {
             locale: pending.locale.clone(),
             continuation: Some(pending.continuation.clone()),
             expected: Some(pending.identity.clone()),
-            progress,
+            progress: self.recorded_progress(
+                &request.team_id,
+                pending.recording.as_deref(),
+                progress,
+            ),
             model: pending.model.clone(),
             usage: Arc::clone(&request.usage),
             actor: request.actor.clone(),
+            recording: pending.recording.clone(),
+            refine: None,
         };
         let segment = self.run_segment(&segment).await?;
         let usage = pending
@@ -361,6 +367,7 @@ impl ChatService {
             usage,
             locale: pending.locale.clone(),
             source: pending.source.clone(),
+            recording: pending.recording.clone(),
         };
         self.respond(admitted, response).await
     }

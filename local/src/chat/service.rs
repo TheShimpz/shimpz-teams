@@ -80,6 +80,8 @@ pub struct ChatParts {
     pub pkce: Arc<PkceStore>,
     /// The Browser, where this image runs one.
     pub browser: Option<Arc<BrowserService>>,
+    /// The Routine state, recording spans, and cards a chat turn about a Routine runs with (ADR-0101).
+    pub routine: crate::routine::proposal::RoutineChat,
     /// Each request's Brain usage.
     pub usage: Arc<dyn ModelUsageSink>,
     /// The audit journal.

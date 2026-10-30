@@ -15,6 +15,7 @@ pub mod ports;
 pub mod problem;
 pub mod restore;
 pub mod route;
+mod routine;
 pub mod segment;
 pub mod service;
 pub mod stop;

@@ -26,6 +26,7 @@ use super::usage::RequestUsage;
 use crate::audit::{Principal, PrincipalClass};
 use crate::http::server::current_request;
 use crate::http::service::{Answer, Body, Call, Principal as Caller, Problem};
+use crate::routine::proposal::{Proposed, Turn, Write};
 
 /// What one admitted request's work runs with: its Team, caller, credential, usage, and audit principal.
 #[derive(Clone)]
@@ -96,6 +97,9 @@ pub(super) struct ChatBody {
     conversation: Vec<team_inference::runtime::ConversationEntry>,
     locale: Option<String>,
     nonce: String,
+    issued_at: i64,
+    timezone: Option<String>,
+    refine: Option<String>,
 }
 
 fn invalid(message: &'static str, code: &'static str) -> Problem {
@@ -166,6 +170,29 @@ fn chat_message(value: Option<&Value>) -> Result<String, Problem> {
     }
 }
 
+/// The browser's IANA zone, which must load, or `None` when it named none.
+fn timezone(value: &Value) -> Result<Option<String>, Problem> {
+    if matches!(value, Value::Null) {
+        return Ok(None);
+    }
+    let zone = team_routine::schedule::zone(value).ok().and(string(value));
+    zone.map(|zone| Some(zone.to_owned()))
+        .ok_or(invalid("timezone is invalid", "invalid-timezone"))
+}
+
+/// The Routine a new turn's person asked to refine, by id, or `None`.
+fn refine(value: &Value) -> Result<Option<String>, Problem> {
+    if matches!(value, Value::Null) {
+        return Ok(None);
+    }
+    let routine_id = string(value)
+        .filter(|_| team_protocol::routine::matches(value, &team_protocol::routine::ROUTINE_ID_RE));
+    routine_id.map(|id| Some(id.to_owned())).ok_or(invalid(
+        "refine must name one Routine or be null",
+        "invalid-refine",
+    ))
+}
+
 /// Admits exactly the chat body's members.
 pub(super) fn chat_body(body: &Body) -> Result<ChatBody, Problem> {
     let shape = "Team chat requires only message, files, assistant_ids, conversation, locale, request, timezone, refine";
@@ -180,6 +207,7 @@ pub(super) fn chat_body(body: &Body) -> Result<ChatBody, Problem> {
     let field = |name: &str| body.get(name).unwrap_or(&Value::Null);
     let identity = canonical_request_identity(field("request"))
         .ok_or(invalid("request identity is invalid", "invalid-request"))?;
+    let (timezone, refine) = (timezone(field("timezone"))?, refine(field("refine"))?);
     let locale = match field("locale") {
         Value::Null => None,
         locale => Some(
@@ -210,6 +238,12 @@ pub(super) fn chat_body(body: &Body) -> Result<ChatBody, Problem> {
             .and_then(string)
             .unwrap_or_default()
             .to_owned(),
+        issued_at: identity
+            .get("issued_at")
+            .and_then(team_protocol::python::value::small_int)
+            .unwrap_or_default(),
+        timezone,
+        refine,
     })
 }
 
@@ -229,6 +263,8 @@ pub(super) struct Response {
     pub locale: Option<String>,
     /// The turn's author.
     pub source: Option<Source>,
+    /// The turn's send in the Team's recording span.
+    pub recording: Option<String>,
 }
 
 /// A new turn's first segment.
@@ -237,6 +273,7 @@ fn first_segment(
     request: &Request,
     body: &ChatBody,
     progress: Reporter,
+    recording: Option<String>,
 ) -> SegmentRequest {
     SegmentRequest {
         team_id: request.team_id.clone(),
@@ -254,6 +291,8 @@ fn first_segment(
         model: None,
         usage: Arc::clone(&request.usage),
         actor: request.actor.clone(),
+        recording,
+        refine: body.refine.clone(),
     }
 }
 
@@ -305,11 +344,11 @@ impl ChatService {
             actor_id,
             incarnation: network,
         });
+        let recording = self.recording(&team_id, &body, source.as_ref());
+        let progress = self.recorded_progress(&team_id, recording.as_deref(), progress);
         let added = self.turn_started(&team_id, &body.files).await?;
-        let segment = match self
-            .run_segment(&first_segment(&admitted, &request, &body, progress))
-            .await
-        {
+        let first = first_segment(&admitted, &request, &body, progress, recording.clone());
+        let segment = match self.run_segment(&first).await {
             Ok(segment) => segment,
             Err(failure) => {
                 // A failed turn leaves no continuation, so nothing can read the files only it referenced.
@@ -325,8 +364,23 @@ impl ChatService {
             usage,
             locale: body.locale,
             source,
+            recording,
         };
         self.respond(&admitted, response).await
+    }
+
+    /// Opens the turn's send in the Team's recording span: only a verified person's fresh request without files.
+    fn recording(&self, team_id: &str, body: &ChatBody, source: Option<&Source>) -> Option<String> {
+        let started = crate::routine::recorder::Started {
+            message: body.message.clone(),
+            conversation: body.conversation.clone(),
+            timezone: body.timezone.clone(),
+            locale: body.locale.clone(),
+        };
+        let author = source
+            .filter(|_| body.files.is_empty())
+            .map(|source| (source.actor_id.as_str(), source.incarnation.as_str()));
+        self.record_send(team_id, author, body.issued_at, &started)
     }
 
     /// Commits a completed turn, or pauses it on exactly one challenge.
@@ -387,7 +441,7 @@ impl ChatService {
             locale: response.locale.clone(),
             usage: Some(response.usage.joined(&response.request.usage.tokens())),
             paused_batch: segment.paused_batch.clone(),
-            recording: None,
+            recording: response.recording.clone(),
             model: Some(segment.model.clone()),
             source: response.source.clone(),
         }
@@ -405,14 +459,35 @@ impl ChatService {
         let spent = response
             .usage
             .spent(&response.request.usage.tokens(), self.now_ms());
-        let body = terminal_body(team_id, &response.segment.team_name, terminal, Some(&spent));
+        let mut body = terminal_body(team_id, &response.segment.team_name, terminal, Some(&spent));
         // A turn that consumed selected files or read the web learns nothing, nor does one no verified person sent.
         let learns = response.selection.1.is_empty()
             && terminal.browser.is_none()
             && !terminal.memory.is_empty();
         let source = response.source.as_ref().filter(|_| learns);
-        self.commit_turn(admitted, team_id, &terminal.memory, source)
-            .await?;
+        let proposed = match (&response.segment.answered, &terminal.routine) {
+            (Some(intent), _) => Some(Proposed::Answered(intent.clone())),
+            (None, Some(routine)) => Some(Proposed::Call(routine)),
+            (None, None) => None,
+        };
+        {
+            // A recorded Routine's card is kept with the reply, under the Team's stripe and the Stop guard: when Stop
+            // wins, no card exists (ADR-0101).
+            let _team = match proposed {
+                Some(_) => Some(self.parts.coordination.locks.team(team_id).await),
+                None => None,
+            };
+            let write = match proposed {
+                Some(proposed) => Some(
+                    self.routine_write(response, proposed, &mut body, &spent)
+                        .await?,
+                ),
+                None => None,
+            };
+            let also = self.committed(team_id, response.recording.clone(), write, spent);
+            self.commit_turn(admitted, team_id, &terminal.memory, source, also)
+                .await?;
+        }
         self.parts.transcripts.clear(team_id, None);
         let mut referenced = response.selection.1.clone();
         if let Some(Value::Array(files)) = terminal
@@ -428,6 +503,54 @@ impl ChatService {
         }
         self.turn_completed(team_id, referenced).await;
         Ok(body)
+    }
+
+    /// What a committing turn also does: its Routine outcome's write, and its usage joining its send.
+    fn committed(
+        &self,
+        team_id: &str,
+        recording: Option<String>,
+        write: Option<Write>,
+        spent: team_inference::usage::Spent,
+    ) -> impl FnOnce() + Send + use<> {
+        let (routine, team) = (self.parts.routine.clone(), team_id.to_owned());
+        move || {
+            let Some(recording) = recording else { return };
+            if let Some(write) = write {
+                routine.apply(&team, &recording, write);
+            }
+            // A committed reply's usage joins its send, for a Routine the span may still create.
+            routine.recordings.committed(&team, &recording, spent);
+        }
+    }
+
+    /// A completed turn's Routine outcome: its write, with its terminal member added to `body`.
+    async fn routine_write(
+        &self,
+        response: &Response,
+        proposed: Proposed<'_>,
+        body: &mut Value,
+        spent: &team_inference::usage::Spent,
+    ) -> Result<Write, Problem> {
+        let request = &response.request;
+        let (assistants, files) = (&response.selection.0, &response.selection.1);
+        let current = self
+            .setup_unlocked(&request.team_id, files, &request.credential.0, assistants)
+            .await?;
+        let unchanged = current.identity() == response.segment.identity;
+        let turn = Turn {
+            team_id: &request.team_id,
+            recording: response.recording.as_deref().unwrap_or_default(),
+            principal: request.supervisor.as_deref(),
+            current: unchanged
+                .then_some((current.network_id.as_str(), current.assistants.as_slice())),
+            scopes: &response.segment.contracts,
+        };
+        let admitted = self.routine_outcome(&turn, proposed, body, Some(spent))?;
+        if let Value::Object(members) = body {
+            members.push((admitted.field.0.to_owned(), admitted.field.1));
+        }
+        Ok(admitted.write)
     }
 
     /// The Team's pending challenge, a human one opened in the chat's interface language; a drifted one ends its turn.

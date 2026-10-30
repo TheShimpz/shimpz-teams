@@ -58,7 +58,7 @@ impl ChatService {
         Ok(())
     }
 
-    /// Commits a completed turn only when Stop did not win, saving its memory changes as it commits: one `requested`
+    /// Commits a completed turn only when Stop did not win, running `also` and saving its memory changes as it commits: one `requested`
     /// event per change first, then the save, then each change settled `completed` or `failed`.
     ///
     /// # Errors
@@ -69,6 +69,7 @@ impl ChatService {
         team_id: &str,
         changes: &[Value],
         source: Option<&Source>,
+        also: impl FnOnce() + Send,
     ) -> Result<(), Problem> {
         let planned = match source.filter(|_| !changes.is_empty()) {
             None => None,
@@ -77,7 +78,10 @@ impl ChatService {
         let Some((source, plan)) = planned.filter(|(_, plan)| !plan.changes.is_empty()) else {
             return admitted
                 .execution
-                .commit(|| Ok::<(), ()>(()))
+                .commit(|| {
+                    also();
+                    Ok::<(), ()>(())
+                })
                 .map(|_| ())
                 .ok_or(problem::chat_stopped());
         };
@@ -95,9 +99,10 @@ impl ChatService {
             .await
             .map_err(|_| store_failed())?;
         let store = Arc::clone(&self.parts.inference);
-        let saved = admitted
-            .execution
-            .commit(|| store.save_knowledge(team_id, &plan));
+        let saved = admitted.execution.commit(|| {
+            also();
+            store.save_knowledge(team_id, &plan)
+        });
         let phase = if matches!(saved, Some(Ok(()))) {
             "completed"
         } else {

@@ -71,6 +71,10 @@ pub struct SegmentRequest {
     pub usage: Arc<RequestUsage>,
     /// The verified principal of the request, for the Browser's audit.
     pub actor: crate::audit::Principal,
+    /// The turn's send in the Team's recording span (ADR-0101).
+    pub recording: Option<String>,
+    /// The Routine a new turn's person asked to refine from its panel, by id (ADR-0122).
+    pub refine: Option<String>,
 }
 
 /// One segment's outcome and what the turn's next request binds.
@@ -91,6 +95,8 @@ pub struct SegmentResult {
     pub paused_batch: Option<String>,
     /// The model the segment ran on.
     pub model: String,
+    /// The stored intent Team recorded again from a bound answer, with no model.
+    pub answered: Option<crate::routine::recorder::Intent>,
 }
 
 /// The Team as one segment runs against it.
@@ -340,11 +346,10 @@ impl ChatService {
         let thread_id = brain_thread_id(&self.parts.space_id, &request.team_id, &setup.network_id)?;
         let memories = self.knowledge(&request.team_id).await?;
         let attachments = self.attachments(request).await?;
-        let model = request
-            .model
-            .clone()
-            .unwrap_or_else(|| setup.config.model.clone());
+        let routine = self.routine_view(request).await?;
+        let model = Self::turn_model(request, &setup.config.model, routine.span_mode);
         let browser = setup.files.is_empty()
+            && !routine.mode
             && self
                 .parts
                 .browser
@@ -364,16 +369,16 @@ impl ChatService {
                 api_key: request.credential.1.clone(),
             },
             memories: Some(memories),
-            routines: None,
-            routine_question: None,
-            routine_mode: false,
-            routine_rerun: None,
-            routine_schedule: None,
-            routine_output: None,
-            routine_settings_answer: false,
-            routine_selected: None,
+            routines: routine.routines,
+            routine_question: routine.question,
+            routine_mode: routine.mode,
+            routine_rerun: routine.rerun,
+            routine_schedule: routine.schedule,
+            routine_output: routine.output,
+            routine_settings_answer: routine.settings_answer,
+            routine_selected: routine.selected,
             locale: request.locale.clone(),
-            turn_clock: None,
+            turn_clock: routine.turn_clock,
             attachments,
             browser,
         })
@@ -386,6 +391,65 @@ struct Tracked {
     service: ChatService,
     team_id: String,
     token: String,
+    /// The send a recording turn keeps each successful call in, with the Assistants it runs against.
+    recording: Option<(String, Vec<ActiveAssistant>)>,
+}
+
+impl Tracked {
+    /// Protects the Stored Input values Team injects into a recording send's call before its RPC.
+    fn protect_injected(&self, request: &ActionRequest) {
+        let Some((recording, assistants)) = &self.recording else {
+            return;
+        };
+        let Some(active) = assistants
+            .iter()
+            .find(|active| active.id() == request.assistant_id)
+        else {
+            return;
+        };
+        let Some(action) = active.action(&request.action) else {
+            return;
+        };
+        let stored = &self.service.parts.stored_inputs;
+        let values: Vec<String> = action
+            .stored_inputs
+            .iter()
+            .filter_map(|name| {
+                let kind = &active.pinned.stored_inputs.get(name)?.kind;
+                let held = stored
+                    .resolve((&self.team_id, active.id(), name), kind)
+                    .ok()?;
+                Some(held.value.expose().to_owned())
+            })
+            .collect();
+        self.service
+            .parts
+            .routine
+            .recordings
+            .protect(&self.team_id, recording, &values);
+    }
+
+    /// Keeps a recording send's successful call as an occurrence.
+    fn record(&self, request: &ActionRequest, outcome: &Result<InvokeOutcome, ActionFailure>) {
+        let (Some((recording, assistants)), Ok(InvokeOutcome::Completed(result))) =
+            (&self.recording, outcome)
+        else {
+            return;
+        };
+        if let Some(active) = assistants
+            .iter()
+            .find(|active| active.id() == request.assistant_id)
+        {
+            let book = &self.service.parts.routine.recordings;
+            crate::routine::recorder::recorded(
+                book,
+                (&self.team_id, recording),
+                active,
+                request,
+                result,
+            );
+        }
+    }
 }
 
 impl ActionBatch for Tracked {
@@ -405,7 +469,9 @@ impl ActionBatch for Tracked {
             self.service
                 .executing()
                 .insert(self.team_id.clone(), self.token.clone());
+            self.protect_injected(request);
             let outcome = self.inner.invoke(request, stop).await;
+            self.record(request, &outcome);
             let mut executing = self.service.executing();
             if executing.get(&self.team_id) == Some(&self.token) {
                 executing.remove(&self.team_id);
@@ -530,6 +596,19 @@ impl Strategy for TurnStrategy<'_> {
             let turn = self.service.browser_turn(self.request, &self.setup);
             browser.run(&turn, &request.objective).await
         }))
+    }
+
+    fn shown_results(&self, results: Value) -> Value {
+        let Some(recording) = self.request.recording.as_deref() else {
+            return results;
+        };
+        let span = self
+            .service
+            .parts
+            .routine
+            .recordings
+            .get(&self.request.team_id, Some(recording));
+        crate::routine::recorder::labeled(span.as_ref(), results)
     }
 
     fn progress(&self) -> &Reporter {
@@ -677,6 +756,20 @@ impl ChatService {
         Ok((setup, context))
     }
 
+    /// The segment's durable batch, recording each successful call of a recording send.
+    fn tracked(&self, request: &SegmentRequest, setup: &Setup, scope: BatchScope) -> Tracked {
+        Tracked {
+            inner: self.parts.actions.batch(scope),
+            service: self.clone(),
+            team_id: request.team_id.clone(),
+            token: request.token.clone(),
+            recording: request
+                .recording
+                .clone()
+                .map(|recording| (recording, setup.assistants.clone())),
+        }
+    }
+
     /// Runs or resumes one segment of a chat turn with its durable Action hooks.
     ///
     /// # Errors
@@ -692,19 +785,18 @@ impl ChatService {
             thread_id: context.thread_id.clone(),
             routine: false,
         };
-        let mut batch = Tracked {
-            inner: self.parts.actions.batch(scope),
-            service: self.clone(),
-            team_id: request.team_id.clone(),
-            token: request.token.clone(),
-        };
+        let mut batch = self.tracked(request, &setup, scope);
         let strategy = TurnStrategy {
             service: self,
             request,
             setup: setup.clone(),
             integrations: Mutex::new(Vec::new()),
         };
-        let outcome = match self.drive(&strategy, &context, &mut batch).await {
+        let answered = self.answered_intent(request);
+        let outcome = match self
+            .drive(&strategy, &context, &mut batch, answered.is_some())
+            .await
+        {
             Ok(outcome) => outcome,
             Err(error) => {
                 let ended = batch.terminate().await;
@@ -729,7 +821,9 @@ impl ChatService {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner),
         );
-        Ok(result(&setup, &context, outcome, integrations, human))
+        let mut result = result(&setup, &context, outcome, integrations, human);
+        result.answered = answered;
+        Ok(result)
     }
 
     async fn drive(
@@ -737,17 +831,24 @@ impl ChatService {
         strategy: &TurnStrategy<'_>,
         context: &RuntimeContext,
         batch: &mut Tracked,
+        answered: bool,
     ) -> Result<Outcome, ChatError> {
         let request = strategy.request;
         let brain = Brain {
             client: self.parts.brain.as_ref(),
             usage: request.usage.as_ref(),
         };
+        // Team answers a send itself only when it is Admin's composed answer that binds the pending Routine question.
+        let brain: &dyn Runtime = if answered {
+            &super::routine::AnsweredRuntime
+        } else {
+            &brain
+        };
         match (&request.continuation, &request.message) {
             (None, Some(message)) => {
                 let prompt = team_chat::contract::build_prompt(message, &strategy.setup.files);
                 run_until_pause(
-                    &brain,
+                    brain,
                     context,
                     &prompt,
                     &request.conversation,
@@ -757,7 +858,7 @@ impl ChatService {
                 .await
             }
             (Some(continuation), None) => {
-                continue_after_pause(&brain, context, continuation.clone(), strategy, batch).await
+                continue_after_pause(brain, context, continuation.clone(), strategy, batch).await
             }
             _ => Err(ChatError::Orchestration("invalid chat continuation")),
         }
@@ -846,6 +947,7 @@ fn result(
         contracts,
         paused_batch,
         model: context.credential.model.clone(),
+        answered: None,
     }
 }
 

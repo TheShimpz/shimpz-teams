@@ -121,14 +121,36 @@ fn pack(machine_contract: &Value) -> LanguagePack {
     }
 }
 
-fn pinned(id: &str) -> PinnedAssistant {
+/// The machine-contract document of one fake Action, as a pin covers it.
+fn pinned_action(action: &ActionSpec) -> Value {
+    let names = |items: &[String]| {
+        Value::Array(
+            items
+                .iter()
+                .map(|item| Value::String(item.clone()))
+                .collect(),
+        )
+    };
+    team_protocol::python::value::object_of(vec![
+        ("id", Value::String(action.id.clone())),
+        ("input_schema", action.input_schema.clone()),
+        ("output_schema", action.output_schema.clone()),
+        ("integrations", names(&action.integrations)),
+        ("stored_inputs", names(&action.stored_inputs)),
+        ("human_requests", names(&action.human_requests)),
+        ("input_files", names(&action.input_files)),
+        ("effect", Value::String(action.effect.clone())),
+    ])
+}
+
+fn pinned(id: &str, actions: &[ActionSpec]) -> PinnedAssistant {
     PinnedAssistant {
         assistant_id: id.to_owned(),
         version: "1.0.0".to_owned(),
         image: IMAGE.to_owned(),
         image_labels: Vec::new(),
         allowed_hosts: Vec::new(),
-        actions: Vec::new(),
+        actions: actions.iter().map(pinned_action).collect(),
         integrations: BTreeMap::new(),
         stored_inputs: BTreeMap::new(),
         catalog: format!("sha256:{}", "0".repeat(64)),
@@ -141,6 +163,7 @@ fn pinned(id: &str) -> PinnedAssistant {
 pub fn assistant(id: &str, actions: Vec<ActionSpec>) -> ActiveAssistant {
     let machine_contract = team_protocol::python::value::object_of(vec![("messages", messages())]);
     let pack = pack(&machine_contract);
+    let pinned = pinned(id, &actions);
     let contract = RuntimeContract {
         actions,
         allowed_hosts: Vec::new(),
@@ -164,7 +187,7 @@ pub fn assistant(id: &str, actions: Vec<ActionSpec>) -> ActiveAssistant {
         },
         genesis: "Use the declared Actions.".to_owned(),
         pack: Arc::new(pack),
-        pinned: Arc::new(pinned(id)),
+        pinned: Arc::new(pinned),
     }
 }
 
