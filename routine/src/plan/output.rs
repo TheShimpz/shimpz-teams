@@ -444,3 +444,6 @@ pub(crate) fn node_fields(node: &Value) -> Vec<(String, Value)> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

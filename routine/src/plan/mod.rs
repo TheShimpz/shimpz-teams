@@ -861,4 +861,4 @@ pub const fn small(value: &Value) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
