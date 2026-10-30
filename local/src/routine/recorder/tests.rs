@@ -688,41 +688,95 @@ fn routine_mode_follows_schedule_words_an_intent_a_question_or_a_selection() {
     assert!(!routine_mode(None));
 }
 
-#[test]
-fn a_selected_routine_holds_while_listed_and_names_each_traced_result() {
+/// A book whose one span listed two Routines, with what its send says about them (`test_routine_reference.py`).
+fn span_book(reference: &Referred) -> (RecordingBook, String) {
     let book = book();
-    let (first, second) = ("a".repeat(32), "c".repeat(32));
-    let send = start(&book, "team_1", "Liste", 1);
-    let shown = vec![(first.clone(), 1), (second.clone(), 3)];
+    let send = start(&book, "team_1", "m", 1);
+    let listed = vec![("a".repeat(32), 2), ("b".repeat(32), 1)];
+    book.listed("team_1", &send, listed, reference);
+    (book, send)
+}
+
+#[test]
+fn a_send_that_names_nothing_keeps_the_spans_selection_while_it_is_listed() {
+    let (first_routine, other) = ("a".repeat(32), "b".repeat(32));
+    let (book, first) = span_book(&Referred::Selected(first_routine.clone()));
+    let span = book.get("team_1", Some(&first));
+    assert_eq!(
+        span.as_ref().and_then(|span| span.selected.clone()),
+        Some(first_routine.clone())
+    );
+    assert!(routine_mode(span.as_ref()));
+    let second = start(&book, "team_1", "m", 2);
+    book.listed(
+        "team_1",
+        &second,
+        vec![(first_routine.clone(), 3)],
+        &Referred::Nothing,
+    );
+    assert_eq!(
+        book.get("team_1", Some(&second)).expect("span").selected,
+        Some(first_routine)
+    );
+    let third = start(&book, "team_1", "m", 3);
+    book.listed("team_1", &third, vec![(other, 1)], &Referred::Nothing);
+    assert_eq!(
+        book.get("team_1", Some(&third)).expect("span").selected,
+        None
+    );
+}
+
+#[test]
+fn another_routine_or_an_unresolved_reference_replaces_the_selection() {
+    let (first_routine, other) = ("a".repeat(32), "b".repeat(32));
+    let listed = vec![(first_routine.clone(), 2), (other.clone(), 1)];
+    let (book, first) = span_book(&Referred::Selected(first_routine));
+    let second = start(&book, "team_1", "m", 2);
+    book.listed(
+        "team_1",
+        &second,
+        listed.clone(),
+        &Referred::Selected(other.clone()),
+    );
+    assert_eq!(
+        book.get("team_1", Some(&second)).expect("span").selected,
+        Some(other)
+    );
+    let third = start(&book, "team_1", "m", 3);
+    book.listed("team_1", &third, listed, &Referred::Unresolved);
+    let span = book.get("team_1", Some(&third));
+    assert_eq!(span.as_ref().and_then(|span| span.selected.clone()), None);
+    assert!(!routine_mode(span.as_ref()));
+    assert!(book.get("team_1", Some(&first)).is_none());
+}
+
+fn traced(interrupt: &str) -> Occurrence {
+    let mut item = occurrence(0);
+    interrupt.clone_into(&mut item.interrupt);
+    item
+}
+
+#[test]
+fn results_name_the_traced_calls_only_while_a_routine_is_selected() {
+    let (book, send) = span_book(&Referred::Nothing);
+    book.occurred("team_1", &send, traced("i-1"));
+    book.occurred("team_1", &send, traced("i-3"));
+    let results = json(r#"{"i-1":{"zones":[]},"i-2":{"error":"failed"},"i-3":[1]}"#);
+    assert_eq!(
+        labeled(book.get("team_1", Some(&send)).as_ref(), results.clone()),
+        results
+    );
+    assert_eq!(labeled(None, results.clone()), results);
     book.listed(
         "team_1",
         &send,
-        shown.clone(),
-        &Referred::Selected(first.clone()),
+        vec![("a".repeat(32), 2)],
+        &Referred::Selected("a".repeat(32)),
     );
-    let next = start(&book, "team_1", "Liste de novo", 2);
-    book.listed("team_1", &next, shown.clone(), &Referred::Nothing);
+    let expected = r#"{"i-1":{"call":"c1","result":{"zones":[]}},"i-2":{"error":"failed"},"i-3":{"call":"c2","result":[1]}}"#;
     assert_eq!(
-        book.get("team_1", Some(&next)).expect("span").selected,
-        Some(first.clone())
-    );
-    let mut traced = occurrence(0);
-    traced.interrupt = "interrupt-2".to_owned();
-    book.occurred("team_1", &next, traced);
-    let results = json(r#"{"interrupt-1":{"error":"failed"},"interrupt-2":{"zones":[]}}"#);
-    let span = book.get("team_1", Some(&next));
-    let expected =
-        r#"{"interrupt-1":{"error":"failed"},"interrupt-2":{"call":"c1","result":{"zones":[]}}}"#;
-    assert_eq!(labeled(span.as_ref(), results.clone()), json(expected));
-    // A selection the Team no longer lists, or a send naming several, selects nothing.
-    book.listed("team_1", &next, vec![(second, 3)], &Referred::Nothing);
-    let span = book.get("team_1", Some(&next));
-    assert_eq!(span.as_ref().and_then(|found| found.selected.clone()), None);
-    assert_eq!(labeled(span.as_ref(), results.clone()), results);
-    book.listed("team_1", &next, shown, &Referred::Unresolved);
-    assert_eq!(
-        book.get("team_1", Some(&next)).expect("span").selected,
-        None
+        labeled(book.get("team_1", Some(&send)).as_ref(), results),
+        json(expected)
     );
 }
 

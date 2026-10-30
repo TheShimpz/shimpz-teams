@@ -113,3 +113,69 @@ pub async fn require_pinned(
         Err(changed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The routine scope and action contracts a recording turn pins (`tests/test_routine_pin.py`).
+
+    use strict_json::Value;
+    use team_assistant::spec::ActionSpec;
+    use team_routine::pin::action_pins;
+
+    use super::contracts;
+    use crate::chat::fakes::{action, assistant};
+    use crate::chat::ports::ActiveAssistant;
+
+    fn changing(id: &str) -> ActionSpec {
+        let mut spec = action(id);
+        spec.effect = "change".to_owned();
+        spec
+    }
+
+    #[test]
+    fn a_turn_pins_each_action_contract_with_its_effect() {
+        let active = assistant(
+            "shimpz-cloudflare",
+            vec![action("list-zones"), changing("create-record")],
+        );
+        let found = contracts(std::slice::from_ref(&active));
+        let pins = action_pins(&active.pinned, ["create-record", "list-zones"]).expect("pins");
+        let pinned: Vec<(String, String, bool)> = found
+            .iter()
+            .map(|((_, action), contract)| {
+                (action.clone(), contract.pin.clone(), contract.read_only)
+            })
+            .collect();
+        let expected: Vec<(String, String, bool)> = pins
+            .into_iter()
+            .map(|(action, pin)| {
+                let read_only = action == "list-zones";
+                (action, pin, read_only)
+            })
+            .collect();
+        assert_eq!(pinned, expected);
+        assert_eq!(
+            action_pins(&active.pinned, []),
+            Some(std::collections::BTreeMap::new())
+        );
+    }
+
+    #[test]
+    fn a_routine_scope_detects_drift_its_brain_contract_cannot_see() {
+        let active = assistant("shimpz-cloudflare", vec![action("list-zones")]);
+        let scope = active.routine_scope().expect("scope");
+        assert_eq!(active.routine_scope(), Some(scope.clone()));
+        let guided = ActiveAssistant {
+            genesis: "Other guidance.".to_owned(),
+            ..active.clone()
+        };
+        assert_ne!(guided.routine_scope(), Some(scope.clone()));
+        // An output schema the Brain never sees is still part of the pin.
+        let mut titled = action("list-zones");
+        if let Value::Object(members) = &mut titled.output_schema {
+            members.push(("title".to_owned(), Value::String("x".to_owned())));
+        }
+        let changed = assistant("shimpz-cloudflare", vec![titled]);
+        assert_ne!(changed.routine_scope(), Some(scope));
+    }
+}
