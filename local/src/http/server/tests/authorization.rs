@@ -99,6 +99,11 @@ async fn stale_bearer_refused() {
     let twice = format!("Authorization: Bearer {TOKEN}\r\n");
     let request = format!("GET /healthz HTTP/1.1\r\nHost: x\r\n{twice}{twice}\r\n");
     assert_eq!(harness.exchange(request.as_bytes()).await.status, 401);
+    // A header byte outside ASCII is refused as unauthenticated, never compared.
+    let mut latin = b"GET /healthz HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer ".to_vec();
+    latin.extend_from_slice(&TOKEN.as_bytes()[..63]);
+    latin.extend_from_slice(b"\xe9\r\n\r\n");
+    assert_eq!(harness.exchange(&latin).await.status, 401);
     assert_eq!(
         harness.request("GET", "/healthz", &[], b"").await.status,
         200
