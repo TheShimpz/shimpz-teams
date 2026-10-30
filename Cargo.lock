@@ -2358,13 +2358,22 @@ version = "0.1.0"
 dependencies = [
  "assistant-install",
  "assistant-protocol",
+ "base64 0.23.1",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "rustix",
+ "rustls",
+ "rustls-native-certs",
  "strict-json",
  "team-assistant",
  "team-core",
  "team-protocol",
  "team-storage",
  "tempfile",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

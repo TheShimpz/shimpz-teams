@@ -8,9 +8,13 @@
 
 pub mod bindings;
 pub mod contract;
+pub mod cosign;
+pub mod developers;
 pub mod icons;
 pub mod lock;
+pub mod release;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod trust;
 pub mod update;
+pub mod verifier;
