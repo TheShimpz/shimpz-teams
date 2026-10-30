@@ -5,6 +5,7 @@
 //! serializes Team mutation, chat admission, cancellation, preview draining, and teardown), [`docker`] (W4a), the
 //! [`prepare`] seam (W4b), [`layout`], and [`seams`], the composition root's injection points.
 
+pub mod browser;
 pub mod cli;
 pub mod coordination;
 pub mod docker;

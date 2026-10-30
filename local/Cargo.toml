@@ -23,10 +23,12 @@ testing = ["team-core/testing"]
 bollard.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
+team-browser.workspace = true
 team-core.workspace = true
 team-inference.workspace = true
 team-install.workspace = true
-tokio = { workspace = true, features = ["io-util", "sync", "time"] }
+team-protocol.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
