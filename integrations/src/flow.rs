@@ -427,14 +427,17 @@ fn requirement_payload(
     if actions.is_empty() || !unique(&requirement.action_ids) {
         return Err(FlowError::Invalid);
     }
-    let reviewed = providers::resolve(provider).map_err(|_| FlowError::Invalid)?;
+    let (name, summary) = providers::resolve(provider)
+        .ok()
+        .and_then(providers::public)
+        .ok_or(FlowError::Invalid)?;
     Ok(object(vec![
         ("assistant_id", text(&assistant.assistant_id)),
         ("assistant_name", text(&assistant.name)),
         ("integration_id", text(id)),
         ("provider", text(provider)),
-        ("name", text(reviewed.name)),
-        ("summary", text(reviewed.summary)),
+        ("name", text(name)),
+        ("summary", text(summary)),
         ("scopes", strings(scopes)),
         ("actions", Value::Array(actions)),
     ]))
@@ -516,7 +519,10 @@ fn inventory_rows(
         .map(|(id, _)| {
             let row = rows.get(id).ok_or(FlowError::Unresolved)?;
             let (provider, scopes) = assistant.intent(id)?;
-            let reviewed = providers::resolve(provider).map_err(|_| FlowError::Invalid)?;
+            let (name, summary) = providers::resolve(provider)
+                .ok()
+                .and_then(providers::public)
+                .ok_or(FlowError::Invalid)?;
             let status = if row.status == Status::RefreshRequired {
                 "expired"
             } else {
@@ -529,8 +535,8 @@ fn inventory_rows(
                 ("assistant_summary", text(&assistant.summary)),
                 ("id", text(id)),
                 ("provider", text(provider)),
-                ("name", text(reviewed.name)),
-                ("summary", text(reviewed.summary)),
+                ("name", text(name)),
+                ("summary", text(summary)),
                 ("scopes", strings(&scopes)),
                 ("status", text(status)),
                 ("integration", identity_payload(row.integration.as_ref())),

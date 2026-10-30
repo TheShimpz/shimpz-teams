@@ -22,6 +22,7 @@ rustls-native-certs.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
 subtle.workspace = true
+team-assistant.workspace = true
 team-core.workspace = true
 team-protocol.workspace = true
 team-storage.workspace = true
