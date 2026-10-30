@@ -90,6 +90,37 @@ impl CuaChannel for HeldChannel {
     }
 }
 
+/// A Driver session's channel with no hold to check (a sign-in session's window count).
+struct PlainChannel(Channel);
+
+impl CuaChannel for PlainChannel {
+    fn send<'a>(
+        &'a mut self,
+        data: &'a [u8],
+        deadline: Instant,
+    ) -> BoxFuture<'a, Result<(), ChannelLost>> {
+        Box::pin(async move { self.0.send(data, deadline).await.map_err(|_| ChannelLost) })
+    }
+
+    fn receive_line(
+        &mut self,
+        deadline: Instant,
+        limit: usize,
+    ) -> BoxFuture<'_, Result<Vec<u8>, ChannelLost>> {
+        Box::pin(async move {
+            self.0
+                .receive_line(deadline, limit)
+                .await
+                .map_err(|_| ChannelLost)
+        })
+    }
+}
+
+/// A Driver channel over `channel` with no hold to check.
+pub(crate) fn plain(channel: Channel) -> Box<dyn CuaChannel> {
+    Box::new(PlainChannel(channel))
+}
+
 /// The task's Browser as its loop sees it.
 pub(super) struct Drivers {
     runtime: Arc<BrowserRuntime>,

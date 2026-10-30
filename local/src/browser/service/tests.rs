@@ -10,14 +10,12 @@ use team_core::future::BoxFuture;
 use team_core::stop::Stop;
 use team_core::testing::MemoryAudit;
 use team_protocol::browser_view::NOT_RUNNING;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use super::{BrowserService, BrowserTurn, ServiceParts, WebFiles, language};
 use crate::browser::audit::Actor;
-use crate::browser::channel::tests::frame;
-use crate::browser::fake::{Fixture, image};
+use crate::browser::fake::{Fixture, driver, field, image};
 use crate::browser::view::Refused;
 use crate::http::service::Principal;
 
@@ -132,80 +130,6 @@ impl WebFiles for MemoryFiles {
     }
 }
 
-/// Answers one Cua Driver session on `far` as a Browser showing one page; with `replies`, it breaks after that many.
-async fn driver(mut far: DuplexStream, mut replies: Option<usize>) {
-    let mut pending = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    loop {
-        while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
-            let line: Vec<u8> = pending.drain(..=end).collect();
-            let Some(reply) = reply(&json(std::str::from_utf8(&line).expect("utf-8"))) else {
-                continue;
-            };
-            if replies == Some(0) {
-                return;
-            }
-            replies = replies.map(|left| left - 1);
-            let mut bytes = reply.into_bytes();
-            bytes.push(b'\n');
-            if far.write_all(&frame(1, &bytes)).await.is_err() {
-                return;
-            }
-        }
-        match far.read(&mut buffer).await {
-            Ok(0) | Err(_) => return,
-            Ok(read) => pending.extend_from_slice(&buffer[..read]),
-        }
-    }
-}
-
-fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
-    match value {
-        Value::Object(members) => members
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value),
-        _ => None,
-    }
-}
-
-fn reply(request: &Value) -> Option<String> {
-    let id = match field(request, "id")? {
-        Value::Number(strict_json::Number::Int(id)) => *id,
-        _ => return None,
-    };
-    let method = field(request, "method").and_then(|method| match method {
-        Value::String(method) => Some(method.as_str()),
-        _ => None,
-    });
-    let params = field(request, "params")?;
-    let tool = field(params, "name").and_then(|name| match name {
-        Value::String(name) => Some(name.as_str()),
-        _ => None,
-    });
-    let snapshot =
-        field(params, "arguments").and_then(|arguments| field(arguments, "snapshot_format"));
-    let structured = match (method, tool) {
-        (Some("initialize"), _) => {
-            return Some(format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#));
-        }
-        (_, Some("list_windows")) => {
-            r#"{"windows":[{"pid":7,"window_id":9,"app_name":"Chromium"}]}"#
-        }
-        (_, Some("browser_prepare")) => r#"{"status":"ok"}"#,
-        (_, Some("get_browser_state")) if snapshot.is_some() => {
-            r#"{"page":{"url":"https://example.com/","title":"Example"},"refs":[],"outline":"Example page"}"#
-        }
-        (_, Some("get_browser_state")) => {
-            r#"{"binding_quality":"exact","target_id":"t1","tabs":[{"tab_id":"tab1","active":true}]}"#
-        }
-        _ => r#"{"effect":"ok"}"#,
-    };
-    Some(format!(
-        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"structuredContent":{structured},"content":[]}}}}"#
-    ))
-}
-
 struct Case {
     fixture: Fixture,
     breaks: Arc<Mutex<VecDeque<usize>>>,
@@ -237,7 +161,7 @@ impl Case {
             while let Some((arguments, far)) = attached.recv().await {
                 if arguments == ["mcp"] {
                     let replies = scripted.lock().expect("usable").pop_front();
-                    tokio::spawn(driver(far, replies));
+                    tokio::spawn(driver(far, replies, 1));
                 }
             }
         });

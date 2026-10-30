@@ -9,6 +9,7 @@ use bollard::models::{
     HealthcheckResult, ImageConfig, ImageInspect, Network, NetworkCreateRequest, NetworkInspect,
     NetworkSettings, SystemInfo,
 };
+use strict_json::Value;
 use team_core::entropy::OsEntropy;
 use team_core::exec::{ExecEngine, ExecError, ExecExit, ExecId, ExecSession, ExecSpec, FailStop};
 use team_core::future::BoxFuture;
@@ -663,4 +664,83 @@ impl Fixture {
             image,
         )
     }
+}
+
+/// Answers one Cua Driver session on `far` as a Browser showing one page; with `replies`, it breaks after that many.
+pub(crate) async fn driver(mut far: DuplexStream, mut replies: Option<usize>, windows: usize) {
+    let mut pending = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = pending.drain(..=end).collect();
+            let request = strict_json::parse(&line).expect("json");
+            let Some(reply) = reply(&request, windows) else {
+                continue;
+            };
+            if replies == Some(0) {
+                return;
+            }
+            replies = replies.map(|left| left - 1);
+            let mut bytes = reply.into_bytes();
+            bytes.push(b'\n');
+            if far.write_all(&frame(1, &bytes)).await.is_err() {
+                return;
+            }
+        }
+        match far.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(read) => pending.extend_from_slice(&buffer[..read]),
+        }
+    }
+}
+
+pub(crate) fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    match value {
+        Value::Object(members) => members
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value),
+        _ => None,
+    }
+}
+
+fn reply(request: &Value, windows: usize) -> Option<String> {
+    let id = match field(request, "id")? {
+        Value::Number(strict_json::Number::Int(id)) => *id,
+        _ => return None,
+    };
+    let method = field(request, "method").and_then(|method| match method {
+        Value::String(method) => Some(method.as_str()),
+        _ => None,
+    });
+    let params = field(request, "params")?;
+    let tool = field(params, "name").and_then(|name| match name {
+        Value::String(name) => Some(name.as_str()),
+        _ => None,
+    });
+    let snapshot =
+        field(params, "arguments").and_then(|arguments| field(arguments, "snapshot_format"));
+    let structured = match (method, tool) {
+        (Some("initialize"), _) => {
+            return Some(format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{}}}}"#));
+        }
+        (_, Some("list_windows")) => {
+            let window = r#"{"pid":7,"window_id":9,"app_name":"Chromium"}"#;
+            return Some(format!(
+                r#"{{"jsonrpc":"2.0","id":{id},"result":{{"structuredContent":{{"windows":[{}]}},"content":[]}}}}"#,
+                vec![window; windows].join(",")
+            ));
+        }
+        (_, Some("browser_prepare")) => r#"{"status":"ok"}"#,
+        (_, Some("get_browser_state")) if snapshot.is_some() => {
+            r#"{"page":{"url":"https://example.com/","title":"Example"},"refs":[],"outline":"Example page"}"#
+        }
+        (_, Some("get_browser_state")) => {
+            r#"{"binding_quality":"exact","target_id":"t1","tabs":[{"tab_id":"tab1","active":true}]}"#
+        }
+        _ => r#"{"effect":"ok"}"#,
+    };
+    Some(format!(
+        r#"{{"jsonrpc":"2.0","id":{id},"result":{{"structuredContent":{structured},"content":[]}}}}"#
+    ))
 }

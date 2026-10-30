@@ -37,7 +37,8 @@ use team_storage::envelope::{Bounds, Envelope, Key};
 use team_storage::private::{self, Keyring, StateError};
 
 pub use draft::Draft;
-use record::{Checkout as Held, Deleting, Record};
+pub use record::Deleting;
+use record::{Checkout as Held, Record};
 
 /// The state file's schema.
 pub const SCHEMA: i64 = 2;
@@ -943,4 +944,4 @@ impl Iterator for Capsule {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

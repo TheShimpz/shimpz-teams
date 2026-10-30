@@ -33,6 +33,7 @@ use super::view::{Refused, RfbRelease, Stream, View, ViewParts};
 use crate::http::service::{Relay, Upgraded};
 
 use drivers::Drivers;
+pub(crate) use drivers::plain as drivers_channel;
 
 /// Streams of watched screens the Space carries at once.
 pub const VIEWS: usize = 2;
