@@ -2,5 +2,8 @@
 //! MCP client, the in-memory thread and its fold, opened links, the provenance screen, and downloads. It replaces the
 //! Python modules of `browser/`; the Browser image and the `browser` egress profile stay their own crates.
 
+pub mod cua;
 pub mod screen;
+#[cfg(test)]
+mod testing;
 pub mod thread;
