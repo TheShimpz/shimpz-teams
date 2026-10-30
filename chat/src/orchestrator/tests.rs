@@ -943,3 +943,30 @@ async fn the_browser_is_admitted_only_where_it_was_offered() {
         ))
     );
 }
+
+#[tokio::test]
+async fn a_file_taking_action_receives_the_files_its_turn_selected() {
+    let id = "0123456789abcdef0123456789abcdef";
+    let mut context = context_of(vec![RuntimeAction {
+        input_files: vec!["document".to_owned()],
+        ..action("upload")
+    }]);
+    context.attachments = vec![json(&format!(
+        r#"{{"id":"{id}","name":"report.pdf","media_type":"application/pdf","size":25,"sha256":"{}","content":{{"type":"opaque","reason":"unsupported"}}}}"#,
+        "a".repeat(64)
+    ))];
+    let upload = ActionRequest {
+        input: json(&format!(r#"{{"document":"{id}"}}"#)),
+        ..request("upload", "hello-pulse", "interrupt-1")
+    };
+    let runtime = FakeRuntime::new(vec![suspension(vec![upload]), completed("Done")]);
+    let mut batch = FakeBatch::with(Box::new(|request| {
+        let ids: Vec<&str> = request.files.iter().map(|file| file.id.as_str()).collect();
+        assert_eq!(ids, ["0123456789abcdef0123456789abcdef"]);
+        Ok(InvokeOutcome::Completed(json("{}")))
+    }));
+    run(&runtime, &context, &Fake::default(), &mut batch)
+        .await
+        .expect("outcome");
+    assert_eq!(batch.invoked(), ["interrupt-1"]);
+}

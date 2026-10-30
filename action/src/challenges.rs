@@ -464,4 +464,4 @@ pub fn input_projection(arguments: &Value) -> Result<Value, HumanChallengeError>
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

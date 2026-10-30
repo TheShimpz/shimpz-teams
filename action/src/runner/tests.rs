@@ -1,8 +1,12 @@
 use std::sync::{Arc, Mutex};
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use std::time::{Duration, UNIX_EPOCH};
 
 use strict_json::Value;
-use team_assistant::manifest::{IntegrationDeclaration, ManifestPresentation};
+use team_assistant::manifest::IntegrationDeclaration;
+use team_assistant::manifest::ManifestPresentation;
 use team_assistant::spec::{ActionSpec, RuntimeContract};
 use team_core::clock::Clock;
 use team_core::exec::ExecExit;
@@ -61,6 +65,7 @@ fn binding() -> Binding {
         actions: vec![
             action("lookup", "read_only"),
             action("publish", "mutating"),
+            crate::files::tests::upload(),
             ActionSpec::of(&json(
                 r#"{"id":"sync","input_schema":{"type":"object"},"integrations":["cloudflare-write"]}"#,
             )),
@@ -93,6 +98,8 @@ struct World {
     _root: tempfile::TempDir,
     engine: Arc<FakeExec>,
     runner: Arc<Runner>,
+    audit: Arc<MemoryAudit>,
+    file: String,
 }
 
 fn oauth(integrations: &Arc<IntegrationStore>, entropy: Arc<CountingEntropy>) -> Arc<OAuthService> {
@@ -139,6 +146,8 @@ fn world() -> World {
     let (integrations, stored) = stores(root.path(), &entropy);
     let oauth = oauth(&integrations, entropy.clone());
     let engine = Arc::new(FakeExec::default());
+    let audit = Arc::new(MemoryAudit::default());
+    let (source, file) = crate::files::tests::store(root.path());
     let tunnel = team_integrations::https::Tunnel::new(
         "127.0.0.1".to_owned(),
         1,
@@ -161,16 +170,20 @@ fn world() -> World {
         slots: Arc::new(DockerSlots::default()),
         capacity: Capacity::default(),
         transport: Arc::new(Transport::new(tunnel)),
-        audit: Arc::new(MemoryAudit::default()),
+        audit: audit.clone(),
         workloads: Arc::new(Fixed(binding())),
         entropy,
         blocked: Mutex::default(),
         transcripts: Mutex::default(),
+        files: Arc::new(source),
+        file_slot: crate::files::FileSlot::default(),
     };
     World {
         _root: root,
         engine,
         runner: Arc::new(runner),
+        audit,
+        file,
     }
 }
 
@@ -203,6 +216,7 @@ fn request(interrupt: &str, action: &str) -> ActionRequest {
         assistant_id: "example".to_owned(),
         action: action.to_owned(),
         input: json(r#"{"q":"a"}"#),
+        files: Vec::new(),
     }
 }
 
@@ -344,6 +358,137 @@ async fn settled_batch_ends_on_provider_failure_or_stop() {
         Err(ActionFailure::Stopped)
     );
     assert_eq!(stopped.terminate().await, Ok(true));
+}
+
+fn upload_request(world: &World, interrupt: &str) -> ActionRequest {
+    ActionRequest {
+        input: json(&format!(r#"{{"document":"{}"}}"#, world.file)),
+        files: crate::files::selected(&[crate::files::tests::wire(&world.file)]),
+        ..request(interrupt, "upload")
+    }
+}
+
+async fn sent_text(sent: tokio::task::JoinHandle<Vec<u8>>) -> String {
+    String::from_utf8(sent.await.expect("joined")).expect("utf-8")
+}
+
+#[tokio::test]
+async fn file_bytes_reach_only_the_approved_replay_and_are_audited_by_id_and_size() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let first = upload_request(&world, "i-1");
+    let sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 0);
+    // The first invocation carries metadata only, so it cannot report success with the file.
+    let withheld = executor.invoke("team_1", &first, &Stop::new()).await;
+    assert_eq!(withheld, Err(ActionFailure::Uncertain));
+    let sent = sent_text(sent).await;
+    assert!(sent.contains(r#""content":{"type":"withheld"}"#) && !sent.contains("base64"));
+    let replay = [upload_request(&world, "i-2")];
+    let transcript = crate::files::tests::approved("i-2");
+    world.runner.set_transcript("team_1", transcript);
+    let sent = scripted(
+        &world.engine,
+        r#"{"type":"result","result":{"ok":true}}"#,
+        0,
+    );
+    let mut batch = executor.batch(scope(false));
+    batch.prepare(&replay).await.expect("prepared");
+    let completed = batch.invoke(&replay[0], &Stop::new()).await;
+    assert_eq!(
+        completed,
+        Ok(InvokeOutcome::Completed(json(r#"{"ok":true}"#)))
+    );
+    let encoded = STANDARD.encode(b"%PDF-1.4 quarterly report");
+    assert!(sent_text(sent).await.contains(&encoded));
+    let details: Vec<String> = world
+        .audit
+        .events()
+        .iter()
+        .flat_map(|event| event.fields().to_vec())
+        .filter_map(|(_, value)| match value {
+            Value::String(text) => Some(text),
+            _ => None,
+        })
+        .collect();
+    let delivered = format!("file-delivered:upload:{}:25", world.file);
+    assert!(details.iter().any(|detail| detail.contains(&delivered)));
+    assert!(details.iter().all(|detail| !detail.contains("Relat")));
+    assert!(world.runner.file_slot.free());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_admission_never_begins_the_journaled_attempt() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [upload_request(&world, "i-1")];
+    world
+        .runner
+        .set_transcript("team_1", crate::files::tests::approved("i-1"));
+    let mut batch = executor.batch(scope(false));
+    batch.prepare(&requests).await.expect("prepared");
+    let held = world.runner.file_slot.admit(true, &Stop::new()).await;
+    let busy = batch.invoke(&requests[0], &Stop::new()).await;
+    assert_eq!(busy, Err(ActionFailure::FileBusy));
+    let stop = Stop::new();
+    stop.stop();
+    let stopped = batch.invoke(&requests[0], &stop).await;
+    assert_eq!(stopped, Err(ActionFailure::Stopped));
+    drop(held);
+    assert_eq!(world.engine.started().len(), 0);
+    // Nothing was journaled `executing`, so the operation still runs once the slot is free.
+    let _sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 0);
+    let ran = batch.invoke(&requests[0], &Stop::new()).await;
+    assert_eq!(ran, Ok(InvokeOutcome::Completed(json("{}"))));
+}
+
+#[tokio::test]
+async fn delivered_bytes_outside_an_admitted_slot_never_reach_the_workload() {
+    let world = world();
+    let request = upload_request(&world, "i-1");
+    let binding = binding();
+    let action = binding.contract.action("upload").expect("declared").clone();
+    let target = super::Target {
+        team: "team_1",
+        binding: &binding,
+        action: &action,
+        operation_id: "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+    };
+    let delivery = super::Delivery {
+        file: request.files.first(),
+        admitted: None,
+    };
+    let transcript = crate::files::tests::approved("i-1");
+    let attempt = world
+        .runner
+        .attempt(&target, &request.input, &transcript, delivery, &Stop::new())
+        .await;
+    let refused = super::Failed::NotDispatched(ActionFailure::FileUnavailable);
+    assert_eq!(attempt, Err(refused));
+    assert_eq!(world.engine.started().len(), 0);
+}
+
+#[tokio::test]
+async fn a_file_the_turn_did_not_select_or_a_changed_file_is_refused_before_journaling() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let unselected = ActionRequest {
+        files: Vec::new(),
+        ..upload_request(&world, "i-1")
+    };
+    let mut batch = executor.batch(scope(false));
+    let prepared = batch.prepare(std::slice::from_ref(&unselected)).await;
+    assert_eq!(prepared, Err(ActionFailure::FileUnavailable));
+    let direct = executor.invoke("team_1", &unselected, &Stop::new()).await;
+    assert_eq!(direct, Err(ActionFailure::FileUnavailable));
+    // The file's commitment is in the fingerprint: a different file under the same id is a changed context.
+    let requests = [upload_request(&world, "i-2")];
+    let mut batch = executor.batch(scope(false));
+    batch.prepare(&requests).await.expect("prepared");
+    let mut changed = requests[0].clone();
+    changed.files[0].name = "other.pdf".to_owned();
+    let invoked = batch.invoke(&changed, &Stop::new()).await;
+    assert_eq!(invoked, Err(ActionFailure::ContextChanged));
+    assert_eq!(world.engine.started().len(), 0);
 }
 
 #[tokio::test]

@@ -14,8 +14,9 @@ use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
 
-use super::{Binding, Failed, Outcome, Runner};
+use super::{Binding, Delivery, Failed, Outcome, Runner};
 use crate::executor::{ActionBatch, ActionFailure, ActionRequest, BatchScope, InvokeOutcome};
+use crate::files;
 use crate::human::ActionTranscript;
 use crate::journal::{self, JournalError, Operation, canonical, sha256_hex};
 
@@ -69,6 +70,19 @@ fn pairs(values: &[(String, u64)]) -> Value {
             })
             .collect(),
     )
+}
+
+/// Journals `operation` `executing`, or finds it settled.
+async fn begin(
+    journal: &Arc<journal::Journal>,
+    handle: &journal::Batch,
+    operation: &Operation,
+) -> Result<journal::Execution, ActionFailure> {
+    let (journal, handle, operation) = (Arc::clone(journal), handle.clone(), operation.clone());
+    tokio::task::spawn_blocking(move || journal.begin(&handle, &operation))
+        .await
+        .map_err(|_| ActionFailure::StateUnavailable)?
+        .map_err(journal_failure)
 }
 
 fn journal_failure(error: JournalError) -> ActionFailure {
@@ -143,6 +157,8 @@ impl Batch {
         let (binding, action) = self.runner.admitted(&self.scope.team_id, request).await?;
         let (integrations, stored) = self.generations(&binding, &action, excluded)?;
         let (_, present) = self.generations(&binding, &action, &[])?;
+        let file = files::action_file(&action.input_files, &request.input, &request.files)
+            .map_err(|_| ActionFailure::FileUnavailable)?;
         let identity = Value::Object(vec![
             (
                 "assistant_container_id".to_owned(),
@@ -158,7 +174,7 @@ impl Batch {
             ),
             ("integration_generations".to_owned(), pairs(&integrations)),
             ("stored_input_generations".to_owned(), pairs(&stored)),
-            ("files".to_owned(), Value::Array(Vec::new())),
+            ("files".to_owned(), files::commitments(file)),
             ("input".to_owned(), request.input.clone()),
             ("action".to_owned(), Value::String(request.action.clone())),
         ]);
@@ -194,15 +210,15 @@ impl Batch {
             return Err(ActionFailure::ContextChanged);
         }
         let (binding, action) = self.runner.admitted(&self.scope.team_id, request).await?;
-        let blocking = {
-            let (journal, handle, operation) =
-                (Arc::clone(&journal), handle.clone(), operation.clone());
-            tokio::task::spawn_blocking(move || journal.begin(&handle, &operation))
-        };
-        let decision = blocking
-            .await
-            .map_err(|_| ActionFailure::StateUnavailable)?
-            .map_err(journal_failure)?;
+        let file = files::action_file(&action.input_files, &request.input, &request.files)
+            .map_err(|_| ActionFailure::FileUnavailable)?;
+        let transcript = self.transcript(&request.interrupt_id);
+        // A delivery holds the one file-RPC slot before its execution is journaled, so a refusal here leaves the
+        // journal exactly as it was (ADR-0093).
+        let runner = Arc::clone(&self.runner);
+        let granted = files::grants(file, &action, &transcript);
+        let admitted = runner.file_slot.admit(granted, stop).await?;
+        let decision = begin(&journal, &handle, &operation).await?;
         if !decision.execute {
             return decision
                 .result
@@ -210,20 +226,15 @@ impl Batch {
                 .ok_or(ActionFailure::StateUnavailable);
         }
         self.executing_here.push(operation.interrupt_id.clone());
-        let transcript = self.transcript(&request.interrupt_id);
-        let attempt = self
-            .runner
-            .attempt(
-                &super::Target {
-                    team: &self.scope.team_id,
-                    binding: &binding,
-                    action: &action,
-                    operation_id: &decision.operation_id,
-                },
-                &request.input,
-                &transcript,
-                stop,
-            )
+        let target = super::Target {
+            team: &self.scope.team_id,
+            binding: &binding,
+            action: &action,
+            operation_id: &decision.operation_id,
+        };
+        let delivery = Delivery { file, admitted };
+        let attempt = runner
+            .attempt(&target, &request.input, &transcript, delivery, stop)
             .await;
         self.settle(&handle, &operation, &action, attempt).await
     }

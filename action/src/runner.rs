@@ -22,7 +22,10 @@ use team_integrations::service::OAuthService;
 use team_integrations::store::{Declaration, IntegrationStore};
 use tokio::time::Instant;
 
-use crate::executor::{ActionBatch, ActionExecutor, ActionFailure, ActionRequest, BatchScope};
+use crate::executor::{
+    ActionBatch, ActionExecutor, ActionFailure, ActionFile, ActionRequest, BatchScope,
+};
+use crate::files::{self, Admitted, FileSlot, FileSource};
 use crate::human::{ActionTranscript, HumanRequest};
 use crate::journal::Journal;
 use crate::projection::{self, Projected, Refused, ResultPolicy};
@@ -109,6 +112,19 @@ pub struct Runner {
     pub blocked: Mutex<HashSet<String>>,
     /// The memory-only replay transcripts of paused Actions, by Team and interrupt.
     pub transcripts: Mutex<Vec<(String, ActionTranscript)>>,
+    /// Team storage, which holds the bytes of the files turns select.
+    pub files: Arc<dyn FileSource>,
+    /// The one file-RPC slot every delivery of file bytes holds.
+    pub file_slot: FileSlot,
+}
+
+/// One attempt's file: the selected file its Action names, and the slot a delivery of its bytes holds.
+#[derive(Debug, Default)]
+pub(crate) struct Delivery<'a> {
+    /// The selected file, or `None` for an ordinary Action.
+    pub file: Option<&'a ActionFile>,
+    /// The held slot, only for an invocation that delivers the bytes.
+    pub admitted: Option<Admitted<'a>>,
 }
 
 impl std::fmt::Debug for Runner {
@@ -193,6 +209,14 @@ pub(crate) struct Private {
 }
 
 impl Private {
+    /// The ids of the held Stored Inputs.
+    fn held(&self) -> Vec<String> {
+        self.stored_inputs
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     /// Every value Team injects, by `integration:` or `stored-input:` id.
     fn injected(&self) -> Vec<(String, Secret)> {
         let integrations = self
@@ -315,16 +339,35 @@ impl Runner {
         result: &str,
         detail: &str,
     ) -> Result<(), ActionFailure> {
+        let detail = format!("{detail}:{}", target.action.id);
+        self.record_detail(target, result, &detail).await
+    }
+
+    /// Records a delivered file by its opaque id and size only, never its name or content (ADR-0093).
+    async fn record_file(
+        &self,
+        target: &Target<'_>,
+        result: &str,
+        kind: &str,
+        sent: &(String, i64),
+    ) {
+        let detail = format!("{kind}:{}:{}:{}", target.action.id, sent.0, sent.1);
+        let _ = self.record_detail(target, result, &detail).await;
+    }
+
+    async fn record_detail(
+        &self,
+        target: &Target<'_>,
+        result: &str,
+        detail: &str,
+    ) -> Result<(), ActionFailure> {
         let text = |value: &str| Value::String(value.to_owned());
         let event = AuditEvent::new()
             .with("operation", text("assistant-action"))
             .with("result", text(result))
             .with("team_id", text(target.team))
             .with("assistant", text(&target.binding.assistant_id))
-            .with(
-                "detail",
-                Value::String(format!("{detail}:{}", target.action.id)),
-            );
+            .with("detail", text(detail));
         self.audit
             .record(event)
             .await
@@ -404,33 +447,60 @@ impl Runner {
         })
     }
 
-    /// Runs one attempt of `target`'s Action with `input`.
+    /// Whether `container` could not be proven stopped after a failure (a poisoned lock counts as blocked).
+    fn is_blocked(&self, container: &str) -> bool {
+        self.blocked
+            .lock()
+            .map_or(true, |blocked| blocked.contains(container))
+    }
+
+    /// The invocation's `files`: the selected file, with its bytes only behind the Action's authorization.
+    async fn invocation_files(
+        &self,
+        target: &Target<'_>,
+        input: &Value,
+        transcript: &ActionTranscript,
+        delivery: &Delivery<'_>,
+    ) -> Result<Value, ActionFailure> {
+        let granted = match (delivery.file, &delivery.admitted) {
+            (Some(file), Some(_)) => {
+                let source = Arc::clone(&self.files);
+                let (team, id) = (target.team.to_owned(), file.id.clone());
+                let read = tokio::task::spawn_blocking(move || source.read(&team, &id)).await;
+                let read = read.map_err(|_| ActionFailure::FileUnavailable)?;
+                Some(read.map_err(|_| ActionFailure::FileUnavailable)?)
+            }
+            _ => None,
+        };
+        files::deliver(
+            target.action,
+            delivery.file,
+            transcript,
+            input,
+            granted.as_ref(),
+        )
+        .map_err(|_| ActionFailure::FileUnavailable)
+    }
+
+    /// Runs one attempt of `target`'s Action with `input`; a delivery's slot is released when it ends.
     pub(crate) async fn attempt(
         &self,
         target: &Target<'_>,
         input: &Value,
         transcript: &ActionTranscript,
+        delivery: Delivery<'_>,
         stop: &Stop,
     ) -> Result<Outcome, Failed> {
         let binding = target.binding;
-        if !target.action.input_files.is_empty() {
-            // A file-taking Action needs the turn's selected file, which this seam does not carry.
-            return Err(Failed::NotDispatched(ActionFailure::InvalidInput));
-        }
-        if self
-            .blocked
-            .lock()
-            .map_or(true, |blocked| blocked.contains(&binding.container))
-        {
+        if self.is_blocked(&binding.container) {
             return Err(Failed::NotDispatched(ActionFailure::Blocked));
         }
         let private = self.private(target).await.map_err(Failed::NotDispatched)?;
-        let names: Vec<String> = private
-            .stored_inputs
-            .iter()
-            .map(|(id, _)| id.clone())
-            .collect();
-        let files = Value::Object(Vec::new());
+        let names = private.held();
+        let files = self
+            .invocation_files(target, input, transcript, &delivery)
+            .await
+            .map_err(Failed::NotDispatched)?;
         let encoded = rpc::encode_invocation(
             input,
             &names,
@@ -443,17 +513,55 @@ impl Runner {
         self.record(target, "ok", "started")
             .await
             .map_err(Failed::NotDispatched)?;
+        let deadline = delivery.admitted.as_ref().map_or_else(
+            || Instant::now() + rpc::RPC_TIMEOUT,
+            |admitted| admitted.deadline,
+        );
         let call = RpcCall {
             container: &binding.container,
             action: &target.action.id,
             encoded: &encoded,
-            deadline: Instant::now() + rpc::RPC_TIMEOUT,
+            deadline,
             stop,
             broker: Some(&mut broker),
         };
-        match rpc::exchange(self.engine.as_ref(), &self.slots, call).await {
-            Ok(raw) => self.projected(target, &raw, &private, transcript).await,
-            Err(error) => Err(self.rpc_failed(target, error, stop).await),
+        let exchanged = rpc::exchange(self.engine.as_ref(), &self.slots, call).await;
+        let withheld =
+            delivery.file.is_some() && !transcript.authorized(&target.action.human_requests);
+        self.exchanged(
+            target,
+            exchanged,
+            files::delivered(&files).as_ref(),
+            (&private, transcript, withheld),
+            stop,
+        )
+        .await
+    }
+
+    async fn exchanged(
+        &self,
+        target: &Target<'_>,
+        exchanged: Result<Value, RpcError>,
+        sent: Option<&(String, i64)>,
+        context: (&Private, &ActionTranscript, bool),
+        stop: &Stop,
+    ) -> Result<Outcome, Failed> {
+        match exchanged {
+            Ok(raw) => {
+                if let Some(sent) = sent {
+                    self.record_file(target, "ok", "file-delivered", sent).await;
+                }
+                self.projected(target, &raw, context).await
+            }
+            Err(error) => {
+                let failed = self.rpc_failed(target, error, stop).await;
+                if let Some(sent) = sent {
+                    // The exchange failed, so whether the workload received the bytes is unknown.
+                    self.record_file(target, "error", "file-delivery-unconfirmed", sent)
+                        .await;
+                }
+                Err(failed)
+            }
         }
     }
 
@@ -478,16 +586,11 @@ impl Runner {
         &self,
         target: &Target<'_>,
         raw: &Value,
-        private: &Private,
-        transcript: &ActionTranscript,
+        (private, transcript, file_withheld): (&Private, &ActionTranscript, bool),
     ) -> Result<Outcome, Failed> {
         let action = target.action;
         let injected = private.injected();
-        let held: Vec<String> = private
-            .stored_inputs
-            .iter()
-            .map(|(id, _)| id.clone())
-            .collect();
+        let held = private.held();
         let empty = Value::Array(Vec::new());
         let messages = target
             .binding
@@ -505,7 +608,7 @@ impl Runner {
             held_stored_inputs: &held,
             declared_stored_inputs: &action.stored_inputs,
             messages,
-            file_withheld: false,
+            file_withheld,
         };
         let projected = projection::project(raw, &policy, |result| {
             action.validate(Direction::Output, result).is_ok()
@@ -588,8 +691,15 @@ impl ActionExecutor for Executor {
                 operation_id: &operation_id,
             };
             let transcript = ActionTranscript::new(&request.interrupt_id);
+            // The direct route has no replay, so it never delivers bytes and holds no slot.
+            let file = files::action_file(&action.input_files, &request.input, &request.files)
+                .map_err(|_| ActionFailure::FileUnavailable)?;
+            let delivery = Delivery {
+                file,
+                admitted: None,
+            };
             match runner
-                .attempt(&target, &request.input, &transcript, stop)
+                .attempt(&target, &request.input, &transcript, delivery, stop)
                 .await
             {
                 Ok(Outcome::Completed(result)) => Ok(result),

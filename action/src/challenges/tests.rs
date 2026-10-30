@@ -30,7 +30,7 @@ fn messages() -> Value {
         .clone()
 }
 
-fn approval() -> HumanRequest {
+pub(crate) fn approval() -> HumanRequest {
     let Some(Value::Array(cases)) = vectors().get("request_cases").cloned() else {
         panic!("cases")
     };

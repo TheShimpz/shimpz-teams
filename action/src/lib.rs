@@ -8,6 +8,7 @@
 pub mod challenges;
 pub mod executor;
 pub mod failure;
+pub mod files;
 pub mod frames;
 pub mod human;
 pub mod journal;

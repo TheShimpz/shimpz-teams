@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use strict_json::Value;
-use team_action::executor::{self, ActionBatch, ActionFailure, InvokeOutcome};
+use team_action::executor::{self, ActionBatch, ActionFailure, ActionFile, InvokeOutcome};
 use team_action::result::MAX_RESULT_BYTES;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
@@ -200,14 +200,15 @@ pub trait Strategy: Send + Sync {
     }
 }
 
-/// The executor's request for one admitted Brain request.
+/// The executor's request for one admitted Brain request, with the files its turn selected (ADR-0093).
 #[must_use]
-pub fn executor_request(request: &ActionRequest) -> executor::ActionRequest {
+pub fn executor_request(request: &ActionRequest, files: &[ActionFile]) -> executor::ActionRequest {
     executor::ActionRequest {
         interrupt_id: request.interrupt_id.clone(),
         assistant_id: request.assistant_id.clone(),
         action: request.action.clone(),
         input: request.input.clone(),
+        files: files.to_vec(),
     }
 }
 
@@ -359,6 +360,7 @@ async fn run_batch(
     strategy: &dyn Strategy,
     batch: &mut dyn ActionBatch,
     requests: &[ActionRequest],
+    files: &[ActionFile],
     checkpoint: &ChatContinuation,
 ) -> Result<Ran, ChatError> {
     let mut results: Vec<(String, Value)> = Vec::with_capacity(requests.len());
@@ -378,7 +380,7 @@ async fn run_batch(
                 }),
             );
             let invoked = batch
-                .invoke(&executor_request(request), strategy.stop())
+                .invoke(&executor_request(request, files), strategy.stop())
                 .await;
             stopped_unless(strategy, invoked.map_err(ChatError::Action))?
         };
@@ -451,6 +453,19 @@ struct Drive<'a> {
 }
 
 impl Drive<'_> {
+    /// The files the turn selected.
+    fn files(&self) -> Vec<ActionFile> {
+        team_action::files::selected(&self.context.attachments)
+    }
+
+    fn executor_requests(&self, requests: &[ActionRequest]) -> Vec<executor::ActionRequest> {
+        let files = self.files();
+        requests
+            .iter()
+            .map(|request| executor_request(request, &files))
+            .collect()
+    }
+
     async fn complete(
         &self,
         turn: RuntimeTurn,
@@ -499,7 +514,7 @@ impl Drive<'_> {
         if strategy.pause_before_batch(&requests).await? {
             return Ok((requests, files, true));
         }
-        let prepared: Vec<_> = requests.iter().map(executor_request).collect();
+        let prepared = self.executor_requests(&requests);
         batch.prepare(&prepared).await.map_err(ChatError::Action)?;
         Ok((requests, files, false))
     }
@@ -528,7 +543,7 @@ impl Drive<'_> {
             ));
         }
         let _span = strategy.progress().span(Phase::ActionDelivery, None);
-        let delivered: Vec<_> = requests.iter().map(executor_request).collect();
+        let delivered = self.executor_requests(requests);
         batch
             .delivered(&delivered)
             .await
@@ -552,7 +567,7 @@ impl Drive<'_> {
             })));
         }
         let (results, invoked) =
-            match run_batch(self.strategy, batch, &requests, &checkpoint).await? {
+            match run_batch(self.strategy, batch, &requests, &self.files(), &checkpoint).await? {
                 Ran::Human(suspension) => return Ok(Err(Outcome::Human(*suspension))),
                 Ran::Done(results, invoked) => (results, invoked),
             };

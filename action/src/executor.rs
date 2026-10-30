@@ -22,6 +22,23 @@ pub struct ActionRequest {
     pub action: String,
     /// The schema-validated input.
     pub input: Value,
+    /// The files the logical turn selected, as Team bound them; a file-taking Action names one by id (ADR-0093).
+    pub files: Vec<ActionFile>,
+}
+
+/// One file a turn selected, exactly as the turn bound it; its bytes stay in Team storage.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionFile {
+    /// Its opaque id.
+    pub id: String,
+    /// Its name.
+    pub name: String,
+    /// The media type Team determined while preparing it.
+    pub media_type: String,
+    /// Its size in bytes.
+    pub size: i64,
+    /// The SHA-256 of its bytes, in hex.
+    pub sha256: String,
 }
 
 /// What one batch is bound to.
@@ -71,6 +88,11 @@ pub enum ActionFailure {
     DockerUnavailable,
     /// An Integration the Action declares is not connected or could not be resolved (428); nothing was dispatched.
     IntegrationUnavailable,
+    /// The file the Action names is not one the turn selected, or no longer has its turn's bytes; nothing was
+    /// dispatched.
+    FileUnavailable,
+    /// Another file delivery held the one file-RPC slot past this delivery's deadline; nothing was dispatched.
+    FileBusy,
 }
 
 /// One durable batch of a Brain suspension.
