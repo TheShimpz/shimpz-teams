@@ -186,13 +186,15 @@ pub trait Strategy: Send + Sync {
     fn browser_delivered(&self, _request: &BrowserRequest) {}
 
     /// Makes the turn's state after a Brain answer durable before anything it supersedes is deleted (ADR-0125): a
-    /// restarted Team resumes the turn from here.
+    /// restarted Team resumes the turn from here, first acknowledging the `undelivered` batch whose results the answer
+    /// holds.
     ///
     /// # Errors
     /// [`ChatError`] when it could not be made durable; the turn then ends.
     fn checkpoint<'a>(
         &'a self,
         _continuation: &'a ChatContinuation,
+        _undelivered: &'a [ActionRequest],
     ) -> BoxFuture<'a, Result<(), ChatError>> {
         Box::pin(async { Ok(()) })
     }
@@ -568,7 +570,7 @@ impl Drive<'_> {
         requests: &[ActionRequest],
         next: &ChatContinuation,
     ) -> Result<(), ChatError> {
-        self.strategy.checkpoint(next).await?;
+        self.strategy.checkpoint(next, requests).await?;
         let _span = self.strategy.progress().span(Phase::ActionDelivery, None);
         let delivered = self.executor_requests(requests);
         batch.delivered(&delivered).await.map_err(ChatError::Action)
@@ -631,7 +633,7 @@ impl Drive<'_> {
         let (resumed, terminal) =
             run_browser(self.runtime, self.context, &standing.turn, self.strategy).await?;
         standing.turn = resumed;
-        self.strategy.checkpoint(&standing.at(round)).await?;
+        self.strategy.checkpoint(&standing.at(round), &[]).await?;
         if let Some(request) = &request {
             self.strategy.browser_delivered(request);
         }
@@ -723,7 +725,34 @@ pub async fn run_until_pause(
         round_index: 0,
         file_actions: 0,
     };
-    strategy.checkpoint(&continuation).await?;
+    strategy.checkpoint(&continuation, &[]).await?;
+    drive(runtime, context, continuation, strategy, batch).await
+}
+
+/// Continues a turn a previous Team process left at its checkpoint: the batch whose results the checkpoint holds is
+/// acknowledged first (its receipts replay from the Action journal), then the turn goes on (ADR-0125).
+///
+/// # Errors
+/// [`ChatError`] for every turn that does not complete or pause.
+pub async fn continue_after_restart(
+    runtime: &dyn Runtime,
+    context: &RuntimeContext,
+    (continuation, undelivered): (ChatContinuation, &[ActionRequest]),
+    strategy: &dyn Strategy,
+    batch: &mut dyn ActionBatch,
+) -> Result<Outcome, ChatError> {
+    if !undelivered.is_empty() {
+        let files = team_action::files::selected(&context.attachments);
+        let requests: Vec<_> = undelivered
+            .iter()
+            .map(|request| executor_request(request, &files))
+            .collect();
+        batch.prepare(&requests).await.map_err(ChatError::Action)?;
+        batch
+            .delivered(&requests)
+            .await
+            .map_err(ChatError::Action)?;
+    }
     drive(runtime, context, continuation, strategy, batch).await
 }
 

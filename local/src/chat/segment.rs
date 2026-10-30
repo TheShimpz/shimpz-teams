@@ -9,7 +9,8 @@ use team_action::executor::{ActionBatch, ActionFailure, ActionRequest, BatchScop
 use team_action::human::validate_request;
 use team_assistant::spec::Direction;
 use team_chat::orchestrator::{
-    ChatContinuation, ChatError, Outcome, Refusal, Strategy, continue_after_pause, run_until_pause,
+    ChatContinuation, ChatError, Outcome, Refusal, Strategy, continue_after_restart,
+    run_until_pause,
 };
 use team_chat::progress::{Phase, Reporter};
 use team_core::future::BoxFuture;
@@ -79,6 +80,8 @@ pub struct SegmentRequest {
     pub refine: Option<String>,
     /// The durable chat turn this segment checkpoints, when it is one (ADR-0125).
     pub durable: Option<std::sync::Arc<super::turn::durable::Durable>>,
+    /// The batch a resumed checkpoint's answer holds the results of, acknowledged before the turn goes on.
+    pub undelivered: Vec<BrainRequest>,
 }
 
 /// One segment's outcome and what the turn's next request binds.
@@ -602,6 +605,7 @@ impl Strategy for TurnStrategy<'_> {
     fn checkpoint<'a>(
         &'a self,
         continuation: &'a ChatContinuation,
+        undelivered: &'a [BrainRequest],
     ) -> BoxFuture<'a, Result<(), ChatError>> {
         Box::pin(async move {
             let Some(durable) = &self.request.durable else {
@@ -614,7 +618,7 @@ impl Strategy for TurnStrategy<'_> {
                 self.setup.identity(),
                 (&request.credential.0, &self.model, request.locale.as_ref()),
             );
-            durable.checkpoint(pending)
+            durable.checkpoint(pending, undelivered)
         })
     }
 
@@ -886,7 +890,8 @@ impl ChatService {
                 .await
             }
             (Some(continuation), None) => {
-                continue_after_pause(brain, context, continuation.clone(), strategy, batch).await
+                let resumed = (continuation.clone(), request.undelivered.as_slice());
+                continue_after_restart(brain, context, resumed, strategy, batch).await
             }
             _ => Err(ChatError::Orchestration("invalid chat continuation")),
         }

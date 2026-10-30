@@ -129,7 +129,7 @@ fn a_turn_left_running_by_a_previous_process_resumes_from_its_checkpoint() {
 }
 
 #[test]
-fn a_team_keeps_a_bounded_number_of_turns_and_forgets_them_with_the_team() {
+fn a_team_keeps_its_turns_within_their_grant_and_forgets_them_with_the_team() {
     let directory = tempfile::tempdir().expect("directory");
     let turns = turns(&directory);
     for index in 0..MAX_TURNS {
@@ -138,16 +138,24 @@ fn a_team_keeps_a_bounded_number_of_turns_and_forgets_them_with_the_team() {
             panic!("new")
         };
         turns.end(&live, &terminal()).expect("ended");
+        turns
+            .settle(TEAM, &next.nonce, &next.authority)
+            .expect("delivered");
     }
+    // Even delivered, a turn within its grant keeps its tombstone: its send never runs twice.
     let one_more = sender(&"f".repeat(32), r#"{"message":"hi"}"#);
     let full = turns.claim(TEAM, &one_more, NOW).expect_err("full");
     assert_eq!((full.status, full.code), (429, Some("turns-full")));
-    // A delivered turn makes room.
-    turns
-        .settle(TEAM, &format!("{:032x}", 0), &one_more.authority)
-        .expect("delivered");
+    let first = sender(&format!("{:032x}", 0), r#"{"message":"hi"}"#);
+    let again = turns.claim(TEAM, &first, NOW + 1).expect_err("delivered");
+    assert_eq!(again.code, Some("turn-delivered"));
+    // Once their grants ended, they go.
+    let later = Sender {
+        issued_at: NOW + GRANT_SECONDS,
+        ..one_more
+    };
     assert!(matches!(
-        turns.claim(TEAM, &one_more, NOW),
+        turns.claim(TEAM, &later, NOW + GRANT_SECONDS),
         Ok(Claim::New(_))
     ));
     turns.forget_team(TEAM).expect("forgotten");

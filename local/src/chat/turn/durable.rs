@@ -27,6 +27,7 @@ use super::super::service::{ChatService, stream_terminal, terminal_of};
 use super::store::{Claim, Live, Sender, Terminal, Turns};
 use super::{ChatBody, Request, chat_body};
 use crate::http::service::{Answer, Body, Call, Principal, Problem};
+use team_inference::runtime::{ActionRequest, RuntimeTurn, TurnStatus, parse_turn, turn_value};
 
 /// One durable turn as its segments see it: its hold, and what its checkpoints carry beside the continuation.
 pub struct Durable {
@@ -52,7 +53,11 @@ impl Durable {
     ///
     /// # Errors
     /// [`ChatError`] when it does not round-trip or could not be made durable.
-    pub fn checkpoint(&self, mut pending: PendingLocalChat) -> Result<(), ChatError> {
+    pub fn checkpoint(
+        &self,
+        mut pending: PendingLocalChat,
+        undelivered: &[ActionRequest],
+    ) -> Result<(), ChatError> {
         let started = self
             .started
             .lock()
@@ -61,8 +66,11 @@ impl Durable {
         if let Some((source, usage)) = started {
             (pending.source, pending.usage) = (source, Some(usage));
         }
-        let payload = checkpoint_payload(&pending);
-        if checkpoint(&payload).is_err() {
+        let payload = object_of(vec![
+            ("pending", checkpoint_payload(&pending)),
+            ("undelivered", undelivered_value(undelivered)),
+        ]);
+        if saved(&payload).is_none() {
             return Err(ChatError::Orchestration(
                 "chat turn checkpoint does not round-trip",
             ));
@@ -71,6 +79,32 @@ impl Durable {
             .checkpoint(&self.live, payload)
             .map_err(|_| ChatError::Orchestration("chat turn checkpoint is unavailable"))
     }
+}
+
+/// The batch a checkpoint's answer holds the results of, kept as the suspended turn that asked for it.
+fn undelivered_value(undelivered: &[ActionRequest]) -> Value {
+    if undelivered.is_empty() {
+        return Value::Null;
+    }
+    turn_value(&RuntimeTurn {
+        status: TurnStatus::ActionRequired,
+        reply: String::new(),
+        actions: undelivered.to_vec(),
+        clarification: None,
+        memory: Vec::new(),
+        routine: None,
+        browser: None,
+    })
+}
+
+/// A checkpoint's pending turn and the batch it still has to acknowledge, or `None`.
+fn saved(value: &Value) -> Option<(PendingLocalChat, Vec<ActionRequest>)> {
+    let pending = checkpoint(value.get("pending")?).ok()?;
+    let undelivered = match value.get("undelivered")? {
+        Value::Null => Vec::new(),
+        turn => parse_turn(turn)?.actions,
+    };
+    Some((pending, undelivered))
 }
 
 /// The checkpoint of a turn's state after a Brain answer, with what its segment selected and ran on.
@@ -175,6 +209,7 @@ impl ChatService {
             Claim::New(live) => (live, None),
             Claim::Orphaned(live, checkpoint) => (live, checkpoint),
         };
+        let new = resumed.is_none();
         let team_id = request.team_id.clone();
         let durable = Arc::new(Durable {
             turns: Arc::clone(&self.parts.turns),
@@ -193,6 +228,19 @@ impl ChatService {
             }
         };
         let terminal = terminal_of(result);
+        let admitted = durable
+            .started
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some();
+        if !admitted {
+            // Its admission refused it, or answered with the Team's pending challenge: nothing of it ran, so its send
+            // may be admitted later. A turn an earlier process left stays at its checkpoint.
+            if new {
+                let _ = self.parts.turns.forget(&durable.live);
+            }
+            return terminal;
+        }
         // A terminal that could not be recorded is still streamed; the turn stays running at its last checkpoint, so a
         // later send of it resumes from there.
         let _ = self.parts.turns.end(&durable.live, &terminal);
@@ -208,19 +256,24 @@ impl ChatService {
         durable: Arc<Durable>,
         progress: Reporter,
     ) -> Result<Value, Problem> {
-        let Some(saved) = resumed else {
+        let Some(checkpointed) = resumed else {
             return self.turn(request, body, progress, Some(durable)).await;
         };
-        let pending = checkpoint(&saved)
-            .map_err(|_| Problem::new(503, "the chat turn cannot resume", "turn-unresumable"))?;
+        let (pending, undelivered) = saved(&checkpointed).ok_or(Problem::new(
+            503,
+            "the chat turn cannot resume",
+            "turn-unresumable",
+        ))?;
         let admitted = self.admit(&request.team_id)?;
-        if let (source, Some(usage)) = (pending.source.clone(), pending.usage.clone()) {
-            durable.started(source, usage);
-        }
+        let usage = pending
+            .usage
+            .clone()
+            .unwrap_or_else(|| TurnUsage::start(self.now_ms()));
+        durable.started(pending.source.clone(), usage);
         self.continue_paused(
             &admitted,
             request,
-            pending,
+            (pending, undelivered),
             (Vec::new(), 0),
             progress,
             Some(durable),

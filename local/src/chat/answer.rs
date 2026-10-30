@@ -279,8 +279,15 @@ impl ChatService {
                 self.admit_answer(&team_id, &challenge, &answer.2, &setup.assistants)?;
             (pending, transcripts)
         };
-        self.continue_paused(&admitted, request, pending, transcripts, progress, None)
-            .await
+        self.continue_paused(
+            &admitted,
+            request,
+            (pending, Vec::new()),
+            transcripts,
+            progress,
+            None,
+        )
+        .await
     }
 
     /// Admits one response, sealing a Stored Input answer while the challenge is still held, so it is consumed only
@@ -324,7 +331,10 @@ impl ChatService {
         &self,
         admitted: &Admitted,
         request: Request,
-        pending: PendingLocalChat,
+        (pending, undelivered): (
+            PendingLocalChat,
+            Vec<team_inference::runtime::ActionRequest>,
+        ),
         transcripts: (Vec<team_action::human::ActionTranscript>, usize),
         progress: Reporter,
         durable: Option<Arc<super::turn::durable::Durable>>,
@@ -353,6 +363,7 @@ impl ChatService {
             recording: pending.recording.clone(),
             refine: None,
             durable,
+            undelivered,
         };
         let segment = self.run_segment(&segment).await?;
         let usage = pending
@@ -451,8 +462,15 @@ impl ChatService {
             pending
         };
         let transcripts = (pending.transcripts.clone(), pending.requests_used);
-        self.continue_paused(&admitted, request, pending, transcripts, progress, None)
-            .await
+        self.continue_paused(
+            &admitted,
+            request,
+            (pending, Vec::new()),
+            transcripts,
+            progress,
+            None,
+        )
+        .await
     }
 }
 

@@ -32,8 +32,8 @@ use crate::http::service::Problem;
 
 /// The state file's schema.
 pub const SCHEMA_VERSION: i64 = 1;
-/// The most turns one Team keeps: one running at a time, the rest ended or delivered.
-pub const MAX_TURNS: usize = 16;
+/// The most turns one Team keeps within their grants: one running at a time, the rest ended or tombstones.
+pub const MAX_TURNS: usize = 256;
 /// How long a turn's authority lasts from its send without Admin: Admin's session idle bound.
 pub const GRANT_SECONDS: i64 = 3600;
 /// The largest sealed plaintext of one turn.
@@ -362,31 +362,29 @@ impl Turns {
         })
     }
 
-    /// Makes room for one more turn: delivered turns go first, oldest first, then turns whose authority ended.
+    /// Makes room for one more turn by forgetting the turns whose grant ended, which no send can name again; a
+    /// tombstone within its grant is kept, so a lost acknowledgment never lets its send run twice.
     fn room(records: &mut Vec<Record>, now: i64) -> Result<(), Problem> {
-        while records.len() >= MAX_TURNS {
-            let delivered = records
-                .iter()
-                .position(|record| record.state == "delivered");
-            let expired = || {
-                records
-                    .iter()
-                    .position(|record| record.sender.grant_deadline() <= now)
-            };
-            match delivered.or_else(expired) {
-                Some(index) => {
-                    records.remove(index);
-                }
-                None => {
-                    return Err(problem(
-                        429,
-                        "the Team holds too many undelivered chat turns",
-                        "turns-full",
-                    ));
-                }
-            }
+        records.retain(|record| record.sender.grant_deadline() > now);
+        if records.len() >= MAX_TURNS {
+            return Err(problem(
+                429,
+                "the Team holds too many chat turns within their grant",
+                "turns-full",
+            ));
         }
         Ok(())
+    }
+
+    /// Forgets a turn that ran nothing (its admission refused it), so the same send may be admitted later.
+    ///
+    /// # Errors
+    /// 503 when the turns cannot be read or written.
+    pub fn forget(&self, live: &Live) -> Result<(), Problem> {
+        let _guard = self.guard();
+        let mut records = self.read(live.team_id())?;
+        records.retain(|record| record.sender.nonce != live.nonce() || record.state != "running");
+        self.write(live.team_id(), &records)
     }
 
     fn hold(self: &Arc<Self>, team_id: &str, nonce: &str) -> Live {

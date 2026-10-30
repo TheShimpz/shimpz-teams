@@ -245,6 +245,14 @@ async fn a_team_that_died_after_the_brain_answered_delivers_the_reply_without_ru
     // The checkpoint held the Brain's completed answer: no Brain call and no Action ran again.
     assert_eq!(restarted.received().len(), 0);
     assert_eq!(harness.executor.invoked(), ["interrupt-1"]);
+    // The batch whose results the checkpoint held is acknowledged first, so the next one may open.
+    let delivered = harness
+        .executor
+        .events()
+        .iter()
+        .filter(|event| event.starts_with("delivered"))
+        .count();
+    assert_eq!(delivered, 1);
 }
 
 #[tokio::test]
@@ -283,4 +291,21 @@ async fn a_revoked_turn_is_never_resumed_and_an_expired_one_is_refused() {
         expired.expect_err("expired").code,
         Some("authority-expired")
     );
+}
+
+#[tokio::test]
+async fn a_send_its_admission_refused_runs_later_instead_of_receiving_the_refusal_again() {
+    let (harness, died) = dying(BrainOperation::Turn);
+    let first = chat_body("Hello", &[], None);
+    sent(&harness.service, &first, || died.load(Ordering::SeqCst)).await;
+    // The Team's slot is held: the second send is refused before anything of it runs.
+    let second = chat_body("Again", &[], None);
+    let refused = chat_on(&harness.service, &second).await;
+    assert_eq!(refused.code(), Some("chat-active"));
+    // After a restart the slot is free, and the same send runs now.
+    let restarted = Arc::new(ScriptedBrain::default());
+    restarted.answer(Ok(reply("Again.")));
+    let service = harness.after_death(Arc::clone(&restarted));
+    let done = chat_on(&service, &second).await;
+    assert_eq!((done.status, done.text("reply")), (200, Some("Again.")));
 }

@@ -300,6 +300,7 @@ fn first_segment(
         recording,
         refine: body.refine.clone(),
         durable: None,
+        undelivered: Vec::new(),
     }
 }
 
