@@ -1,0 +1,48 @@
+[package]
+name = "team-local-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "cargo-fuzz targets for the Local controller's parsers of untrusted Browser bytes"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+team-local = { path = ".." }
+tokio = { version = "=1.53.3", default-features = false, features = ["io-util", "rt", "time"] }
+
+[[bin]]
+name = "browser_capsule"
+path = "fuzz_targets/browser_capsule.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "browser_cookies"
+path = "fuzz_targets/browser_cookies.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "browser_exec_frames"
+path = "fuzz_targets/browser_exec_frames.rs"
+test = false
+doc = false
+bench = false
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+# The fuzz crate is its own workspace, so the Team workspace never builds it.
+[workspace]
+members = ["."]
