@@ -26,9 +26,11 @@ futures-core.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+rusqlite = { workspace = true, features = ["hooks", "serialize"] }
 rustix.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
+team-browser.workspace = true
 team-core.workspace = true
 team-egress.workspace = true
 team-inference.workspace = true
