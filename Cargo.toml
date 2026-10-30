@@ -19,7 +19,7 @@ members = [
     "routine",
     "storage",
 ]
-exclude = ["browser/egress", "browser/image/host", "protocol/http/rust", "vendor/strict-json"]
+exclude = ["browser/egress", "browser/image/host", "protocol/http/rust", "vendor/action-schema", "vendor/strict-json"]
 
 [workspace.package]
 edition = "2024"
@@ -30,11 +30,14 @@ publish = false
 # Exact pins, shared with the Developers, Store, and Account workspaces where they use the same crate. A workstream that
 # needs another dependency adds it here, exactly pinned, in alphabetical order.
 [workspace.dependencies]
+action-schema = { path = "vendor/action-schema" }
 aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc"] }
 base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
 bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
+fancy-regex = { version = "=0.19.2", default-features = false, features = ["std", "unicode"] }
 getrandom = "=0.4.3"
 hmac = "=0.13.0"
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-fat", "tzdb-zoneinfo"] }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 rustix = { version = "=1.1.5", default-features = false, features = ["fs", "process", "std"] }
 sha2 = "=0.11.0"

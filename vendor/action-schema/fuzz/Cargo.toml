@@ -1,0 +1,48 @@
+[package]
+name = "action-schema-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "cargo-fuzz targets for action-schema"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+action-schema = { path = ".." }
+libfuzzer-sys = "=0.4.13"
+strict-json = { path = "../../../vendor/strict-json" }
+
+[[bin]]
+name = "admit"
+path = "fuzz_targets/admit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pattern"
+path = "fuzz_targets/pattern.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "validate"
+path = "fuzz_targets/validate.rs"
+test = false
+doc = false
+bench = false
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+# The fuzz crate is its own workspace, so the Developers workspace never builds it.
+[workspace]
+members = ["."]
