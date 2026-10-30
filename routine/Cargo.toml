@@ -7,5 +7,16 @@ license.workspace = true
 publish.workspace = true
 description = "Team Routines: the pure Routine logic, without I/O"
 
+[dependencies]
+action-schema.workspace = true
+base64.workspace = true
+fancy-regex.workspace = true
+jiff.workspace = true
+sha2.workspace = true
+strict-json.workspace = true
+subtle.workspace = true
+team-core.workspace = true
+team-protocol.workspace = true
+
 [lints]
 workspace = true
