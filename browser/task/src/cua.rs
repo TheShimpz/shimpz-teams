@@ -900,6 +900,30 @@ fn offered(
 pub(crate) const BASE64: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+/// Padded standard base64, as `base64.b64encode` writes it.
+pub(crate) fn base64(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let group = chunk
+            .iter()
+            .enumerate()
+            .fold(0_u32, |group, (index, byte)| {
+                group | (u32::from(*byte) << (16 - 8 * index))
+            });
+        for index in 0..4 {
+            if index <= chunk.len() {
+                let sextet = (group >> (18 - 6 * index)) & 0x3f;
+                text.push(char::from(
+                    BASE64[usize::try_from(sextet).unwrap_or_default()],
+                ));
+            } else {
+                text.push('=');
+            }
+        }
+    }
+    text
+}
+
 /// Python's `base64.b64decode(data, validate=True)`: whole quads of the standard alphabet, padding only at the end.
 fn strict_base64(data: &str) -> Option<Vec<u8>> {
     let body = data.trim_end_matches('=');
