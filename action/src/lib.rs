@@ -10,6 +10,7 @@ pub mod failure;
 pub mod frames;
 pub mod human;
 pub mod journal;
+pub mod operations;
 pub mod projection;
 pub mod provider;
 pub mod result;
