@@ -18,6 +18,7 @@ mod flow;
 mod http;
 mod image;
 mod json;
+mod prepare;
 mod probe;
 mod report;
 mod resolution;
@@ -98,6 +99,7 @@ fn lifecycle(run: &Run<'_>, report: &mut Report) -> Outcome {
     let restarted = storage::upload_and_restart(&api, run.names, report)?;
     let api = setup::api(&restarted, run.supervisor);
     storage::lost_network(&api, run.names, report)?;
+    prepare::hostile_corpus(&api, run.names, report)?;
     let installed = assistant::install(&api, run.names, run.trusted, report)?;
     assistant::isolation(&installed, run.names, &run.daemon.cpuset, report)?;
     assistant::recovery(&api, &installed, report)?;
