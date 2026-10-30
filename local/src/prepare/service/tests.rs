@@ -392,3 +392,29 @@ impl crate::coordination::previews::HelperRemover for Removes {
         Box::pin(async { Ok(()) })
     }
 }
+
+#[tokio::test]
+async fn the_slot_is_held_before_any_original_is_read_even_for_text() {
+    let fixture = Fixture::new().await;
+    let mut notes = fixture.put("notes.txt", b"plain");
+    let held = fixture
+        .preparer
+        .admission
+        .turn(&Stop::new())
+        .await
+        .expect("free");
+    // While another segment holds the slot, this one reads nothing: a changed file it would refuse stays unread.
+    notes.sha256 = "0".repeat(64);
+    let stop = Stop::new();
+    let waiting = fixture
+        .preparer
+        .attachments("team_1", std::slice::from_ref(&notes), &stop);
+    let waited = tokio::time::timeout(Duration::from_millis(50), waiting).await;
+    assert!(waited.is_err());
+    drop(held);
+    let read = fixture
+        .preparer
+        .attachments("team_1", &[notes], &Stop::new())
+        .await;
+    assert_eq!(read.map(|_| ()), Err(SegmentError::Changed));
+}
