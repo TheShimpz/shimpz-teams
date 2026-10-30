@@ -9,12 +9,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use http_body_util::{BodyExt, Empty};
-use hyper::body::Bytes;
-use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use team_core::future::BoxFuture;
+use team_integrations::https::{HttpsError, Limits, Request, exchange};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
@@ -83,13 +81,7 @@ impl std::fmt::Debug for ReleaseProxy {
     }
 }
 
-/// The system trust roots (which honour `SSL_CERT_FILE`), read now.
-#[must_use]
-pub fn native_roots() -> RootCertStore {
-    let mut roots = RootCertStore::empty();
-    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
-    roots
-}
+pub use team_integrations::https::native_roots;
 
 impl ReleaseProxy {
     /// The proxy at `host:port`, verifying destinations against `roots`, every read within `timeout`.
@@ -144,7 +136,33 @@ impl ReleaseProxy {
             .connect(name, stream)
             .await
             .map_err(|_| ReadError::Unavailable)?;
-        exchange(tls, host, target, headers, maximum).await
+        let headers: Vec<(String, String)> = headers
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), value.clone()))
+            .collect();
+        let request = Request {
+            method: "GET",
+            host,
+            target,
+            headers: &headers,
+            body: None,
+        };
+        let limits = Limits {
+            header_bytes: MAX_HEADER_BYTES,
+            body_bytes: maximum,
+        };
+        let response = exchange(tls, &request, limits)
+            .await
+            .map_err(|error| match error {
+                HttpsError::BodyTooLarge => ReadError::TooLarge,
+                _ => ReadError::Unavailable,
+            })?;
+        let location = response.header("location").map(str::to_owned);
+        Ok(Response {
+            status: response.status,
+            location,
+            body: response.body,
+        })
     }
 }
 
@@ -197,72 +215,4 @@ async fn established(stream: &mut TcpStream) -> Result<(), ReadError> {
     } else {
         Err(ReadError::Unavailable)
     }
-}
-
-/// Aborts the connection task when the exchange ends or is dropped.
-struct Driver(tokio::task::JoinHandle<()>);
-
-impl Drop for Driver {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// One GET on `stream` and its complete bounded response.
-async fn exchange<S>(
-    stream: S,
-    host: &str,
-    target: &str,
-    headers: &[(&str, String)],
-    maximum: usize,
-) -> Result<Response, ReadError>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
-{
-    let mut builder = hyper::client::conn::http1::Builder::new();
-    builder.max_buf_size(MAX_HEADER_BYTES);
-    let (mut sender, connection) = builder
-        .handshake::<_, Empty<Bytes>>(TokioIo::new(stream))
-        .await
-        .map_err(|_| ReadError::Unavailable)?;
-    let _driver = Driver(tokio::spawn(async move {
-        let _ = connection.await;
-    }));
-    let mut request = hyper::Request::builder()
-        .method("GET")
-        .uri(target)
-        .header("host", host);
-    for (name, value) in headers {
-        request = request.header(*name, value.as_str());
-    }
-    let request = request
-        .body(Empty::new())
-        .map_err(|_| ReadError::Unavailable)?;
-    let response = sender
-        .send_request(request)
-        .await
-        .map_err(|_| ReadError::Unavailable)?;
-    let status = response.status().as_u16();
-    let location = response.headers().get("location").map(|value| {
-        value
-            .as_bytes()
-            .iter()
-            .map(|byte| char::from(*byte))
-            .collect()
-    });
-    let mut body = response.into_body();
-    let mut content = Vec::new();
-    while let Some(frame) = body.frame().await {
-        if let Ok(data) = frame.map_err(|_| ReadError::Unavailable)?.into_data() {
-            content.extend_from_slice(&data);
-            if content.len() > maximum {
-                return Err(ReadError::TooLarge);
-            }
-        }
-    }
-    Ok(Response {
-        status,
-        location,
-        body: content,
-    })
 }
