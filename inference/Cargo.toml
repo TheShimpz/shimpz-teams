@@ -12,8 +12,10 @@ description = "Team inference: the Brain client, the Brain token, inference sett
 testing = []
 
 [dependencies]
+sha2.workspace = true
 strict-json.workspace = true
 team-core.workspace = true
+team-protocol.workspace = true
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]

@@ -2350,8 +2350,10 @@ dependencies = [
 name = "team-inference"
 version = "0.1.0"
 dependencies = [
+ "sha2",
  "strict-json",
  "team-core",
+ "team-protocol",
  "tokio",
 ]
 

@@ -3,8 +3,11 @@
 //! replaces `inference/`.
 //!
 //! [`brain`] is the frozen seam chat turns, Routine segments, capability planning, intent routing, purposes, Browser
-//! tasks, and Team deletion call the Brain through.
+//! tasks, and Team deletion call the Brain through; [`runtime`] is a chat turn's typed Brain operations over it.
 
 pub mod brain;
-#[cfg(feature = "testing")]
+pub mod credential;
+pub mod runtime;
+#[cfg(any(test, feature = "testing"))]
 pub mod testing;
+pub mod usage;
