@@ -3,6 +3,7 @@
 
 pub mod contracts;
 pub mod diagnostics;
+pub mod executor;
 pub mod manage;
 pub mod notices;
 pub mod protection;
