@@ -3,7 +3,7 @@
 //! incidents read and archive, the workloads its recovery proves stopped, and the routine key it is claimed under.
 //!
 //! The Action runner implements [`RoutineActions`] (and [`RoutineJournal`] over its journal); the Docker controller
-//! implements [`Workloads`]. Tests run over the fakes in [`fakes`].
+//! implements [`Workloads`]. Tests run over the fakes in `fakes`.
 
 use std::sync::Arc;
 

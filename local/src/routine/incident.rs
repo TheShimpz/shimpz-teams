@@ -4,7 +4,7 @@
 //! A run seals its immutable recovery snapshot before its first dispatch: the exact cursor binding (Team incarnation,
 //! Routine and revision, run), the confirmed plan, and the Routine's name (ADR-0101). A hold fences the run's live
 //! lease, seals its incident's compact evidence with its own copy of that snapshot, archives its journal batch, and
-//! indexes the run as its own incident; each step is idempotent and [`RoutineService::reconcile`] resumes from
+//! indexes the run as its own incident; each step is idempotent and `RoutineService::reconcile` resumes from
 //! whichever came last, so every crash window recovers without dispatching anything.
 
 use strict_json::{Number, Value};

@@ -24,7 +24,7 @@ pub fn change_room(state: &TeamRoutines) -> Option<&'static str> {
 ///
 /// # Errors
 ///
-/// `notice-invalid`, `notices-full`, `routine-not-found`, or [`ENTROPY_UNAVAILABLE`].
+/// `notice-invalid`, `notices-full`, `routine-not-found`, or [`ENTROPY_UNAVAILABLE`](super::ENTROPY_UNAVAILABLE).
 pub fn run_notice(
     state: &mut TeamRoutines,
     value: &Run,

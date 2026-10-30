@@ -3,7 +3,7 @@
 //! An attempt resolves exactly the private values the Action declares (Integration tokens refreshed through the
 //! broker, held Stored Inputs), sends the workload only their ids, answers its provider calls through the provider
 //! broker with those values, and projects the terminal frame. The direct route runs one fresh logical operation; a
-//! batch journals every operation first ([`batch`]).
+//! batch journals every operation first (`batch`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
