@@ -15,6 +15,7 @@ pub mod policy;
 pub mod problem;
 #[cfg(all(test, feature = "testing"))]
 pub(crate) mod recorded;
+pub mod socket;
 
 use bollard::models::{
     ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, ImageSummary,

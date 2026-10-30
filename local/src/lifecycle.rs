@@ -8,6 +8,7 @@
 
 pub mod network;
 pub mod participants;
+pub mod wipe;
 
 use std::borrow::Cow;
 use std::path::PathBuf;

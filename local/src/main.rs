@@ -2,7 +2,8 @@
 
 use std::process::ExitCode;
 
-use team_local::cli::{self, Command};
+use team_local::cli::{self, Command, SocketProbe};
+use team_local::docker::daemon::SOCKET;
 use team_local::http::probe;
 use team_local::layout::StateLayout;
 
@@ -36,12 +37,37 @@ fn run(command: &Command) -> ExitCode {
             }
             None => ExitCode::FAILURE,
         },
-        _ => {
+        Command::WipeRuntimeState { .. } | Command::SocketProbe(_) => host(command),
+        Command::Serve => {
             eprintln!(
                 "shimpz-team: `{}` is not available in this build",
                 command.name()
             );
             ExitCode::from(70)
         }
+    }
+}
+
+/// The CLI's host commands: the runtime-state wipe and the Docker socket probes.
+fn host(command: &Command) -> ExitCode {
+    let socket = std::path::Path::new(SOCKET);
+    let succeeded = match command {
+        Command::WipeRuntimeState { root } => {
+            let wiped = team_local::lifecycle::wipe::wipe_as_self(std::path::Path::new(root));
+            if wiped.is_err() {
+                eprintln!("shimpz-team: the runtime state could not be wiped");
+            }
+            wiped.is_ok()
+        }
+        Command::SocketProbe(SocketProbe::Gid) => team_local::docker::socket::gid(socket)
+            .map(|gid| println!("{gid}"))
+            .is_some(),
+        Command::SocketProbe(SocketProbe::Ping) => team_local::docker::socket::ping(socket),
+        _ => false,
+    };
+    if succeeded {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
