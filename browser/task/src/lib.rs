@@ -4,6 +4,7 @@
 
 pub mod brain;
 pub mod cua;
+pub mod ingest;
 pub mod read;
 pub mod screen;
 pub mod task;
