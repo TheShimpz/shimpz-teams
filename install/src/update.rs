@@ -11,9 +11,7 @@ use team_protocol::payload::{SOURCE_DIGEST_RE, canonical_assistant_id, canonical
 use team_protocol::python::value::py_eq;
 use team_storage::{durable, json_record};
 
-use crate::bindings::{
-    Binding, BindingError, BindingStore, Provenance, from_local_record, from_resolution,
-};
+use crate::bindings::{Binding, BindingError, BindingStore, Provenance, from_local_record};
 use crate::lock::FileLock;
 
 const UPDATE_FORMAT_VERSION: i64 = 2;
@@ -152,7 +150,9 @@ impl<'a> UpdateStore<'a> {
         previous_image_id: &str,
     ) -> Result<AssistantUpdate, BindingError> {
         let successor = match previous.provenance {
-            Provenance::Published => from_resolution(&previous.team_id, successor_document)?,
+            Provenance::Published => self
+                .bindings
+                .resolution_binding(&previous.team_id, successor_document)?,
             Provenance::Local => from_local_record(
                 &previous.team_id,
                 successor_document,

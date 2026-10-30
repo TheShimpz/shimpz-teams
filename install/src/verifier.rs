@@ -15,7 +15,7 @@ use team_core::future::BoxFuture;
 use team_protocol::payload::SOURCE_DIGEST_RE;
 use team_protocol::python::value::py_eq;
 
-use crate::cosign::{Cosign, CosignError, SIGNER_IDENTITY};
+use crate::cosign::{Cosign, CosignError};
 use crate::release::{ReadError, Transport};
 use crate::trust::{ArtifactVerifier, Resolution, TrustError};
 
@@ -43,6 +43,7 @@ const BUILD_TYPE: &str = "https://shimpz.com/build-types/assistant/v1";
 pub struct SigstoreVerifier {
     transport: Arc<dyn Transport>,
     cosign: Cosign,
+    trust_name: String,
 }
 
 impl std::fmt::Debug for SigstoreVerifier {
@@ -69,19 +70,54 @@ impl SigstoreVerifier {
     /// Verification through `transport` with `cosign`.
     #[must_use]
     pub fn new(transport: Arc<dyn Transport>, cosign: Cosign) -> Self {
-        Self { transport, cosign }
+        Self {
+            transport,
+            cosign,
+            trust_name: TRUST_NAME.to_owned(),
+        }
+    }
+
+    /// The same verifier reading bundles from another trust repository of the registry (the live lane's own);
+    /// production keeps [`TRUST_NAME`].
+    #[must_use]
+    pub fn with_trust_repository(mut self, name: &str) -> Self {
+        name.clone_into(&mut self.trust_name);
+        self
+    }
+
+    /// Proves one recorded bundle's bytes: its DSSE statement names `oci_digest` and `predicate`, and cosign proves
+    /// exactly those bytes against the configured signer.
+    ///
+    /// # Errors
+    /// [`TrustError::Untrusted`] for any other bundle; [`TrustError::Unavailable`] when cosign cannot run in time.
+    pub async fn verify_bundle(
+        &self,
+        bundle: &[u8],
+        oci_digest: &str,
+        predicate: &str,
+    ) -> Result<(), TrustError> {
+        bound_statement(bundle, oci_digest, predicate)?;
+        self.cosign
+            .verify(bundle, oci_digest, predicate)
+            .await
+            .map_err(|error| match error {
+                CosignError::Refused => TrustError::Untrusted,
+                CosignError::Unavailable => TrustError::Unavailable,
+            })
     }
 
     async fn prove(&self, resolution: &Value) -> Result<(), TrustError> {
         let trust = resolution.get("trust").ok_or(TrustError::Untrusted)?;
-        if text(trust, "signer_identity") != Some(SIGNER_IDENTITY) {
+        let signer = self.cosign.signer().identity.as_str();
+        if text(trust, "signer_identity") != Some(signer) {
             return Err(TrustError::Untrusted);
         }
         let oci_digest = text(resolution, "oci_digest")
             .filter(|digest| SOURCE_DIGEST_RE.is_full(digest))
             .ok_or(TrustError::Untrusted)?;
-        let signature_digest = trust_digest(text(trust, "signature_reference"))?;
-        let provenance_digest = trust_digest(text(trust, "provenance_reference"))?;
+        let signature_digest = trust_digest(&self.trust_name, text(trust, "signature_reference"))?;
+        let provenance_digest =
+            trust_digest(&self.trust_name, text(trust, "provenance_reference"))?;
         let token = self.pull_token().await?;
         let signature = self
             .recorded_bundle(&token, signature_digest, oci_digest, SIGNATURE_PREDICATE)
@@ -93,24 +129,23 @@ impl SigstoreVerifier {
         provenance_matches(
             &bound_statement(&provenance, oci_digest, PROVENANCE_PREDICATE)?,
             resolution,
+            signer,
         )?;
         // The statements above are trusted only because cosign now proves those exact bytes.
         for (bundle, predicate) in [
             (&signature, SIGNATURE_PREDICATE),
             (&provenance, PROVENANCE_PREDICATE),
         ] {
-            Box::pin(self.cosign.verify(bundle, oci_digest, predicate))
-                .await
-                .map_err(|error| match error {
-                    CosignError::Refused => TrustError::Untrusted,
-                    CosignError::Unavailable => TrustError::Unavailable,
-                })?;
+            Box::pin(self.verify_bundle(bundle, oci_digest, predicate)).await?;
         }
         Ok(())
     }
 
     async fn pull_token(&self) -> Result<String, TrustError> {
-        let target = format!("/token?scope=repository:{TRUST_NAME}:pull&service={REGISTRY_HOST}");
+        let target = format!(
+            "/token?scope=repository:{}:pull&service={REGISTRY_HOST}",
+            self.trust_name
+        );
         let raw = self
             .registry_read(&target, "application/json", None, None)
             .await?;
@@ -129,7 +164,7 @@ impl SigstoreVerifier {
         oci_digest: &str,
         predicate: &str,
     ) -> Result<Vec<u8>, TrustError> {
-        let target = format!("/v2/{TRUST_NAME}/manifests/{digest}");
+        let target = format!("/v2/{}/manifests/{digest}", self.trust_name);
         let manifest = strict_json::parse(
             &self
                 .registry_read(&target, OCI_MANIFEST, Some(token), Some(digest))
@@ -150,7 +185,7 @@ impl SigstoreVerifier {
         let layer_digest = text(layer, "digest")
             .filter(|digest| SOURCE_DIGEST_RE.is_full(digest))
             .ok_or(TrustError::Untrusted)?;
-        let target = format!("/v2/{TRUST_NAME}/blobs/{layer_digest}");
+        let target = format!("/v2/{}/blobs/{layer_digest}", self.trust_name);
         self.registry_read(&target, BUNDLE_TYPE, Some(token), Some(layer_digest))
             .await
     }
@@ -220,9 +255,9 @@ fn bearer_token(token: &str) -> bool {
 }
 
 /// The digest of a reference inside the trust repository.
-fn trust_digest(reference: Option<&str>) -> Result<&str, TrustError> {
+fn trust_digest<'a>(trust_name: &str, reference: Option<&'a str>) -> Result<&'a str, TrustError> {
     reference
-        .and_then(|reference| reference.strip_prefix(&format!("{REGISTRY_HOST}/{TRUST_NAME}@")))
+        .and_then(|reference| reference.strip_prefix(&format!("{REGISTRY_HOST}/{trust_name}@")))
         .filter(|digest| SOURCE_DIGEST_RE.is_full(digest))
         .ok_or(TrustError::Untrusted)
 }
@@ -303,7 +338,11 @@ fn bound_statement(bundle: &[u8], oci_digest: &str, predicate: &str) -> Result<V
 }
 
 /// The signed provenance binds the publication: the build type, the builder, and the exact external parameters.
-fn provenance_matches(statement: &Value, resolution: &Value) -> Result<(), TrustError> {
+fn provenance_matches(
+    statement: &Value,
+    resolution: &Value,
+    signer: &str,
+) -> Result<(), TrustError> {
     let predicate = statement
         .get("predicate")
         .filter(|predicate| matches!(predicate, Value::Object(_)));
@@ -335,7 +374,7 @@ fn provenance_matches(statement: &Value, resolution: &Value) -> Result<(), Trust
                     .get("externalParameters")
                     .is_some_and(|external| py_eq(external, &expected))
         })
-        && builder.is_some_and(|builder| text(builder, "id") == Some(SIGNER_IDENTITY));
+        && builder.is_some_and(|builder| text(builder, "id") == Some(signer));
     if matched {
         Ok(())
     } else {

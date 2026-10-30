@@ -37,10 +37,30 @@ pub enum CosignError {
     Unavailable,
 }
 
+/// Who must have signed an artifact: the certificate identity and its OIDC issuer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signer {
+    /// The certificate identity.
+    pub identity: String,
+    /// The OIDC issuer.
+    pub issuer: String,
+}
+
+impl Default for Signer {
+    /// The Developers publication workflow on GitHub Actions.
+    fn default() -> Self {
+        Self {
+            identity: SIGNER_IDENTITY.to_owned(),
+            issuer: OIDC_ISSUER.to_owned(),
+        }
+    }
+}
+
 /// One configured cosign.
 #[derive(Clone, Debug)]
 pub struct Cosign {
     program: PathBuf,
+    signer: Signer,
     trust_root: PathBuf,
     proxy_url: String,
     timeout: Duration,
@@ -74,6 +94,7 @@ impl Cosign {
     ) -> Self {
         Self {
             program: program.to_owned(),
+            signer: Signer::default(),
             trust_root: trust_root.to_owned(),
             proxy_url: proxy_url.to_owned(),
             timeout,
@@ -82,15 +103,28 @@ impl Cosign {
         }
     }
 
+    /// The same cosign proving another signer (the live lane's own Sigstore bundles); production keeps the default.
+    #[must_use]
+    pub fn with_signer(mut self, signer: Signer) -> Self {
+        self.signer = signer;
+        self
+    }
+
+    /// The signer it proves.
+    #[must_use]
+    pub const fn signer(&self) -> &Signer {
+        &self.signer
+    }
+
     /// The exact arguments of one attestation verification, before `--bundle <path>`.
     #[must_use]
-    pub fn arguments(oci_digest: &str, predicate_type: &str) -> Vec<String> {
+    pub fn arguments(&self, oci_digest: &str, predicate_type: &str) -> Vec<String> {
         [
             "verify-blob-attestation",
             "--certificate-identity",
-            SIGNER_IDENTITY,
+            &self.signer.identity,
             "--certificate-oidc-issuer",
-            OIDC_ISSUER,
+            &self.signer.issuer,
             "--type",
             predicate_type,
             "--digest",
@@ -121,7 +155,7 @@ impl Cosign {
         write_private(&bundle_path, bundle).map_err(|_| CosignError::Unavailable)?;
         let mut command = Command::new(&self.program);
         command
-            .args(Self::arguments(oci_digest, predicate_type))
+            .args(self.arguments(oci_digest, predicate_type))
             .arg("--bundle")
             .arg(&bundle_path)
             .env_clear()

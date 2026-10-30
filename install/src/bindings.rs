@@ -134,6 +134,9 @@ impl Binding {
     }
 }
 
+/// Admits one resolution document; production is always the Assistant-install contract.
+pub type ResolutionAdmission = fn(&Value) -> bool;
+
 /// Validates one Local snapshot record; the Local install service supplies it.
 pub type LocalRecordValidator = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
 
@@ -190,8 +193,22 @@ pub fn intact(
 /// # Errors
 /// [`BindingError::Invalid`] for a refused resolution or identity.
 pub fn from_resolution(team_id: &str, resolution: Value) -> Result<Binding, BindingError> {
+    admitted_resolution(team_id, resolution, contract_admits)
+}
+
+/// Admits a resolution under the current Assistant-install contract.
+fn contract_admits(resolution: &Value) -> bool {
+    crate::contract::validate(resolution).is_ok()
+}
+
+fn admitted_resolution(
+    team_id: &str,
+    resolution: Value,
+    admission: ResolutionAdmission,
+) -> Result<Binding, BindingError> {
     if canonical_team_id(&Value::String(team_id.to_owned())).is_none()
-        || crate::contract::validate(&resolution).is_err()
+        || !matches!(resolution, Value::Object(_))
+        || !admission(&resolution)
     {
         return Err(BindingError::Invalid);
     }
@@ -221,6 +238,7 @@ pub struct BindingStore {
     path: PathBuf,
     lock_path: PathBuf,
     validator: LocalRecordValidator,
+    resolution_admission: ResolutionAdmission,
     admissions: Mutex<VecDeque<String>>,
 }
 
@@ -243,8 +261,30 @@ impl BindingStore {
             path: path.to_owned(),
             lock_path: PathBuf::from(lock_path),
             validator,
+            resolution_admission: contract_admits,
             admissions: Mutex::new(VecDeque::new()),
         }
+    }
+
+    /// The same registry admitting any resolution object, as the controller suite's loopback registry needs (its
+    /// images live outside the production repository). Never compiled into a shipped binary.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn admitting_any_resolution(mut self) -> Self {
+        self.resolution_admission = |_| true;
+        self
+    }
+
+    /// The binding of a resolution this registry admits.
+    ///
+    /// # Errors
+    /// [`BindingError::Invalid`] for a refused resolution or identity.
+    pub fn resolution_binding(
+        &self,
+        team_id: &str,
+        resolution: Value,
+    ) -> Result<Binding, BindingError> {
+        admitted_resolution(team_id, resolution, self.resolution_admission)
     }
 
     /// The Local record validator bindings are admitted with.
@@ -266,7 +306,7 @@ impl BindingStore {
     /// # Errors
     /// [`BindingError`] for a refused resolution, another artifact under the id, the Team limit, or the registry.
     pub fn put(&self, team_id: &str, resolution: Value) -> Result<(Binding, bool), BindingError> {
-        self.insert(from_resolution(team_id, resolution)?)
+        self.insert(self.resolution_binding(team_id, resolution)?)
     }
 
     /// Binds a Local snapshot record; an identical binding is returned unchanged with `false`.
@@ -323,7 +363,7 @@ impl BindingStore {
         expected: &str,
         resolution: Value,
     ) -> Result<Binding, BindingError> {
-        self.swap(from_resolution(team_id, resolution)?, expected)
+        self.swap(self.resolution_binding(team_id, resolution)?, expected)
     }
 
     /// Replaces the Local binding whose digest is `expected` with `record`'s.
@@ -541,7 +581,9 @@ impl BindingStore {
         }
         drop(admissions);
         match binding.provenance {
-            Provenance::Published => from_resolution(&binding.team_id, binding.document.clone())?,
+            Provenance::Published => {
+                self.resolution_binding(&binding.team_id, binding.document.clone())?
+            }
             Provenance::Local => {
                 from_local_record(&binding.team_id, binding.document.clone(), &self.validator)?
             }

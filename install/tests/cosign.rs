@@ -189,3 +189,26 @@ async fn cosign_that_cannot_run_is_unavailable() {
         .await;
     assert_eq!(verified, Err(CosignError::Unavailable));
 }
+
+#[test]
+fn cosign_proves_the_configured_signer() {
+    let signer = team_install::cosign::Signer {
+        identity: "https://example.test/workflow".to_owned(),
+        issuer: "https://issuer.test".to_owned(),
+    };
+    let runner = Cosign::new(Path::new("/tmp/tuf"), "http://proxy:8888").with_signer(signer);
+    let arguments = runner.arguments(OCI, PREDICATE);
+    assert_eq!(
+        arguments[1..5],
+        [
+            "--certificate-identity",
+            "https://example.test/workflow",
+            "--certificate-oidc-issuer",
+            "https://issuer.test"
+        ]
+    );
+    assert_eq!(
+        Cosign::new(Path::new("/tmp/tuf"), "http://proxy:8888").arguments(OCI, PREDICATE)[2],
+        SIGNER_IDENTITY
+    );
+}
