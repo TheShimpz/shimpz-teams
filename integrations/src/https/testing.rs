@@ -56,6 +56,8 @@ pub struct Fake {
     pub tunnel: Tunnel,
     /// Every request the server received, and every CONNECT head the proxy read.
     pub received: Arc<Mutex<Vec<Recorded>>>,
+    /// The proxy's loopback port.
+    pub port: u16,
 }
 
 /// A JSON reply with this status line and body.
@@ -130,6 +132,7 @@ pub async fn fake(
     Fake {
         tunnel: Tunnel::new("127.0.0.1".to_owned(), port, Duration::from_secs(5), roots),
         received,
+        port,
     }
 }
 

@@ -59,7 +59,7 @@ fn soon() -> Instant {
 }
 
 #[test]
-fn the_invocation_names_stored_inputs_only_and_keeps_its_field_order() {
+fn stored_input_ids_only_in_exec_request() {
     let encoded = encode_invocation(
         &object(r#"{"q":"é"}"#),
         &["b-key".to_owned(), "a-key".to_owned()],

@@ -9,6 +9,7 @@ pub mod executor;
 pub mod failure;
 pub mod frames;
 pub mod journal;
+pub mod provider;
 pub mod result;
 pub mod rpc;
 pub mod stored_input;

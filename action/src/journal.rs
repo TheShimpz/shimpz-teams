@@ -958,15 +958,20 @@ fn validate_schema(connection: &Connection) -> Result<(), JournalError> {
     }
 }
 
-/// SHA-256 of `bytes` as lowercase hexadecimal.
-pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+/// `bytes` as lowercase hexadecimal.
+pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
-    Sha256::digest(bytes)
+    bytes
         .iter()
-        .fold(String::with_capacity(64), |mut text, byte| {
+        .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {
             let _ = write!(text, "{byte:02x}");
             text
         })
+}
+
+/// SHA-256 of `bytes` as lowercase hexadecimal.
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    hex(&Sha256::digest(bytes))
 }
 
 /// The canonical JSON bytes of `value`.

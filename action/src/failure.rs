@@ -338,7 +338,7 @@ fn bound(value: &str, limit: usize) -> &str {
 }
 
 /// `urllib.parse.quote(text, safe="")`, or `quote_plus` with `plus`.
-fn percent(text: &str, plus: bool) -> String {
+pub(crate) fn percent(text: &str, plus: bool) -> String {
     use std::fmt::Write as _;
     let mut quoted = String::new();
     for byte in text.bytes() {
