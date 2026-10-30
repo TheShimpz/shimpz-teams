@@ -39,20 +39,3 @@ impl Value {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Number, Value};
-
-    #[test]
-    fn get_reads_only_object_members() {
-        let object = Value::Object(vec![
-            ("a".to_owned(), Value::Null),
-            ("b".to_owned(), Value::Number(Number::Int(2))),
-        ]);
-        assert_eq!(object.get("b"), Some(&Value::Number(Number::Int(2))));
-        assert_eq!(object.get("a"), Some(&Value::Null));
-        assert_eq!(object.get("c"), None);
-        assert_eq!(Value::Array(vec![Value::Null]).get("a"), None);
-    }
-}
