@@ -4,6 +4,17 @@
 //! The helper runs the controller's own image as `shimpz-team prepare-idle`, one per Space at a time, and is inspected
 //! against its complete envelope before any file byte reaches it; each file is one `shimpz-team prepare` exec.
 
+pub mod admission;
+pub mod exchange;
+#[cfg(test)]
+mod fakes;
+pub mod helper;
+pub mod idle;
+pub mod service;
+pub mod session;
+pub mod store;
+pub mod teardown;
+
 use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;

@@ -35,12 +35,14 @@ team-core.workspace = true
 team-egress.workspace = true
 team-inference.workspace = true
 team-install.workspace = true
+team-prepare.workspace = true
 team-protocol.workspace = true
 team-storage.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
 
 [dev-dependencies]
 team-core = { workspace = true, features = ["testing"] }
+team-prepare = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 

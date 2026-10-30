@@ -16,9 +16,15 @@ fn main() -> ExitCode {
 
 /// Each subcommand is wired by its workstream; until then it reports that it is not available.
 fn run(command: &Command) -> ExitCode {
-    eprintln!(
-        "shimpz-team: `{}` is not available in this build",
-        command.name()
-    );
-    ExitCode::from(70)
+    match command {
+        Command::Prepare => team_prepare::worker::main(),
+        Command::PrepareIdle => team_local::prepare::idle::main(),
+        _ => {
+            eprintln!(
+                "shimpz-team: `{}` is not available in this build",
+                command.name()
+            );
+            ExitCode::from(70)
+        }
+    }
 }
