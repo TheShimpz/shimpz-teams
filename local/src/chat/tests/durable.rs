@@ -245,14 +245,8 @@ async fn a_team_that_died_after_the_brain_answered_delivers_the_reply_without_ru
     // The checkpoint held the Brain's completed answer: no Brain call and no Action ran again.
     assert_eq!(restarted.received().len(), 0);
     assert_eq!(harness.executor.invoked(), ["interrupt-1"]);
-    // The batch whose results the checkpoint held is acknowledged first, so the next one may open.
-    let delivered = harness
-        .executor
-        .events()
-        .iter()
-        .filter(|event| event.starts_with("delivered"))
-        .count();
-    assert_eq!(delivered, 1);
+    // The batch whose results the checkpoint held, its delivery interrupted, is ended first so the next may open.
+    assert!(harness.executor.events().contains(&"settled".to_owned()));
 }
 
 #[tokio::test]

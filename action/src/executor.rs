@@ -131,6 +131,16 @@ pub trait ActionBatch: Send {
         requests: &'a [ActionRequest],
     ) -> BoxFuture<'a, Result<(), ActionFailure>>;
 
+    /// Ends the scope's open batch whose every result exists but whose delivery a Team restart interrupted, so the next
+    /// batch may open (ADR-0125); a batch delivered already, or one an operation of which may still have acted, stays as
+    /// it is.
+    ///
+    /// # Errors
+    /// [`ActionFailure::StateUnavailable`] when the journal cannot record it.
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+        Box::pin(async { Ok(()) })
+    }
+
     /// Ends a batch whose results were never delivered; `false` when it holds an uncertain outcome and stays.
     ///
     /// # Errors

@@ -298,14 +298,14 @@ impl ChatService {
             _ => return Err(shape),
         };
         let nonce = identity.get("nonce").and_then(string).unwrap_or_default();
-        let (running, saved) = self.parts.turns.settle(team_id, nonce, &authority(call)?)?;
+        let (running, kept) = self.parts.turns.settle(team_id, nonce, &authority(call)?)?;
         if revoked && running {
             let _ = self.parts.coordination.executions.cancel(team_id, true);
         }
         // A turn settled while it waited on its Browser task leaves that task to nobody: it is discarded.
-        let browser = saved
-            .and_then(|saved| checkpoint(&saved).ok())
-            .and_then(|pending| pending.continuation.turn.browser);
+        let browser = kept
+            .and_then(|kept| saved(&kept))
+            .and_then(|(pending, _)| pending.continuation.turn.browser);
         if let (Some(request), Some(service)) = (browser, &self.parts.browser) {
             service.discard(team_id, &request.interrupt_id);
         }

@@ -729,8 +729,9 @@ pub async fn run_until_pause(
     drive(runtime, context, continuation, strategy, batch).await
 }
 
-/// Continues a turn a previous Team process left at its checkpoint: the batch whose results the checkpoint holds is
-/// acknowledged first (its receipts replay from the Action journal), then the turn goes on (ADR-0125).
+/// Continues a turn a previous Team process left at its checkpoint: a batch whose results the checkpoint holds but
+/// whose delivery the restart interrupted is ended first, so the next batch may open, then the turn goes on
+/// (ADR-0125).
 ///
 /// # Errors
 /// [`ChatError`] for every turn that does not complete or pause.
@@ -742,14 +743,8 @@ pub async fn continue_after_restart(
     batch: &mut dyn ActionBatch,
 ) -> Result<Outcome, ChatError> {
     if !undelivered.is_empty() {
-        let files = team_action::files::selected(&context.attachments);
-        let requests: Vec<_> = undelivered
-            .iter()
-            .map(|request| executor_request(request, &files))
-            .collect();
-        batch.prepare(&requests).await.map_err(ChatError::Action)?;
         batch
-            .delivered(&requests)
+            .settle_undelivered()
             .await
             .map_err(ChatError::Action)?;
     }

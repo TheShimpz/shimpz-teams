@@ -105,3 +105,24 @@ impl Requirements {
         }
     }
 }
+
+/// The id of the Action batch a human request paused: the SHA-256 of its generation, thread, and interrupts, so ending
+/// the turn removes exactly that batch.
+#[must_use]
+pub fn paused_batch_id(
+    scope: &(String, String),
+    actions: &[team_inference::runtime::ActionRequest],
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut identity = vec![
+        Value::String(scope.0.clone()),
+        Value::String(scope.1.clone()),
+    ];
+    identity.extend(
+        actions
+            .iter()
+            .map(|request| Value::String(request.interrupt_id.clone())),
+    );
+    let canonical = team_protocol::python::json::canonical(&Value::Array(identity));
+    super::hex(&Sha256::digest(canonical))
+}

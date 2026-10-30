@@ -487,6 +487,10 @@ impl ActionBatch for Tracked {
         self.inner.terminate()
     }
 
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+        self.inner.settle_undelivered()
+    }
+
     fn injected(&self) -> Vec<Secret> {
         self.inner.injected()
     }
@@ -967,7 +971,10 @@ fn result(
     let paused_batch = match &outcome {
         Outcome::Human(paused) => {
             let scope = (setup.network_id.clone(), context.thread_id.clone());
-            Some(paused_batch_id(&scope, &paused.continuation.turn.actions))
+            Some(super::pending::paused_batch_id(
+                &scope,
+                &paused.continuation.turn.actions,
+            ))
         }
         _ => None,
     };
@@ -982,22 +989,4 @@ fn result(
         model: context.credential.model.clone(),
         answered: None,
     }
-}
-
-/// The id of the Action batch a human request paused: the SHA-256 of its generation, thread, and interrupts, so ending
-/// the turn removes exactly that batch.
-#[must_use]
-pub fn paused_batch_id(scope: &(String, String), actions: &[BrainRequest]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut identity = vec![
-        Value::String(scope.0.clone()),
-        Value::String(scope.1.clone()),
-    ];
-    identity.extend(
-        actions
-            .iter()
-            .map(|request| Value::String(request.interrupt_id.clone())),
-    );
-    let canonical = team_protocol::python::json::canonical(&Value::Array(identity));
-    super::hex(&Sha256::digest(canonical))
 }

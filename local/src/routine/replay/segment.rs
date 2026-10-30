@@ -25,9 +25,10 @@ use team_routine::claim::network_of;
 
 use crate::chat::answer::declared_help;
 use crate::chat::pending::Identity;
+use crate::chat::pending::paused_batch_id;
 use crate::chat::ports::ActiveAssistant;
 use crate::chat::problem;
-use crate::chat::segment::{Setup, admitted_request, paused_batch_id, routine_thread_id};
+use crate::chat::segment::{Setup, admitted_request, routine_thread_id};
 use crate::chat::service::{chat_problem, refused};
 use crate::http::service::Problem;
 use crate::routine::executor::DispatchHooks;

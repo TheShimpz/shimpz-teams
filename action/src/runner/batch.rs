@@ -412,6 +412,17 @@ impl ActionBatch for Batch {
         self.injected.clone()
     }
 
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+        Box::pin(async move {
+            let journal = Arc::clone(&self.runner.journal);
+            let generation = self.scope.generation.clone();
+            tokio::task::spawn_blocking(move || journal.end_settled(&generation))
+                .await
+                .map_err(|_| ActionFailure::StateUnavailable)?
+                .map_err(journal_failure)
+        })
+    }
+
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
         Box::pin(async move {
             let Some(handle) = self.handle.clone() else {

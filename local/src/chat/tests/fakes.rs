@@ -399,6 +399,11 @@ impl ActionBatch for FakeBatch {
         Box::pin(async { Ok(()) })
     }
 
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+        lock(&self.events).push("settled".to_owned());
+        Box::pin(async { Ok(()) })
+    }
+
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
         lock(&self.events).push("terminate".to_owned());
         Box::pin(async { Ok(true) })
