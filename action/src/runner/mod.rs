@@ -111,8 +111,6 @@ pub struct Runner {
     pub entropy: Arc<dyn Entropy>,
     /// Workloads that could not be proven stopped; nothing more runs in them.
     pub blocked: Mutex<HashSet<String>>,
-    /// The memory-only replay transcripts of paused Actions, by Team and interrupt.
-    pub transcripts: Mutex<Vec<(String, ActionTranscript)>>,
     /// Team storage, which holds the bytes of the files turns select.
     pub files: Arc<dyn FileSource>,
     /// The one file-RPC slot every delivery of file bytes holds.
@@ -340,41 +338,6 @@ fn integration_tokens(
 }
 
 impl Runner {
-    /// Keeps the replay transcript a person's answer extended, for the batch that replays its Action.
-    pub fn set_transcript(&self, team: &str, transcript: ActionTranscript) {
-        if let Ok(mut transcripts) = self.transcripts.lock() {
-            transcripts.retain(|(owner, kept)| {
-                !(owner == team && kept.interrupt_id == transcript.interrupt_id)
-            });
-            transcripts.push((team.to_owned(), transcript));
-        }
-    }
-
-    /// Drops a Team's transcripts of `interrupts` (completed), or all of them (`None`, the Team's turn ended).
-    pub fn clear_transcripts(&self, team: &str, interrupts: Option<&[String]>) {
-        if let Ok(mut transcripts) = self.transcripts.lock() {
-            transcripts.retain(|(owner, kept)| {
-                owner != team
-                    || interrupts.is_some_and(|completed| !completed.contains(&kept.interrupt_id))
-            });
-        }
-    }
-
-    /// The transcript of one paused interrupt, empty when none was kept.
-    #[must_use]
-    pub fn transcript(&self, team: &str, interrupt_id: &str) -> ActionTranscript {
-        self.transcripts
-            .lock()
-            .ok()
-            .and_then(|transcripts| {
-                transcripts
-                    .iter()
-                    .find(|(owner, kept)| owner == team && kept.interrupt_id == interrupt_id)
-                    .map(|(_, kept)| kept.clone())
-            })
-            .unwrap_or_else(|| ActionTranscript::new(interrupt_id))
-    }
-
     async fn record(
         &self,
         target: &Target<'_>,

@@ -32,7 +32,6 @@ impl ChatService {
                 .continuations
                 .delete(team, None)
                 .map_err(unavailable)?;
-            self.parts.transcripts.clear(team, None);
         } else {
             let _ = self.human.cancel_all();
             let _ = self.parts.integration_challenges.cancel_all();

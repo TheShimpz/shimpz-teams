@@ -170,7 +170,6 @@ fn action_runner(shared: &Shared, publications: &Publications) -> Result<Actions
         workloads: running.clone(),
         entropy: seams.entropy.clone(),
         blocked: Mutex::default(),
-        transcripts: Mutex::default(),
         files: stores.files.clone(),
         file_slot: team_action::files::FileSlot::default(),
     });
@@ -282,7 +281,6 @@ fn chat(
         team: publications.team.clone(),
         brain: seams.brain.clone(),
         actions: Arc::new(Executor(actions.runner.clone())),
-        transcripts: actions.runner.clone(),
         preparer,
         files: stores.files.clone(),
         inference: stores.inference.clone(),

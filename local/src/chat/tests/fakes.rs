@@ -7,7 +7,6 @@ use strict_json::Value;
 use team_action::executor::{
     ActionBatch, ActionExecutor, ActionFailure, ActionRequest, BatchScope, InvokeOutcome,
 };
-use team_action::human::ActionTranscript;
 use team_action::runner::Binding;
 use team_assistant::language::LanguagePack;
 use team_assistant::manifest::ManifestPresentation;
@@ -17,7 +16,7 @@ use team_core::secret::Secret;
 use team_core::stop::Stop;
 use team_routine::pin::PinnedAssistant;
 
-use crate::chat::ports::{ActiveAssistant, TeamScope, TeamView, Transcripts};
+use crate::chat::ports::{ActiveAssistant, TeamScope, TeamView};
 use crate::http::service::Problem;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -420,30 +419,6 @@ impl ActionExecutor for FakeExecutor {
         _stop: &'a Stop,
     ) -> BoxFuture<'a, Result<Value, ActionFailure>> {
         Box::pin(async { Err(ActionFailure::HumanRequestRequired) })
-    }
-}
-
-/// Replay transcripts kept in memory.
-#[derive(Debug, Default)]
-pub struct FakeTranscripts {
-    /// Every kept transcript, by Team.
-    pub kept: Mutex<Vec<(String, ActionTranscript)>>,
-}
-
-impl Transcripts for FakeTranscripts {
-    fn set(&self, team_id: &str, transcript: ActionTranscript) {
-        let mut kept = lock(&self.kept);
-        kept.retain(|(team, held)| {
-            !(team == team_id && held.interrupt_id == transcript.interrupt_id)
-        });
-        kept.push((team_id.to_owned(), transcript));
-    }
-
-    fn clear(&self, team_id: &str, interrupts: Option<&[String]>) {
-        lock(&self.kept).retain(|(team, held)| {
-            team != team_id
-                || interrupts.is_some_and(|completed| !completed.contains(&held.interrupt_id))
-        });
     }
 }
 

@@ -45,6 +45,7 @@ fn segment<'a>(
         locale: pending.and_then(|pending| pending.locale.clone()),
         continuation: pending
             .map(|pending| (pending.continuation.clone(), pending.identity.clone())),
+        transcripts: &run.transcripts,
         max_rounds,
         held: true,
     }
@@ -72,10 +73,6 @@ impl RoutineService {
                 return self.ended(run, value, None, code);
             }
         };
-        for transcript in &run.transcripts {
-            let transcripts = &self.parts.chat.parts().transcripts;
-            transcripts.set(&run.team_id, transcript.clone());
-        }
         let ids: Vec<String> = run
             .routine
             .assistants

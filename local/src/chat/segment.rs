@@ -61,6 +61,8 @@ pub struct SegmentRequest {
     pub locale: Option<String>,
     /// The paused turn this segment continues.
     pub continuation: Option<ChatContinuation>,
+    /// The responses a person gave exactly that paused turn's Actions; only this segment's batch replays them.
+    pub transcripts: Vec<team_action::human::ActionTranscript>,
     /// The identity the paused turn bound.
     pub expected: Option<Identity>,
     /// The turn's progress.
@@ -777,6 +779,7 @@ impl ChatService {
             generation: setup.network_id.clone(),
             thread_id: context.thread_id.clone(),
             routine: false,
+            transcripts: request.transcripts.clone(),
         };
         let mut batch = self.tracked(request, &setup, scope);
         let strategy = TurnStrategy {

@@ -105,6 +105,7 @@ impl ChatService {
             generation,
             thread_id,
             routine: false,
+            transcripts: Vec::new(),
         });
         let requests: Vec<_> = pending
             .continuation
@@ -121,7 +122,6 @@ impl ChatService {
             .terminate()
             .await
             .map_err(|_| problem::action_state_unavailable())?;
-        self.parts.transcripts.clear(team_id, None);
         Ok(())
     }
 

@@ -12,6 +12,8 @@ use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
 
+use crate::human::ActionTranscript;
+
 /// One Action request of a Brain suspension.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionRequest {
@@ -43,7 +45,7 @@ pub struct ActionFile {
 }
 
 /// What one batch is bound to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BatchScope {
     /// The Team's id.
     pub team_id: String,
@@ -53,6 +55,9 @@ pub struct BatchScope {
     pub thread_id: String,
     /// Whether the batch is a Routine run's, which reserves its incident's archive marker first.
     pub routine: bool,
+    /// The responses a person gave the paused Actions of exactly the continuation this batch resumes, by interrupt.
+    /// They live only with this batch, so no other turn or run can ever replay them.
+    pub transcripts: Vec<ActionTranscript>,
 }
 
 /// One invoked request's outcome.

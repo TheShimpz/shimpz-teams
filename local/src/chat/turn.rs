@@ -286,6 +286,7 @@ fn first_segment(
         conversation: body.conversation.clone(),
         locale: body.locale.clone(),
         continuation: None,
+        transcripts: Vec::new(),
         expected: None,
         progress,
         model: None,
@@ -488,7 +489,6 @@ impl ChatService {
             self.commit_turn(admitted, team_id, &terminal.memory, source, also)
                 .await?;
         }
-        self.parts.transcripts.clear(team_id, None);
         let mut referenced = response.selection.1.clone();
         if let Some(Value::Array(files)) = terminal
             .browser

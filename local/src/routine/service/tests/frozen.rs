@@ -99,6 +99,57 @@ async fn an_approval_freezes_the_run_and_a_person_resumes_it_under_the_same_oper
     assert!(again.is_err());
 }
 
+/// The responses each opened batch carried, by interrupt.
+fn carried(harness: &Harness) -> Vec<Vec<(String, usize)>> {
+    let scopes = harness.actions.scopes.lock().expect("scopes").clone();
+    scopes
+        .iter()
+        .map(|scope| {
+            scope
+                .transcripts
+                .iter()
+                .map(|kept| (kept.interrupt_id.clone(), kept.responses.len()))
+                .collect()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn an_approval_reaches_only_the_run_it_was_given_to() {
+    let (harness, run_id) = frozen().await;
+    let challenge = opened(&harness, &run_id).await;
+    let resumed = harness
+        .service
+        .resume_routine_human(
+            TEAM,
+            &run_id,
+            &answer(&challenge, "submit"),
+            &Reporter::silent(),
+        )
+        .await
+        .expect("resumed");
+    assert_eq!(status(&resumed), Some("done"));
+    harness
+        .store
+        .update(TEAM, |mut state| {
+            state.routines[0].next_run_at = now() - 1;
+            Ok::<_, crate::routine::store::StoreError>((state, ()))
+        })
+        .expect("due again");
+    harness
+        .actions
+        .answer(Outcome::Human(human_request("approval", 0)));
+    let (next, status) = harness.run_due().await;
+    assert_ne!(next, run_id);
+    assert_eq!(status, "frozen");
+    // Every run reuses the step's interrupt id; only the resumed batch of the first run carried its approval.
+    let carried = carried(&harness);
+    assert_eq!(
+        carried,
+        vec![vec![], vec![("routine-step-0".to_owned(), 1)], vec![]]
+    );
+}
+
 #[tokio::test]
 async fn a_denial_ends_the_frozen_run_denied_and_runs_nothing() {
     let (harness, run_id) = frozen().await;

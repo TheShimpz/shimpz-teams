@@ -51,6 +51,8 @@ pub struct Segment<'a> {
     pub locale: Option<String>,
     /// The frozen run it continues, and the Team identity it froze on.
     pub continuation: Option<(ChatContinuation, Identity)>,
+    /// The responses a person gave exactly that frozen run's Actions; only this segment's batch replays them.
+    pub transcripts: &'a [team_action::human::ActionTranscript],
     /// Its Action rounds: one per step of a run's plan, one for a verification.
     pub max_rounds: usize,
     /// Whether its batch is a run's own, held for recovery when an outcome is uncertain; a verification's is not.
@@ -300,6 +302,7 @@ impl RoutineService {
             generation: segment.generation.to_owned(),
             thread_id,
             routine: segment.held,
+            transcripts: segment.transcripts.to_vec(),
         };
         Ok(Prepared {
             identity,

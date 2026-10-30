@@ -21,9 +21,7 @@ use crate::chat::continuation_store::ContinuationStore;
 use crate::chat::limit::ChatLimitStore;
 use crate::chat::ports::ActiveAssistant;
 use crate::chat::service::{ChatParts, ChatService};
-use crate::chat::tests::fakes::{
-    FakeExecutor, FakePreparer, FakeTeam, FakeTranscripts, assistant, json,
-};
+use crate::chat::tests::fakes::{FakeExecutor, FakePreparer, FakeTeam, assistant, json};
 use crate::chat::usage::UsageBook;
 use crate::coordination::Coordination;
 use crate::http::service::Problem;
@@ -214,7 +212,6 @@ fn chat(
         team,
         brain: Arc::new(ScriptedBrain::default()),
         actions: Arc::new(FakeExecutor::default()),
-        transcripts: Arc::new(FakeTranscripts::default()),
         preparer: Arc::new(FakePreparer::default()),
         files: Arc::new(files),
         inference: Arc::new(InferenceConfigStore::new(root.join("inference"))),

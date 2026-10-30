@@ -202,8 +202,14 @@ impl Batch {
         Ok((operation, present))
     }
 
+    /// The responses this batch's own continuation carries for `interrupt_id`, empty when it carries none.
     fn transcript(&self, interrupt_id: &str) -> ActionTranscript {
-        self.runner.transcript(&self.scope.team_id, interrupt_id)
+        self.scope
+            .transcripts
+            .iter()
+            .find(|kept| kept.interrupt_id == interrupt_id)
+            .cloned()
+            .unwrap_or_else(|| ActionTranscript::new(interrupt_id))
     }
 
     /// The prepared operation of `request`, refused as a changed context unless its binding, input, and private-value

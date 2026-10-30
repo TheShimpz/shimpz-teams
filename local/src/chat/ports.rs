@@ -5,8 +5,7 @@
 use std::sync::Arc;
 
 use assistant_protocol::human_request::AUTHORIZATION_KINDS;
-use team_action::human::ActionTranscript;
-use team_action::runner::{Binding, Runner};
+use team_action::runner::Binding;
 use team_assistant::language::LanguagePack;
 use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
@@ -168,23 +167,4 @@ pub trait TeamView: Send + Sync {
     /// # Errors
     /// [`Problem`] when the name record cannot be read.
     fn display_name(&self, team_id: &str, network_id: &str) -> Result<Option<String>, Problem>;
-}
-
-/// The memory-only replay transcripts the Action executor replays a paused Action with.
-pub trait Transcripts: Send + Sync {
-    /// Keeps the transcript a person's answer extended.
-    fn set(&self, team_id: &str, transcript: ActionTranscript);
-
-    /// Drops a Team's transcripts of `interrupts`, or all of them (`None`).
-    fn clear(&self, team_id: &str, interrupts: Option<&[String]>);
-}
-
-impl Transcripts for Runner {
-    fn set(&self, team_id: &str, transcript: ActionTranscript) {
-        self.set_transcript(team_id, transcript);
-    }
-
-    fn clear(&self, team_id: &str, interrupts: Option<&[String]>) {
-        self.clear_transcripts(team_id, interrupts);
-    }
 }

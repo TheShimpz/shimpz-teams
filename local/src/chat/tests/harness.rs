@@ -20,9 +20,7 @@ use crate::chat::continuation_store::ContinuationStore;
 use crate::chat::limit::ChatLimitStore;
 use crate::chat::ports::ActiveAssistant;
 use crate::chat::service::{ChatParts, ChatService};
-use crate::chat::tests::fakes::{
-    FakeExecutor, FakePreparer, FakeTeam, FakeTranscripts, action, assistant, json,
-};
+use crate::chat::tests::fakes::{FakeExecutor, FakePreparer, FakeTeam, action, assistant, json};
 use crate::chat::usage::UsageBook;
 use crate::coordination::Coordination;
 use crate::http::route::{Method, resolve};
@@ -46,7 +44,6 @@ pub struct Harness {
     pub brain: Arc<ScriptedBrain>,
     pub executor: Arc<FakeExecutor>,
     pub team: Arc<FakeTeam>,
-    pub transcripts: Arc<FakeTranscripts>,
     pub audit: Arc<MemoryAudit>,
     pub inference: Arc<InferenceConfigStore>,
     pub continuations: Arc<ContinuationStore>,
@@ -144,7 +141,6 @@ struct Built {
     parts: ChatParts,
     executor: Arc<FakeExecutor>,
     preparer: Arc<FakePreparer>,
-    transcripts: Arc<FakeTranscripts>,
     audit: Arc<MemoryAudit>,
     clock: Arc<FakeClock>,
     integrations: Arc<IntegrationStore>,
@@ -158,10 +154,7 @@ fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam
         Arc::new(FakeExecutor::default()),
         Arc::new(FakePreparer::default()),
     );
-    let (transcripts, audit) = (
-        Arc::new(FakeTranscripts::default()),
-        Arc::new(MemoryAudit::default()),
-    );
+    let audit = Arc::new(MemoryAudit::default());
     let challenges = team_integrations::pending::default_store(Arc::new(OsEntropy)).expect("store");
     let parts = ChatParts {
         space_id: "local-space".to_owned(),
@@ -169,7 +162,6 @@ fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam
         team,
         brain,
         actions: executor.clone(),
-        transcripts: transcripts.clone(),
         preparer: preparer.clone(),
         files,
         inference: configured(root),
@@ -190,7 +182,6 @@ fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam
         parts,
         executor,
         preparer,
-        transcripts,
         audit,
         clock,
         integrations,
@@ -214,7 +205,6 @@ pub fn harness_on(brain: Arc<dyn BrainClientScripted>, team: Arc<FakeTeam>) -> H
         brain: brain.scripted(),
         executor: built.executor,
         team,
-        transcripts: built.transcripts,
         audit: built.audit,
         inference: Arc::clone(&parts.inference),
         continuations: Arc::clone(&parts.continuations),

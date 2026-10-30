@@ -177,7 +177,6 @@ fn world() -> World {
         workloads: Arc::new(Fixed(binding())),
         entropy,
         blocked: Mutex::default(),
-        transcripts: Mutex::default(),
         files: Arc::new(source),
         file_slot: crate::files::FileSlot::default(),
     };
@@ -287,6 +286,14 @@ fn scope(routine: bool) -> BatchScope {
         generation: "network-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         routine,
+        transcripts: Vec::new(),
+    }
+}
+
+fn answered(interrupt_id: &str) -> BatchScope {
+    BatchScope {
+        transcripts: vec![crate::files::tests::approved(interrupt_id)],
+        ..scope(false)
     }
 }
 
@@ -387,14 +394,12 @@ async fn file_bytes_reach_only_the_approved_replay_and_are_audited_by_id_and_siz
     let sent = sent_text(sent).await;
     assert!(sent.contains(r#""content":{"type":"withheld"}"#) && !sent.contains("base64"));
     let replay = [upload_request(&world, "i-2")];
-    let transcript = crate::files::tests::approved("i-2");
-    world.runner.set_transcript("team_1", transcript);
     let sent = scripted(
         &world.engine,
         r#"{"type":"result","result":{"ok":true}}"#,
         0,
     );
-    let mut batch = executor.batch(scope(false));
+    let mut batch = executor.batch(answered("i-2"));
     batch.prepare(&replay).await.expect("prepared");
     let completed = batch.invoke(&replay[0], &Stop::new()).await;
     assert_eq!(
@@ -424,10 +429,7 @@ async fn a_refused_admission_never_begins_the_journaled_attempt() {
     let world = world();
     let executor = Executor(Arc::clone(&world.runner));
     let requests = [upload_request(&world, "i-1")];
-    world
-        .runner
-        .set_transcript("team_1", crate::files::tests::approved("i-1"));
-    let mut batch = executor.batch(scope(false));
+    let mut batch = executor.batch(answered("i-1"));
     batch.prepare(&requests).await.expect("prepared");
     let held = world.runner.file_slot.admit(true, &Stop::new()).await;
     let busy = batch.invoke(&requests[0], &Stop::new()).await;
@@ -702,4 +704,34 @@ async fn a_failed_dispatch_is_classified_by_team_and_told_once() {
         .filter(|event| event.starts_with("failed"))
         .count();
     assert_eq!(failed, 2);
+}
+
+#[tokio::test]
+async fn an_approval_reaches_only_the_batch_whose_continuation_carries_it() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [upload_request(&world, "i-1")];
+    let sent = scripted(
+        &world.engine,
+        r#"{"type":"result","result":{"ok":true}}"#,
+        0,
+    );
+    let mut approved = executor.batch(answered("i-1"));
+    approved.prepare(&requests).await.expect("prepared");
+    let completed = approved.invoke(&requests[0], &Stop::new()).await;
+    assert!(matches!(completed, Ok(InvokeOutcome::Completed(_))));
+    assert!(sent_text(sent).await.contains("base64"));
+    approved.terminate().await.expect("ended");
+    // A later batch reusing the same interrupt id, as every Routine run does, carries no approval of its own.
+    let sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 0);
+    let mut later = executor.batch(BatchScope {
+        generation: "network-2".to_owned(),
+        thread_id: "thread-2".to_owned(),
+        ..scope(false)
+    });
+    later.prepare(&requests).await.expect("prepared");
+    let withheld = later.invoke(&requests[0], &Stop::new()).await;
+    assert_eq!(withheld, Err(ActionFailure::Uncertain));
+    let sent = sent_text(sent).await;
+    assert!(sent.contains(r#""content":{"type":"withheld"}"#) && !sent.contains("base64"));
 }

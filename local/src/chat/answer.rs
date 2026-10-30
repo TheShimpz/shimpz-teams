@@ -279,9 +279,6 @@ impl ChatService {
                 self.admit_answer(&team_id, &challenge, &answer.2, &setup.assistants)?;
             (pending, transcripts)
         };
-        for transcript in &transcripts.0 {
-            self.parts.transcripts.set(&team_id, transcript.clone());
-        }
         self.continue_paused(&admitted, request, pending, transcripts, progress)
             .await
     }
@@ -342,6 +339,7 @@ impl ChatService {
             conversation: Vec::new(),
             locale: pending.locale.clone(),
             continuation: Some(pending.continuation.clone()),
+            transcripts: transcripts.0.clone(),
             expected: Some(pending.identity.clone()),
             progress: self.recorded_progress(
                 &request.team_id,

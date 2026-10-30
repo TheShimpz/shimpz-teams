@@ -209,10 +209,12 @@ async fn a_stored_input_answer_is_sealed_for_its_paused_action_and_never_replaye
         held.map(|stored| stored.value.expose().to_owned()).ok(),
         Some("value-not-real-0".to_owned())
     );
-    let kept = harness.transcripts.kept.lock().expect("kept").clone();
+    let scopes = harness.executor.scopes.lock().expect("scopes").clone();
     assert!(
-        kept.iter()
-            .all(|(_, transcript)| transcript.responses.is_empty())
+        scopes
+            .iter()
+            .flat_map(|scope| &scope.transcripts)
+            .all(|transcript| transcript.responses.is_empty())
     );
 }
 

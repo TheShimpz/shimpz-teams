@@ -391,6 +391,7 @@ impl RoutineService {
             progress: &progress,
             locale: None,
             continuation: None,
+            transcripts: &[],
             max_rounds: 1,
             held: false,
         };

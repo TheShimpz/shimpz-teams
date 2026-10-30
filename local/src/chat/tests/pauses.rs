@@ -52,8 +52,16 @@ async fn an_approval_replays_the_same_action_before_the_brain_resumes() {
         harness.executor.invoked(),
         vec!["interrupt-1", "interrupt-1"]
     );
-    let kept = harness.transcripts.kept.lock().expect("kept").len();
-    assert_eq!(kept, 0, "a completed turn leaves no replay transcript");
+    // Only the replay's own batch carries the approval: the paused batch had none to give.
+    let scopes = harness.executor.scopes.lock().expect("scopes").clone();
+    let carried: Vec<(usize, Option<usize>)> = scopes
+        .iter()
+        .map(|scope| {
+            let responses = scope.transcripts.first().map(|kept| kept.responses.len());
+            (scope.transcripts.len(), responses)
+        })
+        .collect();
+    assert_eq!(carried, vec![(0, None), (1, Some(1))]);
     assert_eq!(harness.continuations.current(TEAM).expect("read"), None);
     // The answered challenge is consumed: answering it again is refused.
     let again = harness.answer(&challenge, "submit").await;

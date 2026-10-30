@@ -29,7 +29,7 @@ use tokio::sync::mpsc;
 use super::continuation_store::ContinuationStore;
 use super::limit::ChatLimitStore;
 use super::pending::PendingLocalChat;
-use super::ports::{TeamView, Transcripts};
+use super::ports::TeamView;
 use super::problem;
 use crate::browser::service::BrowserService;
 use crate::coordination::Coordination;
@@ -58,8 +58,6 @@ pub struct ChatParts {
     pub brain: Arc<dyn BrainClient>,
     /// The Action executor.
     pub actions: Arc<dyn ActionExecutor>,
-    /// The executor's replay transcripts.
-    pub transcripts: Arc<dyn Transcripts>,
     /// Attachment preparation.
     pub preparer: Arc<dyn Preparer>,
     /// The Team files.

@@ -196,6 +196,8 @@ pub struct FakeRoutineActions {
     pub dispatched: Mutex<Vec<(String, String, Value)>>,
     /// The values each dispatch injects, reported to its hooks.
     pub injected: Mutex<Vec<String>>,
+    /// The scope of every batch opened, in order.
+    pub scopes: Mutex<Vec<BatchScope>>,
     minted: AtomicU64,
 }
 
@@ -241,6 +243,7 @@ impl FakeRoutineActions {
 
 impl RoutineActions for Arc<FakeRoutineActions> {
     fn batch(&self, scope: BatchScope, hooks: Arc<dyn DispatchHooks>) -> Box<dyn ActionBatch> {
+        lock(&self.scopes).push(scope.clone());
         Box::new(FakeBatch {
             actions: Arc::clone(self),
             scope,
