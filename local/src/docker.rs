@@ -11,6 +11,7 @@ pub mod daemon;
 pub mod exec;
 pub mod helpers;
 pub mod labels;
+pub mod policy;
 pub mod problem;
 #[cfg(all(test, feature = "testing"))]
 pub(crate) mod recorded;
