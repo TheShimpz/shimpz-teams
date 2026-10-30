@@ -16,9 +16,12 @@ sha2.workspace = true
 strict-json.workspace = true
 team-core.workspace = true
 team-protocol.workspace = true
+team-storage.workspace = true
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+rustix.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [lints]

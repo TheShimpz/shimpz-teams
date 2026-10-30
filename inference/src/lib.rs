@@ -10,4 +10,5 @@ pub mod credential;
 pub mod runtime;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+pub mod token;
 pub mod usage;

@@ -2358,10 +2358,13 @@ dependencies = [
 name = "team-inference"
 version = "0.1.0"
 dependencies = [
+ "rustix",
  "sha2",
  "strict-json",
  "team-core",
  "team-protocol",
+ "team-storage",
+ "tempfile",
  "tokio",
 ]
 
