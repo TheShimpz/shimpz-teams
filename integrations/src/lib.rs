@@ -12,6 +12,7 @@ pub mod https;
 pub mod pending;
 pub mod pkce;
 pub mod providers;
+pub mod service;
 pub mod store;
 pub mod text;
 pub mod token;

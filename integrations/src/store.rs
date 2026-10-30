@@ -595,4 +595,4 @@ fn plaintext_json(value: &Value) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

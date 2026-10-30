@@ -21,17 +21,17 @@ use crate::token::TokenSet;
 mod flights;
 mod replacement;
 
-pub(super) const ACCESS: &str = "access-token-private-material-123456789";
-pub(super) const REFRESH: &str = "refresh-token-private-material-987654321";
-pub(super) const ASSISTANT: &str = "shimpz-cloudflare";
+pub(crate) const ACCESS: &str = "access-token-private-material-123456789";
+pub(crate) const REFRESH: &str = "refresh-token-private-material-987654321";
+pub(crate) const ASSISTANT: &str = "shimpz-cloudflare";
 
-pub(super) fn scopes() -> Vec<String> {
+pub(crate) fn scopes() -> Vec<String> {
     ["dns.read", "offline_access", "zone.read"]
         .map(str::to_owned)
         .to_vec()
 }
 
-pub(super) fn declarations() -> Vec<(String, Declaration)> {
+pub(crate) fn declarations() -> Vec<(String, Declaration)> {
     vec![(
         "cloudflare".to_owned(),
         Declaration {
@@ -41,7 +41,7 @@ pub(super) fn declarations() -> Vec<(String, Declaration)> {
     )]
 }
 
-pub(super) fn account() -> Identity {
+pub(crate) fn account() -> Identity {
     Identity {
         id: "2244994945".to_owned(),
         username: Some("Cloudflare".to_owned()),
@@ -49,7 +49,7 @@ pub(super) fn account() -> Identity {
     }
 }
 
-pub(super) fn tokens(access: &str, refresh: Option<&str>, expires_in: i64) -> TokenSet {
+pub(crate) fn tokens(access: &str, refresh: Option<&str>, expires_in: i64) -> TokenSet {
     TokenSet {
         access_token: Secret::new(access.to_owned()),
         refresh_token: refresh.map(|refresh| Secret::new(refresh.to_owned())),
@@ -59,13 +59,13 @@ pub(super) fn tokens(access: &str, refresh: Option<&str>, expires_in: i64) -> To
     }
 }
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     pub root: tempfile::TempDir,
     pub clock: Arc<FakeClock>,
     pub store: Arc<IntegrationStore>,
 }
 
-pub(super) fn open(
+pub(crate) fn open(
     root: &Path,
     clock: Arc<FakeClock>,
     entropy: Arc<dyn Entropy>,
@@ -82,7 +82,7 @@ pub(super) fn open(
     )
 }
 
-pub(super) fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     let root = tempfile::tempdir().expect("temporary directory");
     let clock = Arc::new(FakeClock::at(
         UNIX_EPOCH + Duration::from_secs(1_000_000_000),
@@ -95,7 +95,7 @@ pub(super) fn fixture() -> Fixture {
     Fixture { root, clock, store }
 }
 
-pub(super) fn put(
+pub(crate) fn put(
     store: &IntegrationStore,
     team: &str,
     integration: &str,
@@ -109,7 +109,7 @@ pub(super) fn put(
     )
 }
 
-pub(super) async fn resolve(
+pub(crate) async fn resolve(
     store: &Arc<IntegrationStore>,
     integration: &str,
 ) -> Result<Secret, StoreError> {
@@ -122,7 +122,7 @@ pub(super) async fn resolve(
         .await
 }
 
-pub(super) fn metadata(store: &IntegrationStore) -> Result<Vec<Metadata>, StoreError> {
+pub(crate) fn metadata(store: &IntegrationStore) -> Result<Vec<Metadata>, StoreError> {
     store.metadata("team_1", ASSISTANT, &declarations())
 }
 
@@ -138,7 +138,7 @@ impl Entropy for Nonces {
 
 /// Records each revocation's access token.
 #[derive(Default)]
-pub(super) struct Revocations(pub Mutex<Vec<String>>);
+pub(crate) struct Revocations(pub Mutex<Vec<String>>);
 
 impl Revoke for Revocations {
     fn revoke<'a>(&'a self, grant: Revocation<'a>) -> BoxFuture<'a, Result<(), StoreError>> {
@@ -151,7 +151,7 @@ impl Revoke for Revocations {
 }
 
 /// Seals `access` (with a refresh token, for an hour) as Integration `integration` of `team`.
-pub(super) fn sealed(
+pub(crate) fn sealed(
     store: &IntegrationStore,
     team: &str,
     integration: &str,
@@ -167,7 +167,7 @@ pub(super) fn sealed(
 }
 
 /// The access token `team_1`'s `integration` resolves to without a refresh.
-pub(super) async fn access(store: &Arc<IntegrationStore>, integration: &str) -> String {
+pub(crate) async fn access(store: &Arc<IntegrationStore>, integration: &str) -> String {
     resolve(store, integration)
         .await
         .expect("resolved")

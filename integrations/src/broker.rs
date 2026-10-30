@@ -488,4 +488,4 @@ fn returned_scopes(value: Option<&Value>) -> Option<Vec<&str>> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
