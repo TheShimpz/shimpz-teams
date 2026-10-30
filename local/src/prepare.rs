@@ -8,6 +8,7 @@ pub mod admission;
 pub mod exchange;
 #[cfg(test)]
 mod fakes;
+pub mod files;
 pub mod helper;
 pub mod idle;
 pub mod service;
