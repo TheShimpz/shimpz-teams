@@ -1,5 +1,5 @@
 //! The Team image's contract, read from the image itself: its runtime configuration, and a filesystem that holds only
-//! `shimpz-team`, cosign, and `PDFium` besides the distroless base and data files, with no interpreter or shell, and
+//! `shimpz-team`, cosign, and `PDFium` (with its provenance) besides the distroless base and data files, with no interpreter or shell, and
 //! every runtime directory at its exact owner and mode.
 
 use crate::docker;
@@ -7,10 +7,15 @@ use crate::json;
 use crate::report::{Outcome, Report};
 use crate::tar::{self, Entry};
 
-/// The executables and native libraries the image adds outside the base's library directories.
-const ADDED: [&str; 2] = ["usr/local/bin/shimpz-team", "usr/local/bin/cosign"];
-/// A native library the image may add (the PDF renderer).
-const OPTIONAL: [&str; 1] = ["usr/local/lib/libpdfium.so"];
+/// Every ELF object the image adds outside the base's library directories, with its owner, group, and mode: the two
+/// root-owned executables and the PDF renderer, none writable.
+const ADDED: [(&str, u32, u32, u32); 3] = [
+    ("usr/local/bin/cosign", 0, 0, 0o555),
+    ("usr/local/bin/shimpz-team", 0, 0, 0o555),
+    ("usr/local/lib/libpdfium.so", 0, 0, 0o444),
+];
+/// The PDF renderer's recorded provenance (`teams/prepare/pdfium.toml`), beside it.
+const PDFIUM_PROVENANCE: &str = "usr/local/lib/pdfium.toml";
 /// The base's own library directories.
 const LIBRARIES: [&str; 4] = ["lib/", "lib64/", "usr/lib/", "usr/lib64/"];
 /// Names that betray an interpreter or a shell.
@@ -159,10 +164,12 @@ pub fn filesystem(image: &str, report: &mut Report) -> Outcome {
 }
 
 fn executables(entries: &[Entry], report: &mut Report) -> Outcome {
+    // A directory may carry such a name (the base's GDB scripts for libstdc++ under `usr/share/gcc/python`); a file
+    // or a link must not.
     let interpreters: Vec<&str> = entries
         .iter()
+        .filter(|entry| entry.kind != b'5' && interpreter(&entry.path))
         .map(|entry| entry.path.as_str())
-        .filter(|path| interpreter(path))
         .collect();
     report.equal(
         "the image holds no interpreter or shell",
@@ -174,29 +181,23 @@ fn executables(entries: &[Entry], report: &mut Report) -> Outcome {
             .iter()
             .any(|directory| entry.path.starts_with(directory))
     };
-    let mut added: Vec<&str> = entries
+    let mut added: Vec<(&str, u32, u32, u32)> = entries
         .iter()
         .filter(|entry| entry.is_elf() && !library(entry))
-        .map(|entry| entry.path.as_str())
-        .filter(|path| !OPTIONAL.contains(path))
+        .map(|entry| (entry.path.as_str(), entry.uid, entry.gid, entry.mode))
         .collect();
     added.sort_unstable();
-    let mut expected = ADDED.to_vec();
-    expected.sort_unstable();
     report.equal(
-        "the image adds only shimpz-team and cosign as executables",
+        "the image adds only shimpz-team, cosign, and PDFium as native code, root-owned and unwritable",
         added,
-        expected,
+        ADDED.to_vec(),
     )?;
-    let binaries: Vec<(u32, u32, u32)> = ADDED
-        .iter()
-        .filter_map(|path| entries.iter().find(|entry| entry.path == *path))
-        .map(|entry| (entry.uid, entry.gid, entry.mode))
-        .collect();
-    report.equal(
-        "both are root-owned and read-only (0555)",
-        binaries,
-        vec![(0, 0, 0o555); 2],
+    report.check(
+        "PDFium carries its recorded provenance",
+        entries
+            .iter()
+            .any(|entry| entry.path == PDFIUM_PROVENANCE && entry.is_file()),
+        PDFIUM_PROVENANCE,
     )
 }
 

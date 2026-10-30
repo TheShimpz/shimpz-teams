@@ -21,6 +21,126 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
         -o /tmp/cosign && \
     echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -
 
+# ── The Rust controller (ADR-0123, plan phase R7), built beside the Python image until the swap ─────────────────────
+# Targets: `rust-runtime` is the controller image; `fixture` adds the controller suite and its test-only runner and is
+# never published.
+
+# PDFium for the attachment worker: the archive and the library inside it are both hash-checked against the pins of
+# prepare/pdfium.toml, which is copied beside the library as its provenance (V8- and XFA-free builds).
+FROM cosign AS pdfium
+ARG TARGETARCH
+RUN --mount=type=bind,source=prepare/pdfium.toml,target=/tmp/pdfium.toml \
+    case "${TARGETARCH}" in \
+        amd64) architecture=x86_64 ;; \
+        arm64) architecture=aarch64 ;; \
+        *) echo "unsupported PDFium architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    pin() { python3 -c 'import sys, tomllib; print(tomllib.load(open("/tmp/pdfium.toml", "rb"))[sys.argv[1]][sys.argv[2]])' "${architecture}" "$1"; } && \
+    curl -LsSf "$(pin url)" -o /tmp/pdfium.tgz && \
+    echo "$(pin archive_sha256)  /tmp/pdfium.tgz" | sha256sum -c - && \
+    mkdir /tmp/pdfium && tar --no-same-owner -xzf /tmp/pdfium.tgz -C /tmp/pdfium lib/libpdfium.so && \
+    echo "$(pin library_sha256)  /tmp/pdfium/lib/libpdfium.so" | sha256sum -c -
+
+# The zone database the Routine phrase tables were generated from (2026c), taken whole from the pinned base that
+# carries it; the controller reads it through TZDIR.
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS tzdata
+RUN test "$(head -n 1 /usr/share/zoneinfo/tzdata.zi)" = "# version 2026c"
+
+# Every account, group, and runtime directory the controller and its Compose service rely on, at its exact owner and
+# mode; the runtime copies the tree as it is. The groups are named because the controller resolves them by name, and
+# the base's own accounts are kept.
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS rootfs
+RUN mkdir -p /rootfs/etc /rootfs/run/shimpz-local /rootfs/run/shimpz-brain-runtime /rootfs/run/shimpz-local-supervisor \
+        /rootfs/var/log/shimpz-local && \
+    for name in storage inference action-journal publications cosign assistant-egress; do \
+        mkdir -p "/rootfs/var/lib/shimpz-local/${name}"; \
+    done && \
+    for name in assistant-integrations assistant-stored-inputs chat-continuations routines browser-sign-ins; do \
+        mkdir -p "/rootfs/var/lib/shimpz-local/${name}/state" "/rootfs/var/lib/shimpz-local/${name}/key"; \
+    done && \
+    printf '%s\n' 'root:x:0:0:root:/root:/sbin/nologin' 'nobody:x:65534:65534:nobody:/nonexistent:/sbin/nologin' \
+        'nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin' \
+        'shimpzlocal:x:10001:10001::/nonexistent:/usr/sbin/nologin' > /rootfs/etc/passwd && \
+    printf '%s\n' 'root:x:0:' 'nobody:x:65534:' 'tty:x:5:' 'staff:x:50:' 'nonroot:x:65532:' 'shimpzlocal:x:10001:' \
+        'shimpzteam-token:x:10010:shimpzlocal' 'shimpzbrain-runtime-token:x:10016:shimpzlocal' \
+        'shimpzassistant-egress-policy:x:10017:shimpzlocal' 'shimpzsupervisor-key:x:10021:shimpzlocal' \
+        'shimpzaccount-egress-token:x:10022:shimpzlocal' > /rootfs/etc/group && \
+    chmod 0644 /rootfs/etc/passwd /rootfs/etc/group && \
+    chown -R 10001:10001 /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local && \
+    chown 0:0 /rootfs/var/lib/shimpz-local /rootfs/var/lib/shimpz-local/assistant-integrations \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs /rootfs/var/lib/shimpz-local/chat-continuations \
+        /rootfs/var/lib/shimpz-local/routines /rootfs/var/lib/shimpz-local/browser-sign-ins && \
+    find /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local -mindepth 0 -type d -user 10001 -exec chmod 0700 {} + && \
+    chown 10001:10017 /rootfs/var/lib/shimpz-local/assistant-egress && \
+    chmod 0750 /rootfs/var/lib/shimpz-local/assistant-egress && \
+    chown 10001:10010 /rootfs/run/shimpz-local && chmod 2750 /rootfs/run/shimpz-local && \
+    chown 10001:10016 /rootfs/run/shimpz-brain-runtime && chmod 0750 /rootfs/run/shimpz-brain-runtime && \
+    chown 0:10021 /rootfs/run/shimpz-local-supervisor && chmod 2770 /rootfs/run/shimpz-local-supervisor && \
+    find /rootfs -depth -exec touch -h -d @0 {} +
+
+# The workspace as the dependency build sees it: every manifest and lock file, and a stub in place of each library
+# and binary root, so a source edit leaves the dependency layer unchanged. RUSTUP_TOOLCHAIN selects the image's own
+# toolchain, which is the workspace's pinned one, so rustup never fetches the lint components rust-toolchain.toml
+# names.
+FROM docker.io/library/rust:1.99.0-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 AS rust-skeleton
+WORKDIR /workspace
+COPY . .
+RUN find . -type f -regextype posix-extended ! -regex '.*/(Cargo\.toml|Cargo\.lock)' ! -regex '.*/src/(lib|main)\.rs' \
+        -delete && \
+    find . -depth -type d -empty -delete && \
+    for root in $(find . -path '*/src/lib.rs' -o -path '*/src/main.rs'); do \
+        printf '//! Dependency stub.\n' > "${root}"; \
+        if test "${root##*/}" = main.rs; then printf 'fn main() {}\n' >> "${root}"; fi; \
+    done
+
+# The builder's Debian 13 (trixie) glibc matches the distroless cc-debian13 runtime. Every dependency of the
+# controller is compiled here with the release profile, pinned by Cargo.lock.
+FROM docker.io/library/rust:1.99.0-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 AS rust-dependencies
+ENV RUSTUP_TOOLCHAIN=1.99.0
+WORKDIR /workspace
+COPY --from=rust-skeleton /workspace ./
+RUN cargo build --release --locked --package team-local --bin shimpz-team
+
+# The real sources replace the stubs; touching them makes every workspace crate newer than its stub's artifacts. No
+# SOURCE_DATE_EPOCH reaches this stage's environment: build scripts track it, so it would rebuild every dependency.
+FROM rust-dependencies AS rust-build
+COPY . .
+RUN find . -name '*.rs' -not -path './target/*' -exec touch {} + && \
+    cargo build --release --locked --package team-local --bin shimpz-team
+
+# Test only: the controller suite and its runner, each built on its own so neither widens the other's features.
+FROM rust-build AS rust-fixture
+RUN cargo build --release --locked --package team-local-fixture --bin shimpz-team-fixture && \
+    cargo build --release --locked --package team-local-docker --bin shimpz-team-docker-suite
+
+# The controller image: the distroless glibc base, the root-owned binaries, PDFium with its provenance, the pinned
+# zone database, and the account and directory tree. No shell, interpreter, or package manager.
+FROM gcr.io/distroless/cc-debian13@sha256:ed7c407fd64eb0af9dddb9456b94cee188a40a7f53cf38c9836e1e9ae14fca02 AS rust-runtime
+COPY --link --from=rootfs /rootfs/ /
+COPY --link --from=tzdata /usr/share/zoneinfo /usr/share/shimpz-team/zoneinfo
+COPY --link --chown=0:0 --from=cosign --chmod=0555 /tmp/cosign /usr/local/bin/cosign
+COPY --link --chown=0:0 --from=pdfium --chmod=0444 /tmp/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
+COPY --link --chown=0:0 --chmod=0444 prepare/pdfium.toml /usr/local/lib/pdfium.toml
+COPY --link --chown=0:0 --from=rust-build --chmod=0555 /workspace/target/release/shimpz-team /usr/local/bin/shimpz-team
+ENV TZDIR=/usr/share/shimpz-team/zoneinfo
+# The exact Browser image built with this Team image (ADR-0117 §9); the deploy and the publisher pass its digest.
+ARG SHIMPZ_BROWSER_IMAGE=""
+LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
+      org.shimpz.component="team-local" \
+      org.shimpz.local.profile="local-v1" \
+      org.shimpz.local.browser-image="${SHIMPZ_BROWSER_IMAGE}"
+USER 10001:10001
+EXPOSE 7077
+HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --start-interval=1s --retries=3 \
+    CMD ["/usr/local/bin/shimpz-team", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/shimpz-team"]
+CMD ["serve"]
+
+# Test only, never published: the controller image plus the suite and the runner the suite starts it with.
+FROM rust-runtime AS fixture
+COPY --link --chown=0:0 --from=rust-fixture --chmod=0555 /workspace/target/release/shimpz-team-fixture \
+    /workspace/target/release/shimpz-team-docker-suite /usr/local/bin/
+
 # The dependency layer is the runtime's base and a pure function of the pinned base, uv, the lock, and Cosign
 # (Shimpz ADR-0098): no ARG SOURCE_DATE_EPOCH, WORKDIR, COPY, or ADD here; uv, the lock, and Cosign arrive as
 # read-only mounts on a discarded tmpfs, the uv cache is removed, and every /opt timestamp is fixed. An unchanged lock
