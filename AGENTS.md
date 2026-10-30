@@ -43,4 +43,4 @@
   `ruff format --config ruff.toml --check teams`. Run the complete local suite here with
   `uv run --frozen --python 3.14 python -m unittest discover -s tests`.
 - `browser/egress/` is a Rust package built with the umbrella `.egress/transport` crate; from the umbrella root run
-  `.scripts/gate/rust crate teams/browser/egress` (100% line, branch, and function coverage).
+  `.scripts/gate/rust crate teams/browser/egress`.
