@@ -5,8 +5,10 @@
 //! S256, seals the token set it receives in its own encrypted store, and hands an Action's provider calls the bearer
 //! only through its provider broker, never to the Assistant.
 
+pub mod broker;
 pub mod capability;
 pub mod challenge;
+pub mod https;
 pub mod pending;
 pub mod pkce;
 pub mod providers;
