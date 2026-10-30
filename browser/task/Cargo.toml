@@ -7,5 +7,16 @@ license.workspace = true
 publish.workspace = true
 description = "Team Browser tasks: the task loop, the Cua client, the thread, reading, screening, and downloads"
 
+[dependencies]
+strict-json.workspace = true
+team-core.workspace = true
+team-inference.workspace = true
+team-protocol.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+team-inference = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
+
 [lints]
 workspace = true
