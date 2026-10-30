@@ -1,0 +1,55 @@
+[package]
+name = "team-prepare-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "cargo-fuzz targets for every attachment parser of untrusted bytes"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+strict-json = { path = "../../vendor/strict-json" }
+team-prepare = { path = ".." }
+
+[[bin]]
+name = "request"
+path = "fuzz_targets/request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "image"
+path = "fuzz_targets/image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf_prepass"
+path = "fuzz_targets/pdf_prepass.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "answer"
+path = "fuzz_targets/answer.rs"
+test = false
+doc = false
+bench = false
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+# The fuzz crate is its own workspace, so the Team workspace never builds it.
+[workspace]
+members = ["."]
