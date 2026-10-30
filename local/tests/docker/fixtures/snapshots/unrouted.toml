@@ -1,0 +1,21 @@
+[shimpz]
+spec = 1
+id = "fixture-assistant"
+version = "0.1.0"
+name = "Fixture Assistant"
+summary = "Exercise immutable admission."
+description = "Exercise one reviewed Assistant through the Team test suite."
+creators = ["@fixture"]
+github = "https://github.com/TheShimpz/fixture-assistant"
+genesis = "Use the available Actions."
+
+[network]
+allowed_hosts = ["api.example.com"]
+
+[stored_inputs.api-token]
+kind = "password"
+label = "API token"
+description = "Create a test key in the provider dashboard and copy it."
+help_url = "https://dashboard.exa.ai/api-keys"
+host = "api.example.com"
+header = "X-Api-Key"

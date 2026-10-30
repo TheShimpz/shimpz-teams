@@ -2351,6 +2351,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "team-local-docker"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "ring",
+ "sha2",
+ "strict-json",
+ "team-protocol",
+]
+
+[[package]]
 name = "team-local-fixture"
 version = "0.1.0"
 dependencies = [

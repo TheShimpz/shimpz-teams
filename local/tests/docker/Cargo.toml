@@ -1,0 +1,23 @@
+[package]
+name = "team-local-docker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Local controller suite: the built Team image driven over HTTP and a real Docker daemon"
+
+# The suite runs from the Team Dockerfile's `fixture` target against a Docker daemon of its own; it is never published.
+[[bin]]
+name = "shimpz-team-docker-suite"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+ring.workspace = true
+sha2.workspace = true
+strict-json.workspace = true
+team-protocol.workspace = true
+
+[lints]
+workspace = true

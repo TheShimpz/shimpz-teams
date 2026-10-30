@@ -15,6 +15,7 @@ members = [
     "install",
     "integrations",
     "local",
+    "local/tests/docker",
     "local/tests/fixture",
     "prepare",
     "routine",

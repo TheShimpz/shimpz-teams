@@ -1,0 +1,77 @@
+#!/usr/local/bin/python3
+"""Deterministic pre-built Action executable for controller integration tests."""
+
+import json
+import re
+import sys
+
+MAX_BODY = 512 * 1024
+ACTIONS = {"list-zones", "list-dns-records"}
+ZONE_ID = re.compile(r"[0-9a-f]{32}\Z")
+OPERATION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+
+
+def _invocation(action: str) -> dict[str, object]:
+    raw = sys.stdin.buffer.read(MAX_BODY + 1)
+    if not 0 < len(raw) <= MAX_BODY:
+        raise ValueError
+    payload = json.loads(raw)
+    expected = {"input", "integrations", "stored_inputs", "files", "operation_id"}
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise ValueError
+    if payload["stored_inputs"] != {} or payload["files"] != {} or not isinstance(payload["operation_id"], str):
+        raise ValueError
+    if OPERATION_ID.fullmatch(payload["operation_id"]) is None:
+        raise ValueError
+    integrations = payload["integrations"]
+    if not isinstance(integrations, dict) or set(integrations) != {"cloudflare"}:
+        raise ValueError
+    token = integrations["cloudflare"]
+    if not isinstance(token, str) or not 16 <= len(token) <= 16 * 1024:
+        raise ValueError
+    action_input = payload["input"]
+    expected = {"page", "per_page"} | ({"zone_id"} if action == "list-dns-records" else set())
+    if not isinstance(action_input, dict) or set(action_input) != expected:
+        raise ValueError
+    page = action_input["page"]
+    per_page = action_input["per_page"]
+    if type(page) is not int or type(per_page) is not int or page < 1 or not 1 <= per_page <= 100:
+        raise ValueError
+    if action == "list-dns-records" and (
+        not isinstance(action_input["zone_id"], str) or ZONE_ID.fullmatch(action_input["zone_id"]) is None
+    ):
+        raise ValueError
+    return action_input
+
+
+def _result(action: str, action_input: dict[str, object]) -> dict[str, object]:
+    pagination = {
+        "page": action_input["page"],
+        "per_page": action_input["per_page"],
+        "count": 0,
+        "total_count": 0,
+        "total_pages": 0,
+    }
+    return (
+        {"records": [], "pagination": pagination}
+        if action == "list-dns-records"
+        else {
+            "zones": [],
+            "pagination": pagination,
+        }
+    )
+
+
+def main() -> int:
+    if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
+        return 2
+    try:
+        result = _result(sys.argv[1], _invocation(sys.argv[1]))
+    except OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError:
+        return 3
+    sys.stdout.write(json.dumps({"type": "result", "result": result}, allow_nan=False, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

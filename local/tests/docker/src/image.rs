@@ -1,0 +1,254 @@
+//! The Team image's contract, read from the image itself: its runtime configuration, and a filesystem that holds only
+//! `shimpz-team`, cosign, and `PDFium` besides the distroless base and data files, with no interpreter or shell, and
+//! every runtime directory at its exact owner and mode.
+
+use crate::docker;
+use crate::json;
+use crate::report::{Outcome, Report};
+use crate::tar::{self, Entry};
+
+/// The executables and native libraries the image adds outside the base's library directories.
+const ADDED: [&str; 2] = ["usr/local/bin/shimpz-team", "usr/local/bin/cosign"];
+/// A native library the image may add (the PDF renderer).
+const OPTIONAL: [&str; 1] = ["usr/local/lib/libpdfium.so"];
+/// The base's own library directories.
+const LIBRARIES: [&str; 4] = ["lib/", "lib64/", "usr/lib/", "usr/lib64/"];
+/// Names that betray an interpreter or a shell.
+const INTERPRETERS: [&str; 10] = [
+    "sh", "bash", "dash", "ash", "busybox", "perl", "ruby", "node", "lua", "env",
+];
+/// The pinned zone database the Routine phrase tables were generated from.
+const ZONEINFO: &str = "usr/share/shimpz-team/zoneinfo";
+/// Every runtime directory: owner, group, and mode.
+const DIRECTORIES: [(&str, u32, u32, u32); 20] = [
+    ("run/shimpz-local", 10001, 10010, 0o2750),
+    ("run/shimpz-brain-runtime", 10001, 10016, 0o750),
+    ("run/shimpz-local-supervisor", 0, 10021, 0o2770),
+    ("var/log/shimpz-local", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/storage", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/inference", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/action-journal", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/assistant-egress", 10001, 10017, 0o750),
+    (
+        "var/lib/shimpz-local/assistant-integrations/state",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/assistant-integrations/key",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/assistant-stored-inputs/state",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/assistant-stored-inputs/key",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/chat-continuations/state",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/chat-continuations/key",
+        10001,
+        10001,
+        0o700,
+    ),
+    ("var/lib/shimpz-local/routines/state", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/routines/key", 10001, 10001, 0o700),
+    (
+        "var/lib/shimpz-local/browser-sign-ins/state",
+        10001,
+        10001,
+        0o700,
+    ),
+    (
+        "var/lib/shimpz-local/browser-sign-ins/key",
+        10001,
+        10001,
+        0o700,
+    ),
+    ("var/lib/shimpz-local/publications", 10001, 10001, 0o700),
+    ("var/lib/shimpz-local/cosign", 10001, 10001, 0o700),
+];
+
+/// The image's runtime configuration matches its Compose and CLI contract.
+pub fn configuration(image: &str, report: &mut Report) -> Outcome {
+    let inspected = docker::inspect(&["image", "inspect", image])?;
+    report.equal(
+        "the image runs shimpz-team serve as 10001:10001 on port 7077",
+        (
+            json::text(&inspected, &["Config", "User"]),
+            json::strings(&inspected, &["Config", "Entrypoint"]),
+            json::strings(&inspected, &["Config", "Cmd"]),
+            json::keys(&inspected, &["Config", "ExposedPorts"]),
+        ),
+        (
+            Some("10001:10001"),
+            vec!["/usr/local/bin/shimpz-team"],
+            vec!["serve"],
+            vec!["7077/tcp"],
+        ),
+    )?;
+    report.equal(
+        "its healthcheck is shimpz-team healthcheck every 30 s within 4 s, after a 30 s start probed every second",
+        (
+            json::strings(&inspected, &["Config", "Healthcheck", "Test"]),
+            ["Interval", "Timeout", "StartPeriod", "StartInterval", "Retries"]
+                .map(|field| json::integer(&inspected, &["Config", "Healthcheck", field])),
+        ),
+        (
+            vec!["CMD", "/usr/local/bin/shimpz-team", "healthcheck"],
+            [Some(30_000_000_000), Some(4_000_000_000), Some(30_000_000_000), Some(1_000_000_000), Some(3)],
+        ),
+    )?;
+    report.equal(
+        "it is labelled the Local Team of profile local-v1 and names its Browser image",
+        (
+            json::text(&inspected, &["Config", "Labels", "org.shimpz.component"]),
+            json::text(
+                &inspected,
+                &["Config", "Labels", "org.shimpz.local.profile"],
+            ),
+            json::text(
+                &inspected,
+                &["Config", "Labels", "org.shimpz.local.browser-image"],
+            )
+            .is_some(),
+        ),
+        (Some("team-local"), Some("local-v1"), true),
+    )?;
+    let zoneinfo = format!("TZDIR=/{ZONEINFO}");
+    report.check(
+        "its time zones are read from the pinned zone database",
+        json::strings(&inspected, &["Config", "Env"]).contains(&zoneinfo.as_str()),
+        json::strings(&inspected, &["Config", "Env"]),
+    )
+}
+
+fn exported(image: &str) -> Outcome<Vec<Entry>> {
+    let container = docker::ok(&["create", "--pull", "never", image])?;
+    let entries = docker::stream(&["export", &container], |archive| tar::entries(archive));
+    docker::quietly(&["rm", "--force", &container]);
+    entries
+}
+
+fn interpreter(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    INTERPRETERS.contains(&name) || name.starts_with("python")
+}
+
+/// The image's filesystem holds no interpreter or shell, adds exactly its binaries, keeps them immutable, and pins its
+/// runtime directories and zone database.
+pub fn filesystem(image: &str, report: &mut Report) -> Outcome {
+    let entries = exported(image)?;
+    executables(&entries, report)?;
+    directories(&entries, report)?;
+    zone_database(&entries, report)
+}
+
+fn executables(entries: &[Entry], report: &mut Report) -> Outcome {
+    let interpreters: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .filter(|path| interpreter(path))
+        .collect();
+    report.equal(
+        "the image holds no interpreter or shell",
+        interpreters,
+        Vec::new(),
+    )?;
+    let library = |entry: &Entry| {
+        LIBRARIES
+            .iter()
+            .any(|directory| entry.path.starts_with(directory))
+    };
+    let mut added: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.is_elf() && !library(entry))
+        .map(|entry| entry.path.as_str())
+        .filter(|path| !OPTIONAL.contains(path))
+        .collect();
+    added.sort_unstable();
+    let mut expected = ADDED.to_vec();
+    expected.sort_unstable();
+    report.equal(
+        "the image adds only shimpz-team and cosign as executables",
+        added,
+        expected,
+    )?;
+    let binaries: Vec<(u32, u32, u32)> = ADDED
+        .iter()
+        .filter_map(|path| entries.iter().find(|entry| entry.path == *path))
+        .map(|entry| (entry.uid, entry.gid, entry.mode))
+        .collect();
+    report.equal(
+        "both are root-owned and read-only (0555)",
+        binaries,
+        vec![(0, 0, 0o555); 2],
+    )
+}
+
+fn directories(entries: &[Entry], report: &mut Report) -> Outcome {
+    let found = |path: &'static str| {
+        entries
+            .iter()
+            .find(|entry| entry.path == path && entry.kind == b'5')
+            .map_or((path, u32::MAX, u32::MAX, 0), |entry| {
+                (path, entry.uid, entry.gid, entry.mode)
+            })
+    };
+    let directories: Vec<(&str, u32, u32, u32)> =
+        DIRECTORIES.iter().map(|(path, ..)| found(path)).collect();
+    report.equal(
+        "every runtime directory has its exact owner, group, and mode",
+        directories,
+        DIRECTORIES.to_vec(),
+    )
+}
+
+fn zone_database(entries: &[Entry], report: &mut Report) -> Outcome {
+    let version = entries
+        .iter()
+        .find(|entry| entry.path == format!("{ZONEINFO}/tzdata.zi"))
+        .and_then(|entry| {
+            String::from_utf8_lossy(&entry.head)
+                .lines()
+                .next()
+                .map(str::to_owned)
+        });
+    report.equal(
+        "the pinned zone database is the version the Routine phrase tables were generated from",
+        version,
+        Some(format!(
+            "# version {}",
+            team_protocol::phrase::TZDATA_VERSION
+        )),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::interpreter;
+
+    #[test]
+    fn interpreters_are_named_by_their_basename() {
+        assert!(interpreter("bin/sh"));
+        assert!(interpreter("usr/bin/python3.14"));
+        assert!(interpreter("usr/bin/env"));
+        assert!(!interpreter("usr/local/bin/shimpz-team"));
+        assert!(!interpreter("usr/lib/x86_64-linux-gnu/libpython-free.so"));
+        assert!(!interpreter("etc/shells"));
+    }
+}
