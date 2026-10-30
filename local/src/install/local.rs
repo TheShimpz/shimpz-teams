@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use strict_json::Value;
 use team_assistant::cache::ReadCache;
-use team_core::audit::{AuditEvent, AuditSink};
+use team_core::audit::AuditSink;
 use team_install::bindings::{Binding, Provenance, from_local_record};
 use team_install::icons::IconIdentity;
 use tokio::sync::{Mutex, Semaphore};
@@ -21,6 +21,8 @@ use super::snapshots::{
     Verdict,
 };
 use super::{Assistants, object};
+use crate::audit::Outcome;
+use crate::browser::audit::Actor;
 use crate::docker::problem::INTERNAL;
 use crate::http::service::Problem;
 
@@ -72,14 +74,14 @@ impl LocalSnapshots {
 
     async fn record(
         &self,
+        actor: &Actor,
         operation: &str,
-        result: &str,
+        result: Outcome,
         assistant: Option<&str>,
         detail: &str,
     ) -> Result<(), Problem> {
-        let event = AuditEvent::new()
-            .with("operation", text(operation))
-            .with("result", text(result))
+        let event = actor
+            .event(operation, result)
             .with("assistant", optional(assistant))
             .with("detail", text(detail));
         self.audit.record(event).await.map_err(|_| INTERNAL)
@@ -124,7 +126,7 @@ impl LocalSnapshots {
     ///
     /// # Errors
     /// `local-assistant-snapshots-unavailable` or `-invalid`, and the audit log's failure.
-    pub async fn list(&self) -> Result<Value, Problem> {
+    pub async fn list(&self, actor: &Actor) -> Result<Value, Problem> {
         let listing =
             snapshots::list(self.stage.docker.as_ref())
                 .await
@@ -134,10 +136,13 @@ impl LocalSnapshots {
                 })?;
         let mut entries = Vec::new();
         for candidate in &listing.candidates {
-            entries.push(self.judged_entry(candidate).await?);
+            entries.push(self.judged_entry(candidate, actor).await?);
         }
         for refused in &listing.refused {
-            if let Some(entry) = self.refused_entry(refused, &listing.platform).await? {
+            if let Some(entry) = self
+                .refused_entry(refused, &listing.platform, actor)
+                .await?
+            {
                 entries.push(entry);
             }
         }
@@ -145,14 +150,15 @@ impl LocalSnapshots {
     }
 
     /// One candidate's entry; an unavailable verdict, and a refusal this read settled, are audited.
-    async fn judged_entry(&self, candidate: &Candidate) -> Result<Value, Problem> {
+    async fn judged_entry(&self, candidate: &Candidate, actor: &Actor) -> Result<Value, Problem> {
         let (verdict, fresh) = self.judge(candidate).await;
         let assistant = Some(candidate.assistant_id.as_str());
         match verdict {
             Verdict::Unavailable => {
                 self.record(
+                    actor,
                     "local-assistant-admission-unavailable",
-                    "error",
+                    Outcome::Error,
                     assistant,
                     &candidate.image_id,
                 )
@@ -160,8 +166,9 @@ impl LocalSnapshots {
             }
             Verdict::Inadmissible(reason) if fresh => {
                 self.record(
+                    actor,
                     "local-assistant-inadmissible",
-                    "denied",
+                    Outcome::Denied,
                     assistant,
                     &format!("{reason}:{}", candidate.image_id),
                 )
@@ -177,6 +184,7 @@ impl LocalSnapshots {
         &self,
         refused: &Refused,
         platform: &str,
+        actor: &Actor,
     ) -> Result<Option<Value>, Problem> {
         if self.first_sighting(refused).await {
             let reason = if refused.assistant_id.is_some() {
@@ -185,8 +193,9 @@ impl LocalSnapshots {
                 "identity-invalid"
             };
             self.record(
+                actor,
                 "local-assistant-inadmissible",
-                "denied",
+                Outcome::Denied,
                 refused.assistant_id.as_deref(),
                 &format!("{reason}:{}", refused.image_id),
             )

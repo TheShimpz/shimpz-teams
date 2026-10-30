@@ -613,7 +613,10 @@ impl Assistants {
 
     async fn answer_local(&self, call: &Call<'_>) -> Result<Answer, Problem> {
         match call.operation() {
-            Operation::LocalAssistantList => self.local.list().await.map(json),
+            Operation::LocalAssistantList => {
+                let actor = crate::browser::audit::request_actor(&call.principal, &call.trace_id);
+                self.local.list(&actor).await.map(json)
+            }
             Operation::LocalAssistantIcon => self.local.icon(&image_id(call)?).await.map(png),
             Operation::LocalAssistantSummary => self
                 .local
