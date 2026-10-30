@@ -408,6 +408,30 @@ impl Containers {
             .map_err(policy_problem)
     }
 
+    /// The egress token an Action's provider calls carry: `None` when the Assistant has no policy; otherwise the
+    /// token of a policy that admits exactly the reviewed `hosts`, read again at every use.
+    ///
+    /// # Errors
+    /// `egress-policy-drift` for a policy outside its custody or admitting other hosts; `egress-policy-unavailable`.
+    pub fn egress_token(
+        &self,
+        team_id: &str,
+        assistant_id: &str,
+        hosts: &[String],
+    ) -> Result<Option<team_core::secret::Secret>, Problem> {
+        let identity = self.identity(team_id, assistant_id);
+        let admitted = self
+            .policies
+            .admitted(&identity, self.entropy.as_ref())
+            .map_err(policy_problem)?;
+        if admitted.is_none() {
+            return Ok(None);
+        }
+        PolicyStore::validate_admitted(admitted, hosts)
+            .map(Some)
+            .map_err(policy_problem)
+    }
+
     /// Creates, admits, starts, and readies `spec`'s container from the resolved `image` on `network`.
     ///
     /// # Errors

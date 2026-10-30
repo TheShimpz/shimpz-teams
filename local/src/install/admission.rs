@@ -33,7 +33,7 @@ pub struct ImageAdmission {
     docker: Arc<dyn DockerEngine>,
     registry: Arc<Registry>,
     manifests: ReadCache<(), Problem>,
-    genesis: ReadCache<(), Problem>,
+    genesis: ReadCache<String, Problem>,
     packs: ReadCache<LanguagePack, Problem>,
 }
 
@@ -118,6 +118,22 @@ impl ImageAdmission {
         }
     }
 
+    /// The admitted Genesis of the container `container`, read once per container generation.
+    ///
+    /// # Errors
+    /// `assistant-manifest-unavailable` or `assistant-manifest-invalid`.
+    pub async fn genesis_text(&self, container: &str) -> Result<String, Problem> {
+        let key = container_id(container).ok_or(MANIFEST_INVALID)?;
+        self.genesis
+            .get(key, String::len, || async {
+                let raw = self
+                    .read(container, MANIFEST_PATH, "shimpz.toml", MAX_MANIFEST_BYTES)
+                    .await?;
+                parse_manifest_genesis(&raw).map_err(|_| MANIFEST_INVALID)
+            })
+            .await
+    }
+
     /// The reviewed language pack of `spec`'s running container `container`.
     ///
     /// # Errors
@@ -173,23 +189,7 @@ impl Admission for ImageAdmission {
         container: &'a str,
         _spec: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
-        Box::pin(async move {
-            let key = container_id(container).ok_or(MANIFEST_INVALID)?;
-            self.genesis
-                .get(
-                    key,
-                    |()| 1,
-                    || async {
-                        let raw = self
-                            .read(container, MANIFEST_PATH, "shimpz.toml", MAX_MANIFEST_BYTES)
-                            .await?;
-                        parse_manifest_genesis(&raw)
-                            .map(|_| ())
-                            .map_err(|_| MANIFEST_INVALID)
-                    },
-                )
-                .await
-        })
+        Box::pin(async move { self.genesis_text(container).await.map(|_| ()) })
     }
 
     fn forget(&self, container: &str) {
