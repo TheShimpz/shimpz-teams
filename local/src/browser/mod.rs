@@ -13,5 +13,6 @@ pub mod envelope;
 pub(crate) mod fake;
 pub mod release;
 pub mod runtime;
+pub mod service;
 pub mod tunnel;
 pub mod view;
