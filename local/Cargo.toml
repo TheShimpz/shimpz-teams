@@ -1,0 +1,35 @@
+[package]
+name = "team-local"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Local Team controller: the shimpz-team binary, its HTTP server, Docker, and lifecycle coordination"
+
+[lib]
+name = "team_local"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shimpz-team"
+path = "src/main.rs"
+
+[features]
+# In-memory fakes of the controller's seams, for the workspace's tests and the controller suite's test-only runner.
+testing = ["team-core/testing"]
+
+[dependencies]
+bollard.workspace = true
+sha2.workspace = true
+strict-json.workspace = true
+team-core.workspace = true
+team-inference.workspace = true
+team-install.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true
