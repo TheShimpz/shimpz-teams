@@ -2331,6 +2331,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "bollard",
+ "futures-core",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2340,6 +2341,7 @@ dependencies = [
  "strict-json",
  "subtle",
  "team-core",
+ "team-egress",
  "team-inference",
  "team-install",
  "team-protocol",

@@ -6,6 +6,11 @@
 //! inspected against its complete expected envelope before it receives untrusted input (Assistants, preparation
 //! helpers, Browsers), and drift refuses and removes it.
 
+pub mod daemon;
+pub mod exec;
+pub mod helpers;
+pub mod labels;
+
 use bollard::models::{
     ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, Network,
     NetworkCreateRequest, NetworkInspect, SystemInfo,

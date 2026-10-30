@@ -22,16 +22,24 @@ testing = ["team-core/testing"]
 [dependencies]
 base64.workspace = true
 bollard.workspace = true
+futures-core.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rustix.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
 team-core.workspace = true
+team-egress.workspace = true
 team-inference.workspace = true
 team-install.workspace = true
 team-protocol.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+team-storage.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 
 [dev-dependencies]
 team-core = { workspace = true, features = ["testing"] }
+tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 
 [lints]
