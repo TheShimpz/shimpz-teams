@@ -69,12 +69,23 @@ pub async fn current_pins(
     team_id: &str,
     assistant_ids: &[String],
 ) -> Result<BTreeMap<String, String>, ContractsUnavailable> {
-    let scope = {
-        let _team = locks.team(team_id).await;
-        team.scope(team_id, true)
-            .await
-            .map_err(|_| ContractsUnavailable)?
-    };
+    let _team = locks.team(team_id).await;
+    current_pins_unlocked(team, team_id, assistant_ids).await
+}
+
+/// [`current_pins`] for a caller that already holds the Team's stripe.
+///
+/// # Errors
+/// [`ContractsUnavailable`] when the Team cannot be read.
+pub async fn current_pins_unlocked(
+    team: &dyn TeamView,
+    team_id: &str,
+    assistant_ids: &[String],
+) -> Result<BTreeMap<String, String>, ContractsUnavailable> {
+    let scope = team
+        .scope(team_id, true)
+        .await
+        .map_err(|_| ContractsUnavailable)?;
     Ok(assistant_ids
         .iter()
         .filter_map(|id| Some((id.clone(), scope.assistant(id)?.routine_scope()?)))
