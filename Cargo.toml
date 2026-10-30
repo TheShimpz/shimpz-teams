@@ -17,6 +17,7 @@ members = [
     "local",
     "local/tests/docker",
     "local/tests/fixture",
+    "local/tests/trust",
     "prepare",
     "routine",
     "storage",

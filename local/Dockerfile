@@ -79,18 +79,18 @@ RUN mkdir -p /rootfs/etc /rootfs/run/shimpz-local /rootfs/run/shimpz-brain-runti
     find /rootfs -depth -exec touch -h -d @0 {} +
 
 # The workspace as the dependency build sees it: every manifest and lock file, and a stub in place of each library
-# and binary root, so a source edit leaves the dependency layer unchanged. RUSTUP_TOOLCHAIN selects the image's own
+# and binary root and of every other target file a manifest may name (tests, benches, examples), so a source edit leaves the dependency layer unchanged. RUSTUP_TOOLCHAIN selects the image's own
 # toolchain, which is the workspace's pinned one, so rustup never fetches the lint components rust-toolchain.toml
 # names.
 FROM docker.io/library/rust:1.99.0-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 AS rust-skeleton
 WORKDIR /workspace
 COPY . .
-RUN find . -type f -regextype posix-extended ! -regex '.*/(Cargo\.toml|Cargo\.lock)' ! -regex '.*/src/(lib|main)\.rs' \
-        -delete && \
+RUN find . -type f -regextype posix-extended ! -regex '.*/(Cargo\.toml|Cargo\.lock)' ! -name '*.rs' -delete && \
+    find . -type f -regextype posix-extended -name '*.rs' -path '*/src/*' ! -regex '.*/src/(lib|main)\.rs' -delete && \
     find . -depth -type d -empty -delete && \
-    for root in $(find . -path '*/src/lib.rs' -o -path '*/src/main.rs'); do \
+    for root in $(find . -name '*.rs'); do \
         printf '//! Dependency stub.\n' > "${root}"; \
-        if test "${root##*/}" = main.rs; then printf 'fn main() {}\n' >> "${root}"; fi; \
+        if test "${root##*/}" != lib.rs; then printf 'fn main() {}\n' >> "${root}"; fi; \
     done
 
 # The builder's Debian 13 (trixie) glibc matches the distroless cc-debian13 runtime. Every dependency of the
@@ -108,10 +108,12 @@ COPY . .
 RUN find . -name '*.rs' -not -path './target/*' -exec touch {} + && \
     cargo build --release --locked --package team-local --bin shimpz-team
 
-# Test only: the controller suite and its runner, each built on its own so neither widens the other's features.
+# Test only: the controller suite, its runner, and the live artifact-trust probe, each built on its own so none widens
+# another's features.
 FROM rust-build AS rust-fixture
 RUN cargo build --release --locked --package team-local-fixture --bin shimpz-team-fixture && \
-    cargo build --release --locked --package team-local-docker --bin shimpz-team-docker-suite
+    cargo build --release --locked --package team-local-docker --bin shimpz-team-docker-suite && \
+    cargo build --release --locked --package team-local-trust --bin shimpz-team-trust-probe
 
 # The controller image: the distroless glibc base, the root-owned binaries, PDFium with its provenance, the pinned
 # zone database, and the account and directory tree. No shell, interpreter, or package manager.
@@ -136,10 +138,12 @@ HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --start-interval=1s -
 ENTRYPOINT ["/usr/local/bin/shimpz-team"]
 CMD ["serve"]
 
-# Test only, never published: the controller image plus the suite and the runner the suite starts it with.
+# Test only, never published: the controller image plus the suite, the runner the suite starts it with, and the
+# live artifact-trust probe.
 FROM rust-runtime AS fixture
 COPY --link --chown=0:0 --from=rust-fixture --chmod=0555 /workspace/target/release/shimpz-team-fixture \
-    /workspace/target/release/shimpz-team-docker-suite /usr/local/bin/
+    /workspace/target/release/shimpz-team-docker-suite /workspace/target/release/shimpz-team-trust-probe \
+    /usr/local/bin/
 
 # The dependency layer is the runtime's base and a pure function of the pinned base, uv, the lock, and Cosign
 # (Shimpz ADR-0098): no ARG SOURCE_DATE_EPOCH, WORKDIR, COPY, or ADD here; uv, the lock, and Cosign arrive as

@@ -1,0 +1,22 @@
+[package]
+name = "team-local-trust"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The live artifact-trust lane's probe: Team's real resolver and verifier through the real release proxy"
+
+# Built only by the Team Dockerfile's `fixture` target, never published. It links the production resolver, verifier,
+# and cosign, never the controller suite's seeded runner.
+[[bin]]
+name = "shimpz-team-trust-probe"
+path = "src/main.rs"
+
+[dependencies]
+strict-json.workspace = true
+team-install.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
+[lints]
+workspace = true

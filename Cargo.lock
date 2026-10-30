@@ -2452,6 +2452,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "team-local-trust"
+version = "0.1.0"
+dependencies = [
+ "strict-json",
+ "team-install",
+ "tokio",
+]
+
+[[package]]
 name = "team-prepare"
 version = "0.1.0"
 dependencies = [
