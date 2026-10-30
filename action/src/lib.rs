@@ -7,6 +7,7 @@
 
 pub mod executor;
 pub mod failure;
+pub mod frames;
 pub mod journal;
 pub mod result;
 pub mod stored_input;
