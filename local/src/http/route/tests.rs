@@ -10,7 +10,7 @@ fn every_operation_indexes_its_own_route_and_names_are_unique() {
         assert_eq!(route.operation.name(), route.name);
     }
     let names: HashSet<_> = ROUTES.iter().map(|route| route.name).collect();
-    assert_eq!(names.len(), 75);
+    assert_eq!(names.len(), 77);
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn route_authority_table_exact() {
             .iter()
             .filter(|route| route.authority == Authority::Supervisor)
             .count(),
-        66
+        68
     );
 }
 

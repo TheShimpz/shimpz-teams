@@ -536,6 +536,7 @@ impl<'a> Exchange<'a> {
             Principal::Supervisor {
                 supervisor_id: evidence.supervisor_id,
                 assurance: evidence.assurance,
+                authority_sha256: evidence.authority_sha256,
             }
         };
         Ok(Authorized {

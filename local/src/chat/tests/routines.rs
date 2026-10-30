@@ -24,7 +24,7 @@ fn fresh(harness: &Harness, message: &str) -> Value {
     json(&format!(
         r#"{{"message":"{message}","files":[],"assistant_ids":["shimpz-cloudflare"],"conversation":[],
         "request":{{"issued_at":{now},"nonce":"{}"}},"timezone":"UTC","locale":"pt","refine":null}}"#,
-        "1".repeat(32)
+        super::harness::nonce()
     ))
 }
 

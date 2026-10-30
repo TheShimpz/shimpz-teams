@@ -220,7 +220,15 @@ fn seen_interrupts(value: &Value) -> Result<Vec<String>> {
     }
 }
 
-fn continuation(value: &Value) -> Result<ChatContinuation> {
+/// A durable turn's full Brain turn (ADR-0125): every member as the Brain answered it.
+fn full_turn(value: &Value) -> Result<team_inference::runtime::RuntimeTurn> {
+    parse_turn(value).ok_or(CodecError("Brain turn is malformed"))
+}
+
+/// Decodes one turn of a continuation.
+type TurnDecoder = fn(&Value) -> Result<team_inference::runtime::RuntimeTurn>;
+
+fn continuation(value: &Value, turn: TurnDecoder) -> Result<ChatContinuation> {
     let raw = mapping(value, &CONTINUATION_FIELDS, "Brain continuation")?;
     let round_index = bounded_count(
         field(raw, "round_index"),
@@ -233,7 +241,7 @@ fn continuation(value: &Value) -> Result<ChatContinuation> {
         "continuation file Actions are malformed",
     )?;
     Ok(ChatContinuation {
-        turn: paused_turn(field(raw, "turn"))?,
+        turn: turn(field(raw, "turn"))?,
         seen_interrupts: seen_interrupts(field(raw, "seen_interrupts"))?,
         invoked: invoked(field(raw, "invoked"))?,
         round_index,
@@ -571,7 +579,19 @@ fn answers(raw: &Value) -> Result<(Vec<ActionTranscript>, usize)> {
     Ok((transcripts, requests_used))
 }
 
+/// A durable chat turn's checkpoint: a pending continuation whose turn is the Brain's whole answer (ADR-0125).
+///
+/// # Errors
+/// [`CodecError`] for anything outside the closed codec.
+pub fn checkpoint(value: &Value) -> Result<PendingLocalChat> {
+    pending_with(value, full_turn)
+}
+
 fn pending(value: &Value) -> Result<PendingLocalChat> {
+    pending_with(value, paused_turn)
+}
+
+fn pending_with(value: &Value, turn: TurnDecoder) -> Result<PendingLocalChat> {
     let raw = mapping(value, &PENDING_FIELDS, "pending continuation")?;
     let (assistant_ids, file_ids) = pending_ids(raw)?;
     let identity = identity(field(raw, "identity"))?;
@@ -594,7 +614,7 @@ fn pending(value: &Value) -> Result<PendingLocalChat> {
     )?;
     let batch = "continuation paused Action batch is malformed";
     Ok(PendingLocalChat {
-        continuation: continuation(field(raw, "continuation"))?,
+        continuation: continuation(field(raw, "continuation"), turn)?,
         assistant_ids,
         file_ids,
         provider,

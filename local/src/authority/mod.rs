@@ -65,6 +65,9 @@ pub struct Evidence {
     pub key_sha256: String,
     /// The authority it was signed under: `session` or `host-reset`.
     pub authority: String,
+    /// The SHA-256 of the authority's own secret (a Supervisor session's): the session a request came from, which
+    /// a durable chat turn stays bound to (ADR-0125).
+    pub authority_sha256: String,
     /// The human assurance kind it bound, if any.
     pub assurance: Option<String>,
 }
@@ -132,6 +135,7 @@ impl Verifier {
             supervisor_id: member("sub").ok_or(Refusal::Denied)?,
             key_sha256: key.fingerprint(),
             authority: member("authority").ok_or(Refusal::Denied)?,
+            authority_sha256: member("authority_sha256").ok_or(Refusal::Denied)?,
             assurance: claims
                 .get("assurance")
                 .and_then(|assurance| assurance.get("kind"))

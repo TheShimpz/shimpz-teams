@@ -126,7 +126,7 @@ const fn route(
 }
 
 /// Every route, in resolution order; `ROUTES[operation as usize]` is that operation's route.
-pub const ROUTES: [Route; 75] = [
+pub const ROUTES: [Route; 77] = [
     route(
         Method::Get,
         "/v1/teams",
@@ -799,6 +799,24 @@ pub const ROUTES: [Route; 75] = [
         Operation::AssistantInvoke,
         "assistant-invoke",
         Group::Assistants,
+        Authority::Supervisor,
+        Reply::Json,
+    ),
+    route(
+        Method::Post,
+        "/v1/teams/:team_id/chat/delivered",
+        Operation::ChatDelivered,
+        "chat-delivered",
+        Group::Chat,
+        Authority::Supervisor,
+        Reply::Json,
+    ),
+    route(
+        Method::Post,
+        "/v1/teams/:team_id/chat/revoked",
+        Operation::ChatRevoked,
+        "chat-revoked",
+        Group::Chat,
         Authority::Supervisor,
         Reply::Json,
     ),

@@ -279,7 +279,7 @@ impl ChatService {
                 self.admit_answer(&team_id, &challenge, &answer.2, &setup.assistants)?;
             (pending, transcripts)
         };
-        self.continue_paused(&admitted, request, pending, transcripts, progress)
+        self.continue_paused(&admitted, request, pending, transcripts, progress, None)
             .await
     }
 
@@ -327,6 +327,7 @@ impl ChatService {
         pending: PendingLocalChat,
         transcripts: (Vec<team_action::human::ActionTranscript>, usize),
         progress: Reporter,
+        durable: Option<Arc<super::turn::durable::Durable>>,
     ) -> Result<Value, Problem> {
         let segment = SegmentRequest {
             team_id: request.team_id.clone(),
@@ -351,6 +352,7 @@ impl ChatService {
             actor: request.actor.clone(),
             recording: pending.recording.clone(),
             refine: None,
+            durable,
         };
         let segment = self.run_segment(&segment).await?;
         let usage = pending
@@ -449,7 +451,7 @@ impl ChatService {
             pending
         };
         let transcripts = (pending.transcripts.clone(), pending.requests_used);
-        self.continue_paused(&admitted, request, pending, transcripts, progress)
+        self.continue_paused(&admitted, request, pending, transcripts, progress, None)
             .await
     }
 }

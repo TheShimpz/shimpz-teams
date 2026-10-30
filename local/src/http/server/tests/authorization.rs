@@ -163,6 +163,7 @@ async fn a_bound_supervisor_assertion_authorizes_with_its_context() {
     let unassured = Principal::Supervisor {
         supervisor_id: SUPERVISOR_ID.to_owned(),
         assurance: None,
+        authority_sha256: crate::authority::fixture::LEASE.to_owned(),
     };
     assert_eq!(seen[0].principal, unassured);
     assert_eq!(
@@ -390,6 +391,7 @@ async fn an_approval_of_an_authentication_challenge_must_bind_its_assurance() {
     let assured = Principal::Supervisor {
         supervisor_id: SUPERVISOR_ID.to_owned(),
         assurance: Some("auth:totp".to_owned()),
+        authority_sha256: crate::authority::fixture::LEASE.to_owned(),
     };
     assert_eq!(harness.fake.seen()[0].principal, assured);
     // A denial binds no assurance.

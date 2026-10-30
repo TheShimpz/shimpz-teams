@@ -21,6 +21,7 @@ fn supervisor() -> Principal {
     Principal::Supervisor {
         supervisor_id: "c".repeat(32),
         assurance: None,
+        authority_sha256: "a".repeat(64),
     }
 }
 

@@ -578,6 +578,16 @@ impl Runs {
         }
     }
 
+    /// Cancels a run nobody will drive again and deletes it once its executors are proven ended.
+    pub fn discard(&self, team_id: &str, run_id: &str) {
+        let Ok(worker) = self.worker(team_id) else {
+            return;
+        };
+        let _ = worker.cancel(run_id);
+        let run_id = run_id.to_owned();
+        drop(tokio::task::spawn_blocking(move || worker.delete(&run_id)));
+    }
+
     /// Deletes a Team's ledger with every run in it, its Browser already removed by the teardown.
     ///
     /// # Errors

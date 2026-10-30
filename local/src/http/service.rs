@@ -25,6 +25,8 @@ pub enum Principal {
         /// The assurance kind it bound (`auth:password`, `auth:totp`, or `auth:passkey`), only on an approval of an
         /// authentication challenge.
         assurance: Option<String>,
+        /// The SHA-256 of the session it was admitted under.
+        authority_sha256: String,
     },
     /// The CLI's host-reset assertion (only on `space-reset`).
     HostReset,

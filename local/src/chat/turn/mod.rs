@@ -1,5 +1,9 @@
 //! A chat turn from its admission to its terminal answer (`local/chat/api.py`): the request's closed body, its slot,
-//! its segment, and how the segment's outcome commits, pauses, or fails.
+//! its segment, and how the segment's outcome commits, pauses, or fails; durably, a send of it recorded before it runs,
+//! checkpointed after every Brain answer, and delivered exactly once ([`durable`], [`store`]; ADR-0125).
+
+pub mod durable;
+pub mod store;
 
 use std::sync::Arc;
 
@@ -21,12 +25,13 @@ use super::inference::team_id;
 use super::pending::PendingLocalChat;
 use super::problem;
 use super::segment::{SegmentRequest, SegmentResult};
-use super::service::{Admitted, ChatService, stream};
+use super::service::{Admitted, ChatService};
 use super::usage::RequestUsage;
 use crate::audit::{Principal, PrincipalClass};
 use crate::http::server::current_request;
-use crate::http::service::{Answer, Body, Call, Principal as Caller, Problem};
+use crate::http::service::{Body, Call, Principal as Caller, Problem};
 use crate::routine::proposal::{Proposed, Turn, Write};
+use durable::Durable;
 
 /// What one admitted request's work runs with: its Team, caller, credential, usage, and audit principal.
 #[derive(Clone)]
@@ -96,8 +101,8 @@ pub(super) struct ChatBody {
     assistant_ids: Vec<String>,
     conversation: Vec<team_inference::runtime::ConversationEntry>,
     locale: Option<String>,
-    nonce: String,
-    issued_at: i64,
+    pub(super) nonce: String,
+    pub(super) issued_at: i64,
     timezone: Option<String>,
     refine: Option<String>,
 }
@@ -294,6 +299,7 @@ fn first_segment(
         actor: request.actor.clone(),
         recording,
         refine: body.refine.clone(),
+        durable: None,
     }
 }
 
@@ -304,16 +310,6 @@ enum Admission {
 }
 
 impl ChatService {
-    /// Starts a turn, streaming its progress and its terminal answer.
-    pub(super) fn start(&self, call: &Call<'_>) -> Result<Answer, Problem> {
-        let request = self.request(call)?;
-        let body = chat_body(&call.body)?;
-        let service = self.clone();
-        Ok(stream(move |reporter| async move {
-            service.turn(request, body, reporter).await
-        }))
-    }
-
     /// The Team's pending challenge, read before and again after the turn holds the slot, or the slot.
     async fn admission(&self, team_id: &str, locale: Option<&str>) -> Result<Admission, Problem> {
         if let Some(pending) = self.pending_continuation(team_id, locale).await? {
@@ -326,11 +322,12 @@ impl ChatService {
         }
     }
 
-    async fn turn(
+    pub(super) async fn turn(
         &self,
         request: Request,
         body: ChatBody,
         progress: Reporter,
+        durable: Option<Arc<Durable>>,
     ) -> Result<Value, Problem> {
         let team_id = request.team_id.clone();
         let admitted = match self.admission(&team_id, body.locale.as_deref()).await? {
@@ -345,10 +342,14 @@ impl ChatService {
             actor_id,
             incarnation: network,
         });
+        if let Some(durable) = &durable {
+            durable.started(source.clone(), usage.clone());
+        }
         let recording = self.recording(&team_id, &body, source.as_ref());
         let progress = self.recorded_progress(&team_id, recording.as_deref(), progress);
         let added = self.turn_started(&team_id, &body.files).await?;
-        let first = first_segment(&admitted, &request, &body, progress, recording.clone());
+        let mut first = first_segment(&admitted, &request, &body, progress, recording.clone());
+        first.durable = durable;
         let segment = match self.run_segment(&first).await {
             Ok(segment) => segment,
             Err(failure) => {

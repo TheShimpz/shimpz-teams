@@ -217,6 +217,11 @@ fn chat(
         inference: Arc::new(InferenceConfigStore::new(root.join("inference"))),
         limit,
         continuations: Arc::new(continuations),
+        turns: Arc::new(crate::chat::turn::store::Turns::new(
+            &root.join("chat-continuations/state/turns"),
+            &root.join("chat-continuations/key/aes256.key"),
+            Arc::new(OsEntropy),
+        )),
         integrations: Arc::new(integrations),
         stored_inputs: Arc::new(stored),
         integration_challenges: Arc::new(

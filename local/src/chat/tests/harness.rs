@@ -35,7 +35,7 @@ use crate::routine::store::RoutineStore;
 pub const TEAM: &str = "team_1";
 
 pub struct Harness {
-    pub _directory: tempfile::TempDir,
+    pub directory: tempfile::TempDir,
     pub preparer: Arc<FakePreparer>,
     pub parts: ChatParts,
     pub clock: Arc<FakeClock>,
@@ -167,6 +167,11 @@ fn built(root: &std::path::Path, brain: Arc<dyn BrainClient>, team: Arc<FakeTeam
         inference: configured(root),
         limit,
         continuations: continuations(root, &clock),
+        turns: Arc::new(crate::chat::turn::store::Turns::new(
+            &root.join("chat-continuations/state/turns"),
+            &root.join("chat-continuations/key/aes256.key"),
+            Arc::new(OsEntropy),
+        )),
         integrations: Arc::clone(&integrations),
         stored_inputs,
         integration_challenges: Arc::new(challenges),
@@ -197,7 +202,7 @@ pub fn harness_on(brain: Arc<dyn BrainClientScripted>, team: Arc<FakeTeam>) -> H
     );
     let parts = built.parts;
     Harness {
-        _directory: directory,
+        directory,
         preparer: built.preparer,
         clock: built.clock,
         integrations: built.integrations,
@@ -266,16 +271,85 @@ pub fn suspension(interrupt: &str) -> Value {
     ))
 }
 
-/// One chat body under the fixed test request identity.
+/// Each send's own nonce: a send is never resent as itself (ADR-0092), and Team runs a repeated one only once.
+pub static SENDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// A fresh nonce.
+pub fn nonce() -> String {
+    format!(
+        "{:032x}",
+        SENDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    )
+}
+
+/// One chat body under a fresh request identity sent a quarter of an hour ago: within its turn's grant, too old to
+/// open a Routine recording.
 pub fn chat_body(message: &str, assistants: &[&str], locale: Option<&str>) -> Value {
     let assistants: Vec<String> = assistants.iter().map(|id| format!("\"{id}\"")).collect();
     let locale = locale.map_or_else(|| "null".to_owned(), |locale| format!("\"{locale}\""));
     json(&format!(
         r#"{{"message":"{message}","files":[],"assistant_ids":[{}],"conversation":[],
-        "request":{{"issued_at":1700000000,"nonce":"{}"}},"timezone":null,"locale":{locale},"refine":null}}"#,
+        "request":{{"issued_at":{},"nonce":"{}"}},"timezone":null,"locale":{locale},"refine":null}}"#,
         assistants.join(","),
-        "0".repeat(32)
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs())
+            - 1_000,
+        nonce()
     ))
+}
+
+/// The session every harness call is sent under.
+pub const SESSION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// Calls one operation on `service` as the Supervisor of the session `authority` names, with the test model credential.
+pub async fn call_on(
+    service: &ChatService,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+    authority: &str,
+) -> Result<Answer, Problem> {
+    let route = resolve(method, path).expect("route");
+    let call = Call {
+        route: &route,
+        principal: Principal::Supervisor {
+            supervisor_id: "c".repeat(32),
+            assurance: None,
+            authority_sha256: authority.to_owned(),
+        },
+        body: body.map_or(Body::None, Body::Json),
+        model: Some(ModelCredential {
+            provider: "openai".to_owned(),
+            model: String::new(),
+            api_key: Secret::new("test-key-not-real-0000".to_owned()),
+        }),
+        decision_key: None,
+        trace_id: "a".repeat(32),
+        upgrade_key: None,
+    };
+    service.call(call).await
+}
+
+/// One streamed answer drained to its terminal.
+pub async fn drained(answer: Result<Answer, Problem>) -> Streamed {
+    let Ok(Answer::Stream(mut records)) = answer else {
+        panic!("not a stream: {answer:?}");
+    };
+    let mut progress = Vec::new();
+    while let Some(record) = records.recv().await {
+        match record {
+            StreamRecord::Progress(event) => progress.push(event),
+            StreamRecord::Terminal { status, body } => {
+                return Streamed {
+                    progress,
+                    status,
+                    body,
+                };
+            }
+        }
+    }
+    panic!("the stream ended without its terminal record");
 }
 
 /// One streamed answer: its progress, then its terminal status and body.
@@ -311,6 +385,27 @@ impl Harness {
         ChatService::new(parts).expect("service")
     }
 
+    /// The same Team after its process died: the same stores and Action executor, a fresh process's slots, turns,
+    /// and challenges, and the Brain `brain` answering from here on.
+    pub fn after_death(&self, brain: Arc<ScriptedBrain>) -> ChatService {
+        let mut parts = self.parts.clone();
+        let limit = Arc::clone(&parts.limit);
+        parts.coordination = Coordination::new(limit);
+        parts.brain = brain;
+        parts.turns = Arc::new(crate::chat::turn::store::Turns::new(
+            &self.directory.path().join("chat-continuations/state/turns"),
+            &self
+                .directory
+                .path()
+                .join("chat-continuations/key/aes256.key"),
+            Arc::new(OsEntropy),
+        ));
+        parts.integration_challenges = Arc::new(
+            team_integrations::pending::default_store(Arc::new(OsEntropy)).expect("store"),
+        );
+        ChatService::new(parts).expect("service")
+    }
+
     /// Calls one operation as the Supervisor with the test model credential.
     pub async fn call(
         &self,
@@ -318,24 +413,7 @@ impl Harness {
         path: &str,
         body: Option<Value>,
     ) -> Result<Answer, Problem> {
-        let route = resolve(method, path).expect("route");
-        let call = Call {
-            route: &route,
-            principal: Principal::Supervisor {
-                supervisor_id: "c".repeat(32),
-                assurance: None,
-            },
-            body: body.map_or(Body::None, Body::Json),
-            model: Some(ModelCredential {
-                provider: "openai".to_owned(),
-                model: String::new(),
-                api_key: Secret::new("test-key-not-real-0000".to_owned()),
-            }),
-            decision_key: None,
-            trace_id: "a".repeat(32),
-            upgrade_key: None,
-        };
-        self.service.call(call).await
+        call_on(&self.service, method, path, body, SESSION).await
     }
 
     /// Calls one JSON operation.
@@ -353,26 +431,8 @@ impl Harness {
 
     /// Calls one streamed operation and drains it.
     pub async fn stream(&self, method: Method, path: &str, body: Value) -> Streamed {
-        let answer = self.call(method, path, Some(body)).await;
-        let Ok(Answer::Stream(mut records)) = answer else {
-            panic!("not a stream: {answer:?}");
-        };
-        let mut progress = Vec::new();
-        while let Some(record) = records.recv().await {
-            match record {
-                StreamRecord::Progress(event) => progress.push(event),
-                StreamRecord::Terminal { status, body } => {
-                    return Streamed {
-                        progress,
-                        status,
-                        body,
-                    };
-                }
-            }
-        }
-        panic!("the stream ended without its terminal record");
+        drained(self.call(method, path, Some(body)).await).await
     }
-
     /// Starts one turn and waits for its terminal.
     pub async fn chat(&self, body: Value) -> Streamed {
         self.stream(Method::Post, "/v1/teams/team_1/chat", body)

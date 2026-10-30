@@ -1,4 +1,4 @@
-//! The closed set of the controller's 75 operations, in the route table's order (generated once from
+//! The closed set of the controller's 77 operations, in the route table's order (generated once from
 //! `core/http/strict.py`'s `CONTROLLER_ROUTES`; the table in [`super::route`] is now the authority).
 
 /// One controller operation, named on the wire and in the audit log by [`Operation::name`].
@@ -154,4 +154,8 @@ pub enum Operation {
     AssistantUninstall = 73,
     /// `assistant-invoke`: `POST /v1/teams/:team_id/assistants/:assistant_id/actions/:action_id`.
     AssistantInvoke = 74,
+    /// `chat-delivered`: `POST /v1/teams/:team_id/chat/delivered`.
+    ChatDelivered = 75,
+    /// `chat-revoked`: `POST /v1/teams/:team_id/chat/revoked`.
+    ChatRevoked = 76,
 }

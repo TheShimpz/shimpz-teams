@@ -290,6 +290,7 @@ fn chat(
         inference: stores.inference.clone(),
         limit: stores.limit.clone(),
         continuations: stores.continuations.clone(),
+        turns: stores.turns.clone(),
         integrations: stores.integrations.clone(),
         stored_inputs: stores.stored_inputs.clone(),
         integration_challenges: challenges,

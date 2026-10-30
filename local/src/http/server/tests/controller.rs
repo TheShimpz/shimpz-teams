@@ -60,6 +60,7 @@ async fn call(
         principal: Principal::Supervisor {
             supervisor_id: "1".repeat(32),
             assurance: None,
+            authority_sha256: "1".repeat(64),
         },
         body,
         model: None,

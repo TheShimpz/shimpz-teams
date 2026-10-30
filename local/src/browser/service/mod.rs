@@ -307,6 +307,13 @@ impl BrowserService {
             .acknowledge(team_id, &team_browser::run::run_id(team_id, interrupt_id));
     }
 
+    /// Discards the task answering `interrupt_id` of a turn that was settled without it: cancelled, then deleted once
+    /// its executors are proven ended; one that cannot be deleted yet goes with the Team's ledger.
+    pub fn discard(&self, team_id: &str, interrupt_id: &str) {
+        self.runs
+            .discard(team_id, &team_browser::run::run_id(team_id, interrupt_id));
+    }
+
     /// Deletes a Team's task ledger, for its teardown.
     ///
     /// # Errors

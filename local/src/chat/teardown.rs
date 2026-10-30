@@ -32,11 +32,19 @@ impl ChatService {
                 .continuations
                 .delete(team, None)
                 .map_err(unavailable)?;
+            self.parts
+                .turns
+                .forget_team(team)
+                .map_err(|_| TeardownFailed::StateUnavailable)?;
         } else {
             let _ = self.human.cancel_all();
             let _ = self.parts.integration_challenges.cancel_all();
             let _ = self.parts.pkce.cancel_all();
             self.parts.continuations.clear().map_err(unavailable)?;
+            self.parts
+                .turns
+                .forget_all()
+                .map_err(|_| TeardownFailed::StateUnavailable)?;
         }
         Ok(())
     }

@@ -292,6 +292,8 @@ pub struct FakeExecutor {
     pub scopes: Arc<Mutex<Vec<BatchScope>>>,
     /// The values every invoke reports it injected (an Integration token, a Stored Input value).
     pub injected: Arc<Mutex<Vec<String>>>,
+    /// Set, a batch's delivery never returns: the Team process dies there.
+    pub dies_delivering: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for FakeExecutor {
@@ -301,6 +303,7 @@ impl Default for FakeExecutor {
             answers: Arc::new(Mutex::new(VecDeque::new())),
             scopes: Arc::new(Mutex::new(Vec::new())),
             injected: Arc::new(Mutex::new(Vec::new())),
+            dies_delivering: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
@@ -344,6 +347,7 @@ struct FakeBatch {
     events: Arc<Mutex<Vec<String>>>,
     answers: Arc<Mutex<VecDeque<Answer>>>,
     injected: Arc<Mutex<Vec<String>>>,
+    dies_delivering: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ActionBatch for FakeBatch {
@@ -385,6 +389,12 @@ impl ActionBatch for FakeBatch {
             .iter()
             .map(|request| request.interrupt_id.as_str())
             .collect();
+        if self
+            .dies_delivering
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Box::pin(std::future::pending());
+        }
         lock(&self.events).push(format!("delivered {}", ids.join(",")));
         Box::pin(async { Ok(()) })
     }
@@ -409,6 +419,7 @@ impl ActionExecutor for FakeExecutor {
             events: Arc::clone(&self.events),
             answers: Arc::clone(&self.answers),
             injected: Arc::clone(&self.injected),
+            dies_delivering: Arc::clone(&self.dies_delivering),
         })
     }
 

@@ -27,6 +27,7 @@ async fn call(
             principal: Principal::Supervisor {
                 supervisor_id: "5".repeat(32),
                 assurance: None,
+                authority_sha256: "5".repeat(64),
             },
             body,
             model: None,

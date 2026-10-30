@@ -181,8 +181,21 @@ pub trait Strategy: Send + Sync {
         None
     }
 
-    /// The Brain resumed with the Browser task's result: the task is delivered and is never run again (ADR-0125).
+    /// The Brain resumed with the Browser task's result and the turn's checkpoint holds it: the task is delivered and
+    /// is never run again (ADR-0125).
     fn browser_delivered(&self, _request: &BrowserRequest) {}
+
+    /// Makes the turn's state after a Brain answer durable before anything it supersedes is deleted (ADR-0125): a
+    /// restarted Team resumes the turn from here.
+    ///
+    /// # Errors
+    /// [`ChatError`] when it could not be made durable; the turn then ends.
+    fn checkpoint<'a>(
+        &'a self,
+        _continuation: &'a ChatContinuation,
+    ) -> BoxFuture<'a, Result<(), ChatError>> {
+        Box::pin(async { Ok(()) })
+    }
 
     /// What the Brain receives of a batch's results (ADR-0122).
     fn shown_results(&self, results: Value) -> Value {
@@ -435,7 +448,6 @@ async fn run_browser(
     strategy.validate_context().await?;
     let results = Value::Object(vec![(request.interrupt_id.clone(), result)]);
     let resumed = brain_call(strategy, runtime.resume(context, results, strategy.stop())).await?;
-    strategy.browser_delivered(request);
     if resumed.status != TurnStatus::Completed
         || !resumed.memory.is_empty()
         || resumed.routine.is_some()
@@ -523,10 +535,10 @@ impl Drive<'_> {
         Ok((requests, files, false))
     }
 
-    /// Resumes the Brain with a ran batch's results, then acknowledges the batch as delivered.
+    /// Resumes the Brain with a ran batch's results; the batch is acknowledged as delivered once the turn's next
+    /// checkpoint holds them.
     async fn deliver(
         &self,
-        batch: &mut dyn ActionBatch,
         requests: &[ActionRequest],
         results: Vec<(String, Value)>,
         seen: &mut BTreeSet<String>,
@@ -546,13 +558,20 @@ impl Drive<'_> {
                 "Brain repeated an Action interrupt across rounds",
             ));
         }
-        let _span = strategy.progress().span(Phase::ActionDelivery, None);
-        let delivered = self.executor_requests(requests);
-        batch
-            .delivered(&delivered)
-            .await
-            .map_err(ChatError::Action)?;
         Ok(resumed)
+    }
+
+    /// The batch's receipts go once the turn's checkpoint after the Brain's answer holds their results.
+    async fn delivered(
+        &self,
+        batch: &mut dyn ActionBatch,
+        requests: &[ActionRequest],
+        next: &ChatContinuation,
+    ) -> Result<(), ChatError> {
+        self.strategy.checkpoint(next).await?;
+        let _span = self.strategy.progress().span(Phase::ActionDelivery, None);
+        let delivered = self.executor_requests(requests);
+        batch.delivered(&delivered).await.map_err(ChatError::Action)
     }
 
     /// Admits and runs one round's batch, then resumes the Brain with its results: the next turn and the batch's
@@ -562,7 +581,10 @@ impl Drive<'_> {
         batch: &mut dyn ActionBatch,
         checkpoint: ChatContinuation,
         seen: &mut BTreeSet<String>,
-    ) -> Result<Result<(RuntimeTurn, Vec<InvokedAction>, usize), Outcome>, ChatError> {
+    ) -> Result<
+        Result<(RuntimeTurn, Vec<InvokedAction>, usize, Vec<ActionRequest>), Outcome>,
+        ChatError,
+    > {
         let (requests, file_actions, pause) = self.admit(batch, &checkpoint, seen).await?;
         if pause {
             return Ok(Err(Outcome::Suspended(ChatSuspension {
@@ -575,8 +597,45 @@ impl Drive<'_> {
                 Ran::Human(suspension) => return Ok(Err(Outcome::Human(*suspension))),
                 Ran::Done(results, invoked) => (results, invoked),
             };
-        let resumed = self.deliver(batch, &requests, results, seen).await?;
-        Ok(Ok((resumed, invoked, file_actions)))
+        let resumed = self.deliver(&requests, results, seen).await?;
+        Ok(Ok((resumed, invoked, file_actions, requests)))
+    }
+}
+
+/// Where a turn stands between rounds.
+struct Standing {
+    turn: RuntimeTurn,
+    seen: BTreeSet<String>,
+    invoked: Vec<InvokedAction>,
+    file_actions: usize,
+}
+
+impl Standing {
+    /// The continuation a checkpoint at `round` keeps.
+    fn at(&self, round: usize) -> ChatContinuation {
+        ChatContinuation {
+            turn: self.turn.clone(),
+            seen_interrupts: self.seen.iter().cloned().collect(),
+            invoked: self.invoked.clone(),
+            round_index: round,
+            file_actions: self.file_actions,
+        }
+    }
+}
+
+impl Drive<'_> {
+    /// Runs the turn's Browser task and resumes the Brain with it; the result is delivered once the checkpoint
+    /// holds the resumed turn. The terminal's `browser` field.
+    async fn browser(&self, standing: &mut Standing, round: usize) -> Result<Value, ChatError> {
+        let request = standing.turn.browser.clone();
+        let (resumed, terminal) =
+            run_browser(self.runtime, self.context, &standing.turn, self.strategy).await?;
+        standing.turn = resumed;
+        self.strategy.checkpoint(&standing.at(round)).await?;
+        if let Some(request) = &request {
+            self.strategy.browser_delivered(request);
+        }
+        Ok(terminal)
     }
 }
 
@@ -595,38 +654,38 @@ async fn drive(
         strategy,
         declared,
     };
-    let mut seen: BTreeSet<String> = continuation.seen_interrupts.iter().cloned().collect();
-    let (mut turn, mut invoked) = (continuation.turn, continuation.invoked);
-    let mut file_actions = continuation.file_actions;
+    let mut standing = Standing {
+        seen: continuation.seen_interrupts.iter().cloned().collect(),
+        turn: continuation.turn,
+        invoked: continuation.invoked,
+        file_actions: continuation.file_actions,
+    };
     let mut browser = None;
     for round in continuation.round_index..=strategy.max_rounds() {
         check_stop(strategy)?;
-        if turn.status == TurnStatus::BrowserRequired {
+        if standing.turn.status == TurnStatus::BrowserRequired {
             // A Browser result admits only the reply, so the completed turn ends in this same round (ADR-0117 §6).
-            let (resumed, terminal) = run_browser(runtime, context, &turn, strategy).await?;
-            (turn, browser) = (resumed, Some(terminal));
+            browser = Some(state.browser(&mut standing, round).await?);
         }
-        if turn.status == TurnStatus::Completed {
-            return state.complete(turn, invoked, round, browser).await;
+        if standing.turn.status == TurnStatus::Completed {
+            return state
+                .complete(standing.turn, standing.invoked, round, browser)
+                .await;
         }
         if round == strategy.max_rounds() {
             return Err(ChatError::Orchestration(
                 "Brain exceeded the Action round limit",
             ));
         }
-        let seen_interrupts = seen.iter().cloned().collect();
-        let checkpoint = ChatContinuation {
-            turn,
-            seen_interrupts,
-            invoked: invoked.clone(),
-            round_index: round,
-            file_actions,
-        };
-        match state.round(batch, checkpoint, &mut seen).await? {
+        let checkpoint = standing.at(round);
+        match state.round(batch, checkpoint, &mut standing.seen).await? {
             Err(paused) => return Ok(paused),
-            Ok((resumed, ran, files)) => {
-                invoked.extend(ran);
-                (file_actions, turn) = (files, resumed);
+            Ok((resumed, ran, files, requests)) => {
+                standing.invoked.extend(ran);
+                (standing.file_actions, standing.turn) = (files, resumed);
+                state
+                    .delivered(batch, &requests, &standing.at(round + 1))
+                    .await?;
             }
         }
     }
@@ -664,6 +723,7 @@ pub async fn run_until_pause(
         round_index: 0,
         file_actions: 0,
     };
+    strategy.checkpoint(&continuation).await?;
     drive(runtime, context, continuation, strategy, batch).await
 }
 

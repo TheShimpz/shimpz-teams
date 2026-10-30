@@ -109,6 +109,8 @@ without charging the quota again (ADR-0093).
 | `GET` | `/v1/teams/{team_id}/chat/integrations` | inspect the pending Integration gate |
 | `POST` | `/v1/teams/{team_id}/chat/integrations` | resume after the exact Integration challenge completes |
 | `POST` | `/v1/teams/{team_id}/chat/stop` | cancel active or challenge-paused work |
+| `POST` | `/v1/teams/{team_id}/chat/delivered` | settle a turn whose terminal Admin's history committed (ADR-0125) |
+| `POST` | `/v1/teams/{team_id}/chat/revoked` | settle and stop a turn whose session ended (ADR-0125) |
 | `GET` | `/v1/chat/limit` | how many chat turns the Space runs at once (ADR-0119) |
 | `PUT` | `/v1/chat/limit` | set that limit, 1 or 2; running turns drain |
 

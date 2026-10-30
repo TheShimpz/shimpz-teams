@@ -24,6 +24,8 @@ pub struct StateLayout {
     pub chat_continuations: Sealed,
     /// Each Team's durable Browser task ledger (`<team_id>/ledger.sqlite3`), on the chat-continuation state volume.
     pub browser_runs: PathBuf,
+    /// Each Team's durable chat turns (`<team_id>.json`), on the chat-continuation state volume.
+    pub chat_turns: PathBuf,
     /// Stored Inputs.
     pub stored_inputs: Sealed,
     /// Integration credentials.
@@ -73,6 +75,7 @@ impl StateLayout {
             inference: state.join("inference"),
             chat_continuations: sealed("chat-continuations"),
             browser_runs: state.join("chat-continuations/state/browser-runs"),
+            chat_turns: state.join("chat-continuations/state/turns"),
             stored_inputs: sealed("assistant-stored-inputs"),
             integrations: sealed("assistant-integrations"),
             routines: sealed("routines"),

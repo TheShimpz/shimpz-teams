@@ -540,3 +540,16 @@ fn resume_capacity_reserves_each_results_worst_case_beside_the_exact_context() {
     full.attachments = vec![Value::String("x".repeat(MAX_REQUEST_BYTES))];
     assert_eq!(resume_capacity(&full, 1024), 0);
 }
+
+#[test]
+fn every_admitted_turn_crosses_back_to_the_same_turn() {
+    for fields in [
+        r#""status":"completed","reply":"Done.","actions":[],"memory":[],"routine":null,"browser":null,"clarification":null"#,
+        r#""status":"action-required","reply":"","actions":[{"interrupt_id":"i-1","assistant_id":"shimpz-cloudflare","action":"list-zones","input":{"zone":"example.com"}}],"memory":[],"routine":null,"browser":null,"clarification":null"#,
+        r#""status":"browser-required","reply":"","actions":[],"memory":[],"routine":null,"browser":{"interrupt_id":"b-1","objective":"Find the price of a flight."},"clarification":null"#,
+    ] {
+        let raw = json(&format!("{{{fields}}}"));
+        let turn = super::parse_turn(&raw).expect("admitted");
+        assert_eq!(super::parse_turn(&super::turn_value(&turn)), Some(turn));
+    }
+}

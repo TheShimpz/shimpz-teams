@@ -494,6 +494,45 @@ pub fn parse_turn(value: &Value) -> Option<RuntimeTurn> {
     })
 }
 
+/// A turn answer [`parse_turn`] admits as `turn` again: a turn kept durably crosses back exactly.
+#[must_use]
+pub fn turn_value(turn: &RuntimeTurn) -> Value {
+    let text = |value: &str| Value::String(value.to_owned());
+    let actions = turn
+        .actions
+        .iter()
+        .map(|request| {
+            Value::Object(vec![
+                ("interrupt_id".to_owned(), text(&request.interrupt_id)),
+                ("assistant_id".to_owned(), text(&request.assistant_id)),
+                ("action".to_owned(), text(&request.action)),
+                ("input".to_owned(), request.input.clone()),
+            ])
+        })
+        .collect();
+    let browser = turn.browser.as_ref().map_or(Value::Null, |browser| {
+        Value::Object(vec![
+            ("interrupt_id".to_owned(), text(&browser.interrupt_id)),
+            ("objective".to_owned(), text(&browser.objective)),
+        ])
+    });
+    Value::Object(vec![
+        ("status".to_owned(), text(turn.status.name())),
+        ("reply".to_owned(), text(&turn.reply)),
+        ("actions".to_owned(), Value::Array(actions)),
+        (
+            "clarification".to_owned(),
+            turn.clarification.clone().unwrap_or(Value::Null),
+        ),
+        ("memory".to_owned(), Value::Array(turn.memory.clone())),
+        (
+            "routine".to_owned(),
+            turn.routine.clone().unwrap_or(Value::Null),
+        ),
+        ("browser".to_owned(), browser),
+    ])
+}
+
 /// Records an answer's reported usage, even when the rest is invalid, and returns the rest; `None` without a usage.
 #[must_use]
 pub fn metered(

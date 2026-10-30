@@ -52,6 +52,7 @@ async fn a_restart_restores_a_paused_turn_that_is_then_answered() {
         principal: crate::http::service::Principal::Supervisor {
             supervisor_id: "c".repeat(32),
             assurance: None,
+            authority_sha256: "a".repeat(64),
         },
         body: crate::http::service::Body::Json(body),
         model: Some(team_inference::brain::ModelCredential {

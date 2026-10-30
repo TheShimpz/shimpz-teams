@@ -18,7 +18,7 @@ use team_protocol::python::json::canonical;
 use team_protocol::python::regex::{Pattern, declared};
 use team_protocol::python::value::{int, object_of};
 
-pub use self::decode::decode;
+pub use self::decode::{checkpoint, decode};
 use super::pending::{Identity, PendingLocalChat, Requirements};
 
 /// The codec's schema.
@@ -61,7 +61,8 @@ fn optional(value: Option<&String>) -> Value {
     value.map_or(Value::Null, |value| text(value))
 }
 
-fn turn_payload(continuation: &ChatContinuation) -> Value {
+/// A continuation's payload; `full` keeps every member of its Brain turn, as a durable checkpoint does.
+fn continuation_payload(continuation: &ChatContinuation, full: bool) -> Value {
     let turn = &continuation.turn;
     let actions = turn
         .actions
@@ -86,15 +87,17 @@ fn turn_payload(continuation: &ChatContinuation) -> Value {
         })
         .collect();
     let count = |value: usize| int(i64::try_from(value).unwrap_or(i64::MAX));
+    let turn = if full {
+        team_inference::runtime::turn_value(turn)
+    } else {
+        object_of(vec![
+            ("status", text(turn.status.name())),
+            ("reply", text(&turn.reply)),
+            ("actions", Value::Array(actions)),
+        ])
+    };
     object_of(vec![
-        (
-            "turn",
-            object_of(vec![
-                ("status", text(turn.status.name())),
-                ("reply", text(&turn.reply)),
-                ("actions", Value::Array(actions)),
-            ]),
-        ),
+        ("turn", turn),
         ("seen_interrupts", texts(&continuation.seen_interrupts)),
         ("invoked", Value::Array(invoked)),
         ("round_index", count(continuation.round_index)),
@@ -183,8 +186,22 @@ fn transcripts_payload(transcripts: &[ActionTranscript]) -> Value {
 /// The `pending` member of a continuation.
 #[must_use]
 pub fn pending_payload(pending: &PendingLocalChat) -> Value {
+    pending_value(pending, false)
+}
+
+/// A durable chat turn's checkpoint (ADR-0125): its pending state with the Brain's whole turn, which
+/// [`checkpoint`] reads back.
+#[must_use]
+pub fn checkpoint_payload(pending: &PendingLocalChat) -> Value {
+    pending_value(pending, true)
+}
+
+fn pending_value(pending: &PendingLocalChat, full: bool) -> Value {
     object_of(vec![
-        ("continuation", turn_payload(&pending.continuation)),
+        (
+            "continuation",
+            continuation_payload(&pending.continuation, full),
+        ),
         ("assistant_ids", texts(&pending.assistant_ids)),
         ("file_ids", texts(&pending.file_ids)),
         ("provider", optional(pending.provider.as_ref())),

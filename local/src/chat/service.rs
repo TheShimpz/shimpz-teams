@@ -68,6 +68,8 @@ pub struct ChatParts {
     pub limit: Arc<ChatLimitStore>,
     /// Encrypted paused turns.
     pub continuations: Arc<ContinuationStore>,
+    /// The durable chat turns (ADR-0125).
+    pub turns: Arc<super::turn::store::Turns>,
     /// Integration credentials.
     pub integrations: Arc<IntegrationStore>,
     /// Stored Inputs.
@@ -170,11 +172,38 @@ fn answered_status(body: &Value) -> u16 {
     }
 }
 
+/// The terminal record of an operation's result: its body with `200` (`428` for a pause), or its problem.
+#[must_use]
+pub fn terminal_of(result: Result<Value, Problem>) -> super::turn::store::Terminal {
+    match result {
+        Ok(body) => super::turn::store::Terminal {
+            status: answered_status(&body),
+            body,
+        },
+        Err(problem) => super::turn::store::Terminal {
+            status: problem.status,
+            body: failure_body(&problem),
+        },
+    }
+}
+
 /// Streams one admitted operation's progress and then its terminal record; the work runs on its own task.
 pub fn stream<F, W>(work: W) -> Answer
 where
     W: FnOnce(Reporter) -> F,
     F: std::future::Future<Output = Result<Value, Problem>> + Send + 'static,
+{
+    stream_terminal(move |reporter| {
+        let future = work(reporter);
+        async move { terminal_of(future.await) }
+    })
+}
+
+/// Streams one admitted operation's progress and then the terminal record it ends with; the work runs on its own task.
+pub fn stream_terminal<F, W>(work: W) -> Answer
+where
+    W: FnOnce(Reporter) -> F,
+    F: std::future::Future<Output = super::turn::store::Terminal> + Send + 'static,
 {
     let capacity = usize::try_from(team_protocol::progress::MAX_EVENTS).unwrap_or(2048) + 1;
     let (sender, receiver) = mpsc::channel(capacity);
@@ -184,15 +213,10 @@ where
     });
     let future = work(Reporter::new(sink));
     tokio::spawn(async move {
-        let record = match future.await {
-            Ok(body) => StreamRecord::Terminal {
-                status: answered_status(&body),
-                body,
-            },
-            Err(problem) => StreamRecord::Terminal {
-                status: problem.status,
-                body: failure_body(&problem),
-            },
+        let terminal = future.await;
+        let record = StreamRecord::Terminal {
+            status: terminal.status,
+            body: terminal.body,
         };
         // A consumer that left never changes the admitted operation.
         let _ = sender.send(record).await;
@@ -298,6 +322,8 @@ impl ChatService {
             Operation::ChatHumanOpen => self.open_human(call).await,
             Operation::ChatIntegrationPending => self.pending_integrations(call).await,
             Operation::ChatStop => self.stop(call).await,
+            Operation::ChatDelivered => self.settle(call, false),
+            Operation::ChatRevoked => self.settle(call, true),
             Operation::ChatCapabilityPlan => self.capability_plan(call).await,
             Operation::ChatIntentRoute => self.intent_route(call).await,
             _ => Err(problem::internal_error()),

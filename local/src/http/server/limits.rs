@@ -92,6 +92,8 @@ pub const fn body(operation: Operation) -> BodyKind {
         | O::ChatIntegrationSubmit
         | O::ChatHumanOpen
         | O::ChatStop
+        | O::ChatDelivered
+        | O::ChatRevoked
         | O::ChatLimitSave
         | O::BrowserSignInStart
         | O::BrowserSignInSave
@@ -168,7 +170,7 @@ mod tests {
             }
             assert!(response(route.operation) >= 128 * 1024);
         }
-        assert_eq!(json, 35);
+        assert_eq!(json, 37);
         assert_eq!(
             i64::try_from(MAX_FILE_BYTES),
             Ok(team_protocol::payload::MAX_FILE_UPLOAD_BYTES)

@@ -77,6 +77,8 @@ pub struct SegmentRequest {
     pub recording: Option<String>,
     /// The Routine a new turn's person asked to refine from its panel, by id (ADR-0122).
     pub refine: Option<String>,
+    /// The durable chat turn this segment checkpoints, when it is one (ADR-0125).
+    pub durable: Option<std::sync::Arc<super::turn::durable::Durable>>,
 }
 
 /// One segment's outcome and what the turn's next request binds.
@@ -493,6 +495,8 @@ struct TurnStrategy<'a> {
     request: &'a SegmentRequest,
     setup: Setup,
     integrations: Mutex<Vec<IntegrationRequirement>>,
+    /// The model the segment runs on, which a resume of its checkpoint runs on too.
+    model: String,
 }
 
 fn invalid_input() -> ChatError {
@@ -593,6 +597,25 @@ impl Strategy for TurnStrategy<'_> {
                 .run(&turn, &request.objective, &request.interrupt_id)
                 .await
         }))
+    }
+
+    fn checkpoint<'a>(
+        &'a self,
+        continuation: &'a ChatContinuation,
+    ) -> BoxFuture<'a, Result<(), ChatError>> {
+        Box::pin(async move {
+            let Some(durable) = &self.request.durable else {
+                return Ok(());
+            };
+            let request = self.request;
+            let pending = super::turn::durable::pending_at(
+                continuation,
+                (&request.assistant_ids, &request.file_ids),
+                self.setup.identity(),
+                (&request.credential.0, &self.model, request.locale.as_ref()),
+            );
+            durable.checkpoint(pending)
+        })
     }
 
     fn browser_delivered(&self, request: &BrowserRequest) {
@@ -795,6 +818,7 @@ impl ChatService {
             request,
             setup: setup.clone(),
             integrations: Mutex::new(Vec::new()),
+            model: context.credential.model.clone(),
         };
         let answered = self.answered_intent(request);
         let outcome = match self
