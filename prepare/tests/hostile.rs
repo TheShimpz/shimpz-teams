@@ -273,6 +273,13 @@ fn main() -> ExitCode {
         let library = std::env::var_os("SHIMPZ_PDFIUM_LIBRARY").unwrap_or_default();
         return worker::serve(Path::new(&library));
     }
+    // As libtest does, `--ignored` runs only the ignored cases, and the hostile corpus has none.
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--ignored")
+    {
+        return ExitCode::SUCCESS;
+    }
     let library = fixtures::pdfium_library();
     let mut failed = 0_u8;
     match confined_limits() {
