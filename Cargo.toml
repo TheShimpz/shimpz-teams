@@ -24,6 +24,7 @@ exclude = [
     "browser/image/host",
     "protocol/http/rust",
     "vendor/action-schema",
+    "vendor/assistant-install/rust",
     "vendor/assistant-protocol",
     "vendor/strict-json",
 ]
@@ -39,6 +40,7 @@ publish = false
 [workspace.dependencies]
 action-schema = { path = "vendor/action-schema" }
 aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc"] }
+assistant-install = { path = "vendor/assistant-install/rust" }
 assistant-protocol = { path = "vendor/assistant-protocol" }
 base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
 bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
