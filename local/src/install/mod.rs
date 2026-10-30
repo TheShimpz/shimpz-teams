@@ -33,9 +33,10 @@ use team_protocol::payload::{canonical_assistant_id, canonical_locale, canonical
 use self::admission::ImageAdmission;
 use self::local::LocalSnapshots;
 use self::problem::{
-    ACTION_FAILED, ACTION_INPUT_INVALID, ACTION_NOT_DECLARED, ACTION_STATE_UNAVAILABLE,
-    ACTION_STOPPED, ACTION_UNCERTAIN, CHAT_ACTIVE, CONTEXT_CHANGED, HUMAN_REQUEST_REQUIRED,
-    ICON_READ_UNAVAILABLE, INSTALL_BODY, INVALID_ASSISTANT_ID, INVALID_LOCALE, INVALID_TEAM_ID,
+    ACTION_FAILED, ACTION_FILE_BUSY, ACTION_FILE_UNAVAILABLE, ACTION_INPUT_INVALID,
+    ACTION_NOT_DECLARED, ACTION_STATE_UNAVAILABLE, ACTION_STOPPED, ACTION_UNCERTAIN, CHAT_ACTIVE,
+    CONTEXT_CHANGED, HUMAN_REQUEST_REQUIRED, ICON_READ_UNAVAILABLE, INSTALL_BODY,
+    INTEGRATION_UNAVAILABLE, INVALID_ASSISTANT_ID, INVALID_LOCALE, INVALID_TEAM_ID,
     LOCAL_INSTALL_BODY, MANIFEST_INVALID, NOT_INSTALLED,
 };
 use self::registry::Registry;
@@ -540,6 +541,8 @@ impl Assistants {
             assistant_id: assistant_id.to_owned(),
             action: action.to_owned(),
             input,
+            // The direct route belongs to no turn, so it selected no file (ADR-0093).
+            files: Vec::new(),
         };
         let result = self
             .executor
@@ -655,6 +658,9 @@ pub const fn action_problem(failure: ActionFailure) -> Problem {
         ActionFailure::Failed => ACTION_FAILED,
         ActionFailure::StateUnavailable => ACTION_STATE_UNAVAILABLE,
         ActionFailure::DockerUnavailable => DOCKER_UNAVAILABLE,
+        ActionFailure::IntegrationUnavailable => INTEGRATION_UNAVAILABLE,
+        ActionFailure::FileUnavailable => ACTION_FILE_UNAVAILABLE,
+        ActionFailure::FileBusy => ACTION_FILE_BUSY,
     }
 }
 

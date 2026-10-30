@@ -85,4 +85,10 @@ problems! {
     ACTION_FAILED = (502, "the Assistant Action failed", "assistant-action-failed");
     /// Action state is unavailable.
     ACTION_STATE_UNAVAILABLE = (503, "Team Action execution state is unavailable", "action-state-unavailable");
+    /// An Integration the Action declares is unavailable.
+    INTEGRATION_UNAVAILABLE = (428, "Assistant integration is unavailable", "assistant-integration-unavailable");
+    /// The Action names a file it cannot be given.
+    ACTION_FILE_UNAVAILABLE = (409, "the attached file is unavailable for this Action; attach it again", "action-file-unavailable");
+    /// Another file delivery holds the file-RPC slot.
+    ACTION_FILE_BUSY = (503, "another file-bearing Action is still running; retry", "assistant-file-busy");
 }
