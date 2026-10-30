@@ -1,0 +1,15 @@
+[package]
+name = "team-action"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team Actions: the journal, the exec RPC, the provider broker, redaction, Stored Inputs, and human requests"
+
+[dependencies]
+strict-json.workspace = true
+team-core.workspace = true
+
+[lints]
+workspace = true

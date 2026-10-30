@@ -1,0 +1,11 @@
+[package]
+name = "team-egress"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team egress policy: the Assistant egress tokens and policy files the egress proxy reads"
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "team-chat"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team chat: the turn engine, its orchestration, and its progress"
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "team-assistant"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team Assistant admission: manifests, specs, languages, details, effects, and Action schemas"
+
+[lints]
+workspace = true

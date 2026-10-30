@@ -359,6 +359,9 @@ class StaticTeamImageContractTests(unittest.TestCase):
             if path.is_file()
             and path.name != "Dockerfile"
             and path.suffix not in {".py", ".pyc"}
+            # The Rust port's crates (ADR-0123, phase R7) sit beside the Python they replace and never enter this image.
+            and path.suffix != ".rs"
+            and path.name != "Cargo.toml"
             and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(ROOT).parts)
             and not path.relative_to(ROOT).as_posix().startswith(OTHER_DEPLOYABLES)
         } | {path for paths in LOCAL_PACKAGE_DATA.values() for path in paths if path.startswith(OTHER_DEPLOYABLES)}

@@ -1,0 +1,23 @@
+[package]
+name = "team-inference"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team inference: the Brain client, the Brain token, inference settings, Team memory, and usage"
+
+[features]
+# A scripted Brain, for the tests of the crates that call the Brain.
+testing = []
+
+[dependencies]
+strict-json.workspace = true
+team-core.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
+[lints]
+workspace = true

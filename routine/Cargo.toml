@@ -1,0 +1,11 @@
+[package]
+name = "team-routine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team Routines: the pure Routine logic, without I/O"
+
+[lints]
+workspace = true

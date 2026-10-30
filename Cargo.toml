@@ -1,0 +1,64 @@
+# The Team controller in Rust (ADR-0123, plan phase R7). Each crate replaces the Python package of the responsibility
+# directory it lives in; `local/` holds the `shimpz-team` binary and is the only crate that reaches Docker or serves
+# HTTP. The standalone crates below are excluded: each keeps its own lock file and lanes (the Team HTTP protocol, the
+# vendored strict JSON reader, the Browser egress profile built into `shimpz-egress`, and the Browser image's host).
+[workspace]
+resolver = "3"
+members = [
+    "action",
+    "assistant",
+    "browser/task",
+    "chat",
+    "core",
+    "egress",
+    "inference",
+    "install",
+    "integrations",
+    "prepare",
+    "routine",
+    "storage",
+]
+exclude = ["browser/egress", "browser/image/host", "protocol/http/rust", "vendor/strict-json"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99.0"
+license = "Apache-2.0"
+publish = false
+
+# Exact pins, shared with the Developers, Store, and Account workspaces where they use the same crate. A workstream that
+# needs another dependency adds it here, exactly pinned, in alphabetical order.
+[workspace.dependencies]
+bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
+getrandom = "=0.4.3"
+sha2 = "=0.11.0"
+strict-json = { path = "vendor/strict-json" }
+team-action = { path = "action" }
+team-assistant = { path = "assistant" }
+team-browser = { path = "browser/task" }
+team-chat = { path = "chat" }
+team-core = { path = "core" }
+team-egress = { path = "egress" }
+team-inference = { path = "inference" }
+team-install = { path = "install" }
+team-integrations = { path = "integrations" }
+team-prepare = { path = "prepare" }
+team-protocol = { path = "protocol/http/rust" }
+team-routine = { path = "routine" }
+team-storage = { path = "storage" }
+tokio = { version = "=1.53.3", default-features = false }
+zeroize = "=1.9.1"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cognitive_complexity = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3

@@ -1,0 +1,24 @@
+[package]
+name = "team-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team invariants several responsibilities share: time, entropy, Stop, secrets, the audit sink, workload exec"
+
+[features]
+# In-memory fakes of every seam this crate defines, for the tests of the crates that consume them.
+testing = ["tokio/io-util"]
+
+[dependencies]
+getrandom.workspace = true
+strict-json.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "time"] }
+
+[lints]
+workspace = true

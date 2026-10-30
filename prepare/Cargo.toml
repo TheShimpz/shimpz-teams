@@ -1,0 +1,11 @@
+[package]
+name = "team-prepare"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Team attachment preparation: the helper worker for images and PDFs"
+
+[lints]
+workspace = true
