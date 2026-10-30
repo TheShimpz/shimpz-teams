@@ -10,6 +10,7 @@ pub mod assistant;
 pub mod audit;
 pub mod authority;
 pub mod browser;
+pub mod chat;
 pub mod cli;
 pub mod coordination;
 pub mod docker;
@@ -18,6 +19,7 @@ pub mod layout;
 pub mod lifecycle;
 pub mod names;
 pub mod prepare;
+pub mod routine;
 pub mod seams;
 #[cfg(feature = "testing")]
 pub mod testing;
