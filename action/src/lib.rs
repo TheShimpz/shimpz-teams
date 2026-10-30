@@ -10,4 +10,5 @@ pub mod failure;
 pub mod frames;
 pub mod journal;
 pub mod result;
+pub mod rpc;
 pub mod stored_input;

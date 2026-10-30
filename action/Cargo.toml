@@ -20,7 +20,7 @@ team-core.workspace = true
 team-integrations.workspace = true
 team-protocol.workspace = true
 team-storage.workspace = true
-tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 zeroize.workspace = true
 
 [dev-dependencies]
