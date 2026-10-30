@@ -2351,6 +2351,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "team-local-fixture"
+version = "0.1.0"
+dependencies = [
+ "strict-json",
+ "team-core",
+ "team-install",
+ "team-local",
+ "tokio",
+]
+
+[[package]]
 name = "team-prepare"
 version = "0.1.0"
 dependencies = [

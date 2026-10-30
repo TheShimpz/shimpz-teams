@@ -15,6 +15,7 @@ members = [
     "install",
     "integrations",
     "local",
+    "local/tests/fixture",
     "prepare",
     "routine",
     "storage",
@@ -73,6 +74,7 @@ team-egress = { path = "egress" }
 team-inference = { path = "inference" }
 team-install = { path = "install" }
 team-integrations = { path = "integrations" }
+team-local = { path = "local" }
 team-prepare = { path = "prepare" }
 team-protocol = { path = "protocol/http/rust" }
 team-routine = { path = "routine" }

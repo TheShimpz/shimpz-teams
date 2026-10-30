@@ -1,0 +1,29 @@
+[package]
+name = "team-local-fixture"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The controller suite's test-only runner: shimpz-team with a seeded publication in place of Developers and artifact trust"
+
+[lib]
+name = "team_local_fixture"
+path = "src/lib.rs"
+
+# Built only by the Team Dockerfile's `fixture` target, never published; the live artifact-trust lane never runs it.
+[[bin]]
+name = "shimpz-team-fixture"
+path = "src/main.rs"
+
+[dependencies]
+strict-json.workspace = true
+team-core.workspace = true
+team-install.workspace = true
+team-local.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
