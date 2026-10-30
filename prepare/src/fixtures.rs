@@ -268,7 +268,13 @@ pub fn pdfium_library() -> std::path::PathBuf {
         .and_then(|rest| rest.lines().find(|line| line.starts_with("library_sha256")))
         .and_then(|line| line.split('"').nth(1))
         .expect("pdfium.toml pins this architecture");
-    let digest = crate::content::hex(&Sha256::digest(&library));
+    let digest = Sha256::digest(&library)
+        .iter()
+        .fold(String::new(), |mut text, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+            text
+        });
     assert_eq!(
         digest,
         pinned,

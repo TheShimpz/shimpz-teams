@@ -21,5 +21,10 @@ sha2.workspace = true
 strict-json.workspace = true
 team-protocol.workspace = true
 
+# The hostile corpus, each file answered by a fresh confined worker process; the test binary is its own worker.
+[[test]]
+name = "hostile"
+harness = false
+
 [lints]
 workspace = true

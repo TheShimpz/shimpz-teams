@@ -74,21 +74,23 @@ pub fn confine() -> io::Result<()> {
     Ok(())
 }
 
-/// The `shimpz-team prepare` subcommand: confine, then answer standard input on standard output.
+/// The `shimpz-team prepare` subcommand: [`serve`] with the image's pinned library.
+#[must_use]
+pub fn main() -> ExitCode {
+    serve(Path::new(pdfium::LIBRARY))
+}
+
+/// Confines this process, then answers standard input on standard output; a PDF binds `library`.
 ///
 /// Library diagnostics stay silent (no logger is installed and a panic prints nothing), because standard error is a
 /// failed file for the controller. Exit status 0 means one answer was written.
 #[must_use]
-pub fn main() -> ExitCode {
+pub fn serve(library: &Path) -> ExitCode {
     panic::set_hook(Box::new(|_| {}));
     if confine().is_err() {
         return ExitCode::from(71);
     }
-    match run(
-        io::stdin().lock(),
-        io::stdout().lock(),
-        Path::new(pdfium::LIBRARY),
-    ) {
+    match run(io::stdin().lock(), io::stdout().lock(), library) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::from(74),
     }
