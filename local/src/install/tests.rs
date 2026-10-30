@@ -41,6 +41,8 @@ pub(super) const TEAM: &str = "team_1";
 const ASSISTANT: &str = "hello-world";
 const ICON: &[u8] = b"icon bytes";
 
+mod staged;
+
 pub(super) fn digest(digit: char) -> String {
     format!("sha256:{}", digit.to_string().repeat(64))
 }
@@ -283,6 +285,7 @@ struct Harness {
     private: Arc<Private>,
     coordination: Coordination,
     registry: Arc<Registry>,
+    admission: Arc<ImageAdmission>,
     assistants: Arc<Assistants>,
 }
 
@@ -312,6 +315,7 @@ fn containers(
     docker: &Arc<FakeDocker>,
     space: &Space,
     entropy: &Arc<CountingEntropy>,
+    admission: Arc<dyn Admission>,
 ) -> Containers {
     let egress = directory.join("assistant-egress");
     fs::create_dir(&egress).expect("created");
@@ -320,7 +324,7 @@ fn containers(
     Containers::new(containers::Parts {
         docker: docker.clone(),
         exec: Arc::new(FakeExec::default()),
-        admission: Arc::new(Reviewed),
+        admission,
         policies: PolicyStore::new(egress, gid),
         entropy: entropy.clone(),
         space: space.clone(),
@@ -329,22 +333,47 @@ fn containers(
     .with_ready_wait(Duration::ZERO)
 }
 
+/// The Team networks, with [`TEAM`]'s created.
+async fn networks(docker: &Arc<FakeDocker>, space: &Space) -> Arc<TeamNetworks> {
+    let networks = Arc::new(TeamNetworks::new(docker.clone(), space.clone()));
+    networks
+        .create(TEAM, "Team One")
+        .await
+        .expect("a Team network");
+    networks
+}
+
+fn registry(directory: &std::path::Path) -> Arc<Registry> {
+    let publications = directory.join("publications");
+    fs::create_dir(&publications).expect("created");
+    Arc::new(Registry::new(&publications))
+}
+
 async fn harness() -> Harness {
+    build(false).await
+}
+
+/// A harness whose containers are admitted by the real image review: the image's manifest against its binding.
+async fn reviewing_harness() -> Harness {
+    build(true).await
+}
+
+async fn build(review_images: bool) -> Harness {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let docker = Arc::new(FakeDocker::default());
     release(&docker, 'a', 'b');
     release(&docker, 'c', 'd');
     let space = Space::new("local-space").expect("a Space");
     let entropy = Arc::new(CountingEntropy::default());
-    let containers = containers(directory.path(), &docker, &space, &entropy);
-    let networks = Arc::new(TeamNetworks::new(docker.clone(), space.clone()));
-    networks
-        .create(TEAM, "Team One")
-        .await
-        .expect("a Team network");
-    let publications = directory.path().join("publications");
-    fs::create_dir(&publications).expect("created");
-    let registry = Arc::new(Registry::new(&publications));
+    let registry = registry(directory.path());
+    let admission = Arc::new(ImageAdmission::new(docker.clone(), registry.clone()));
+    let review: Arc<dyn Admission> = if review_images {
+        admission.clone()
+    } else {
+        Arc::new(Reviewed)
+    };
+    let containers = containers(directory.path(), &docker, &space, &entropy, review);
+    let networks = networks(&docker, &space).await;
     let coordination = Coordination::new(Arc::new(Limit));
     let (developers, trust) = (Arc::new(Developers::default()), Arc::new(Trust::default()));
     let (executor, private) = (Arc::new(Executor::default()), Arc::new(Private::default()));
@@ -353,7 +382,7 @@ async fn harness() -> Harness {
         networks,
         containers: Arc::new(containers),
         registry: registry.clone(),
-        admission: Arc::new(ImageAdmission::new(docker.clone(), registry.clone())),
+        admission: admission.clone(),
         resolver: developers.clone(),
         verifier: trust.clone(),
         executor: executor.clone(),
@@ -374,6 +403,7 @@ async fn harness() -> Harness {
         private,
         coordination,
         registry,
+        admission,
         assistants,
     }
 }

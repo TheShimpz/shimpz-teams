@@ -39,17 +39,17 @@ pub const ASSISTANT_LABEL: &str = "org.shimpz.assistant.id";
 pub const SOURCE_LABEL: &str = "org.shimpz.source.digest";
 /// The version label.
 pub const VERSION_LABEL: &str = "org.shimpz.assistant.version";
-const NAME_LABEL: &str = "org.shimpz.assistant.name";
-const SUMMARY_LABEL: &str = "org.shimpz.assistant.summary";
-const CREATORS_LABEL: &str = "org.shimpz.assistant.declared-creators";
-const BUILD_LABEL: &str = "org.shimpz.local.build.digest";
-const ACTIONS_LABEL: &str = "org.shimpz.assistant.actions";
-const INTEGRATIONS_LABEL: &str = "org.shimpz.assistant.integrations";
+pub(crate) const NAME_LABEL: &str = "org.shimpz.assistant.name";
+pub(crate) const SUMMARY_LABEL: &str = "org.shimpz.assistant.summary";
+pub(crate) const CREATORS_LABEL: &str = "org.shimpz.assistant.declared-creators";
+pub(crate) const BUILD_LABEL: &str = "org.shimpz.local.build.digest";
+pub(crate) const ACTIONS_LABEL: &str = "org.shimpz.assistant.actions";
+pub(crate) const INTEGRATIONS_LABEL: &str = "org.shimpz.assistant.integrations";
 /// Each Assistant's current snapshot carries exactly `shimpz-local/<assistant>:staged`.
 pub const LOCAL_REPOSITORY: &str = "shimpz-local";
 const LOCAL_TAG: &str = "staged";
-const SOURCE_PATH: &str = "/opt/shimpz/.shimpz/source.package";
-const ICON_PATH: &str = "/opt/shimpz/icon.png";
+pub(crate) const SOURCE_PATH: &str = "/opt/shimpz/.shimpz/source.package";
+pub(crate) const ICON_PATH: &str = "/opt/shimpz/icon.png";
 const RUNTIME_USER: &str = "10001:10001";
 const RUNTIME_ENTRYPOINT: [&str; 3] = [
     "/opt/shimpz/runtime/bin/python3.14",

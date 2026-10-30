@@ -45,13 +45,23 @@ fn directory(path: &str) -> Record<'static> {
 const MANIFEST: &[u8] = b"[assistant]\nid = \"notes\"\n";
 
 fn records(icon: &[u8]) -> Vec<Record<'_>> {
+    records_with(icon, MANIFEST)
+}
+
+fn records_with<'a>(icon: &'a [u8], manifest: &'a [u8]) -> Vec<Record<'a>> {
     vec![
         directory("actions"),
         file("actions/write.py", b"print('ok')\n"),
         file("icon.png", icon),
         file("pyproject.toml", b"[project]\nname = \"notes\"\n"),
-        file("shimpz.toml", MANIFEST),
+        file("shimpz.toml", manifest),
     ]
+}
+
+/// A canonical source package declaring `manifest`, with `icon` and one Action.
+#[cfg(feature = "testing")]
+pub(crate) fn canonical(manifest: &[u8], icon: &[u8]) -> Vec<u8> {
+    package(&records_with(icon, manifest))
 }
 
 fn package(records: &[Record<'_>]) -> Vec<u8> {

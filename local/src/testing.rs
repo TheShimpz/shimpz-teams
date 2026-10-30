@@ -31,6 +31,7 @@ struct State {
     pulled: Vec<String>,
     removed_images: Vec<String>,
     archives: HashMap<(String, String), Archive>,
+    image_files: HashMap<(String, String), Archive>,
     next: u64,
     unavailable: bool,
 }
@@ -94,6 +95,14 @@ impl FakeDocker {
         self.state()
             .archives
             .insert((container.to_owned(), path.to_owned()), archive);
+    }
+
+    /// Makes `path` answer `archive` in every container created from the image whose id is `image_id`, as a file the
+    /// image itself carries.
+    pub fn add_image_file(&self, image_id: &str, path: &str, archive: Archive) {
+        self.state()
+            .image_files
+            .insert((image_id.to_owned(), path.to_owned()), archive);
     }
 
     /// Every image removed so far, as named.
@@ -469,12 +478,12 @@ impl DockerEngine for FakeDocker {
     ) -> BoxFuture<'a, Result<Archive, DockerError>> {
         Box::pin(async move {
             let state = self.reachable()?;
-            let name = Self::find(&state, container)?.name;
-            let mut archive = state
-                .archives
-                .get(&(name, path.to_owned()))
-                .cloned()
-                .ok_or(DockerError::NotFound)?;
+            let found = Self::find(&state, container)?;
+            let own = state.archives.get(&(found.name, path.to_owned()));
+            let from_image = found
+                .image_id
+                .and_then(|image| state.image_files.get(&(image, path.to_owned())));
+            let mut archive = own.or(from_image).cloned().ok_or(DockerError::NotFound)?;
             archive.tar.truncate(bound.saturating_add(1));
             Ok(archive)
         })
