@@ -4,8 +4,10 @@ use strict_json::Value;
 
 use super::now;
 use crate::chat::fakes::{human_request, json};
+use crate::coordination::residue::{TeamRef, TeamTeardown};
 use crate::routine::executor::FaultClass;
 use crate::routine::executor::fakes::Outcome;
+use crate::routine::lifecycle::RoutinesTeardown;
 use crate::routine::service::harness::{
     Harness, ROUTINE, TEAM, action, harness, routine_of, running,
 };
@@ -92,7 +94,12 @@ async fn a_team_s_routine_generations_state_and_challenges_are_deleted_with_it()
         .answer(Outcome::Fail(FaultClass::Transport, None, None));
     let (_run, status) = harness.run_due().await;
     assert_eq!(status, "held");
-    harness.service.delete_team_routines(TEAM).expect("deleted");
+    let teardown = RoutinesTeardown(harness.service.clone());
+    let team = TeamRef {
+        team_id: TEAM.to_owned(),
+        generation: None,
+    };
+    teardown.remove_team(&team).await.expect("deleted");
     assert_eq!(harness.state().routines.len(), 0);
     assert!(
         harness
@@ -103,7 +110,7 @@ async fn a_team_s_routine_generations_state_and_challenges_are_deleted_with_it()
             .expect("journal")
             .is_empty()
     );
-    harness.service.delete_all_routines().expect("reset");
+    teardown.remove_space().await.expect("reset");
     assert_eq!(harness.store.teams().expect("teams"), Vec::<String>::new());
 }
 

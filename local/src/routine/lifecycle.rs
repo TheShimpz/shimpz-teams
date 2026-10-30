@@ -3,6 +3,7 @@
 //! the same write that ended it, so nothing it held is lost to a crash and nothing is removed while it could resume.
 
 use strict_json::Value;
+use team_core::future::BoxFuture;
 use team_protocol::python::value::object_of;
 use team_protocol::routine::ROUTINE_ID_RE;
 use team_routine::claim::verification_of;
@@ -14,6 +15,7 @@ use super::incident::read_sealed;
 use super::service::RoutineService;
 use super::store::TeamLock;
 use crate::chat::problem;
+use crate::coordination::residue::{ResidueKind, TeamRef, TeamTeardown, TeardownFailed};
 use crate::http::service::Problem;
 
 fn unavailable<E>(_error: E) -> Problem {
@@ -348,5 +350,32 @@ impl RoutineService {
         }
         exclusive.delete_all().map_err(unavailable)?;
         self.parts.diagnostics.delete_all().map_err(unavailable)
+    }
+}
+
+/// A destroyed Team's Routines, or every Team's on a Space reset: their runs' journal generations, their state and
+/// diagnostics, and their challenges, recordings, and cards.
+#[derive(Debug)]
+pub struct RoutinesTeardown(pub RoutineService);
+
+impl TeamTeardown for RoutinesTeardown {
+    fn kinds(&self) -> &'static [ResidueKind] {
+        &[ResidueKind::Routines]
+    }
+
+    fn remove_team<'a>(&'a self, team: &'a TeamRef) -> BoxFuture<'a, Result<(), TeardownFailed>> {
+        Box::pin(async move {
+            self.0
+                .delete_team_routines(&team.team_id)
+                .map_err(|_| TeardownFailed::StateUnavailable)
+        })
+    }
+
+    fn remove_space(&self) -> BoxFuture<'_, Result<(), TeardownFailed>> {
+        Box::pin(async move {
+            self.0
+                .delete_all_routines()
+                .map_err(|_| TeardownFailed::StateUnavailable)
+        })
     }
 }
