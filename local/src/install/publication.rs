@@ -5,7 +5,7 @@ use bollard::models::ImageInspect;
 use strict_json::Value;
 use team_assistant::manifest::automatic_update_preserves_egress;
 use team_core::future::BoxFuture;
-use team_install::bindings::{Binding, Provenance, from_resolution};
+use team_install::bindings::{Binding, Provenance};
 use team_install::icons::IconIdentity;
 use team_install::trust::{ResolveError, Resolver};
 
@@ -204,7 +204,10 @@ impl Assistants {
                 .install_new(team_id, &binding, created, Some(start))
                 .await;
         };
-        let candidate = from_resolution(team_id, document.clone()).map_err(binding_problem)?;
+        let candidate = self
+            .registry
+            .resolution_binding(team_id, document.clone())
+            .map_err(binding_problem)?;
         if candidate == *existing {
             let _held = self.hold(team_id).await?;
             return self

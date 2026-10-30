@@ -188,14 +188,6 @@ pub fn intact(
     })
 }
 
-/// A publication binding whose resolution the current contract admits.
-///
-/// # Errors
-/// [`BindingError::Invalid`] for a refused resolution or identity.
-pub fn from_resolution(team_id: &str, resolution: Value) -> Result<Binding, BindingError> {
-    admitted_resolution(team_id, resolution, contract_admits)
-}
-
 /// Admits a resolution under the current Assistant-install contract.
 fn contract_admits(resolution: &Value) -> bool {
     crate::contract::validate(resolution).is_ok()

@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_install::bindings::{Binding, BindingError, BindingStore, LocalRecordValidator};
 use team_install::icons::{IconError, IconStore};
@@ -65,6 +66,18 @@ impl Registry {
     #[must_use]
     pub fn icons(&self) -> &IconStore {
         &self.icons
+    }
+
+    /// The binding of a resolution under this registry's own admission.
+    ///
+    /// # Errors
+    /// [`BindingError::Invalid`] for a refused resolution or identity.
+    pub fn resolution_binding(
+        &self,
+        team_id: &str,
+        resolution: Value,
+    ) -> Result<Binding, BindingError> {
+        self.store.resolution_binding(team_id, resolution)
     }
 
     /// Runs `operation` on the binding store off the async workers.
