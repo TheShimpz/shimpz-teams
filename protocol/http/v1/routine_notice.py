@@ -10,7 +10,6 @@ if __package__:
     from . import progress, routine
 else:  # The protocol verifier runs every module of this directory flat.
     import progress
-
     import routine
 
 

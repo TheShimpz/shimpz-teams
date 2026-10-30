@@ -8,9 +8,8 @@ import re
 if __package__:
     from . import routine, routine_notice
 else:  # The protocol verifier runs every module of this directory flat.
-    import routine_notice
-
     import routine
+    import routine_notice
 
 
 # A held run's recovery card (ADR-0092 section 7, ADR-0101): Rodar and Excluir, none recommended. Team answers only

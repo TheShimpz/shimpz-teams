@@ -8,9 +8,8 @@ import json
 if __package__:
     from . import routine, routine_notice
 else:  # The protocol verifier runs every module of this directory flat.
-    import routine_notice
-
     import routine
+    import routine_notice
 
 
 # The confirmation card of a recorded Routine (ADR-0101, amended 2026-10-16): the recording agent's description of the

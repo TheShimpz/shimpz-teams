@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 
 import phrase
-
 import routine
 
 from .common import arguments, group

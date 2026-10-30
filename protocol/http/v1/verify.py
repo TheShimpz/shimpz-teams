@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+import browser
 import browser_view
 import challenge
 import content
@@ -16,6 +17,7 @@ import payload
 import phrase
 import preview
 import progress
+import routine
 import routine_context
 import routine_notice
 import routine_proposal
@@ -23,9 +25,6 @@ import routine_run
 import sign_in
 import supervisor
 import websocket
-
-import browser
-import routine
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"

@@ -17,10 +17,9 @@ from urllib.parse import urlsplit
 if __package__:
     from . import browser, payload, websocket
 else:  # The protocol verifier runs every module of this directory flat.
+    import browser
     import payload
     import websocket
-
-    import browser
 
 ID_RE = re.compile(r"[0-9a-f]{32}")
 # A Team incarnation: the Team network's Docker id.
