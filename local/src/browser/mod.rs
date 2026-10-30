@@ -4,4 +4,9 @@
 //!
 //! The Browser image and the `browser` egress profile stay their own crates; this module only runs them.
 
+pub mod audit;
 pub mod channel;
+pub mod credentials;
+pub mod release;
+pub mod tunnel;
+pub mod view;

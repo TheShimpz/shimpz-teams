@@ -20,10 +20,10 @@ path = "src/main.rs"
 testing = ["team-core/testing"]
 
 [dependencies]
+base64.workspace = true
 bollard.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
-team-browser.workspace = true
 team-core.workspace = true
 team-inference.workspace = true
 team-install.workspace = true
@@ -31,6 +31,7 @@ team-protocol.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
+team-core = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 
 [lints]
