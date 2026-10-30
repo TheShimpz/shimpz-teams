@@ -34,8 +34,9 @@ use crate::http::service::Problem;
 pub const SCHEMA_VERSION: i64 = 1;
 /// The most turns one Team keeps within their grants: one running at a time, the rest ended or tombstones.
 pub const MAX_TURNS: usize = 256;
-/// How long a turn's authority lasts from its send without Admin: Admin's session idle bound.
-pub const GRANT_SECONDS: i64 = 3600;
+/// How long a turn's authority lasts from its send without Admin: less than Admin's session idle bound, and Admin sends
+/// no turn whose session would end sooner.
+pub const GRANT_SECONDS: i64 = 3000;
 /// The largest sealed plaintext of one turn.
 pub const MAX_PLAINTEXT_BYTES: usize = 512 * 1024;
 /// The largest state file.
