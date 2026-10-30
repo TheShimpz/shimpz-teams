@@ -1038,6 +1038,13 @@ dependencies = [
 [[package]]
 name = "team-egress"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+ "strict-json",
+ "team-core",
+ "team-storage",
+ "tempfile",
+]
 
 [[package]]
 name = "team-inference"
@@ -1064,10 +1071,10 @@ version = "0.1.0"
 name = "team-local"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "bollard",
  "sha2",
  "strict-json",
- "team-browser",
  "team-core",
  "team-inference",
  "team-install",
