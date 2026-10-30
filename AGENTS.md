@@ -14,7 +14,7 @@
   classified.
 - Name responsibility directories with the shortest clear term. Use `install/`, not `installation/`.
 - Place peer integrations beneath the Team responsibility they serve. A peer may appear in a leaf adapter name such
-  as `developers_client.py`; do not create a peer-domain directory that implies Team owns that domain.
+  as `developers.rs`; do not create a peer-domain directory that implies Team owns that domain.
 - Use `protocol/` only for versioned wire schemas, vectors, semantic validation, and integrity evidence. It is not
   executable Team core logic.
 - Team owns its HTTP protocol. The neutral Assistant-install (resolve) protocol is a generated, pinned mirror; Developers
@@ -39,8 +39,7 @@
 
 ## Validation
 
-- Use Python 3.14. From the umbrella root, lint with its only config: `ruff check --config ruff.toml teams` and
-  `ruff format --config ruff.toml --check teams`. Run the complete local suite here with
-  `uv run --frozen --python 3.14 python -m unittest discover -s tests`.
+- The controller is one Rust workspace (ADR-0123). From the umbrella root, run its lane with
+  `.scripts/gate/rust crate teams`, and the real-daemon controller suite with `.scripts/gate/live controller-local`.
 - `browser/egress/` is a Rust package built with the umbrella `.egress/transport` crate; from the umbrella root run
   `.scripts/gate/rust crate teams/browser/egress`.

@@ -56,7 +56,7 @@ failure. It does not remove shared images, the controller container, or unlabele
   used for that operation and is never persisted, echoed, or forwarded to Assistant containers.
 
 The image healthcheck reads the controller bearer and performs authenticated `GET /healthz` on loopback.
-`python -m local.activity` uses the same loopback pattern for `GET /v1/activity` and prints only `idle` or `busy`:
+`shimpz-team activity` uses the same loopback pattern for `GET /v1/activity` and prints only `idle` or `busy`:
 busy while any authenticated non-read request (chat turns, Action invocations, Assistant lifecycle) or automatic
 Assistant update is in flight, and for 180 seconds after the last non-read request that passed Supervisor
 authority (chat turns and human-request submits, Assistant install and uninstall, Team create, rename, and delete,
@@ -145,7 +145,7 @@ records carry monotonic elapsed milliseconds; Action records also carry the cano
 identifier pair plus their bounded position. One terminal record contains the existing HTTP status and response
 object and remains the only operation result. Progress carries no messages, schemas, arguments, results, provider
 data, traces, or credentials. A disconnected progress consumer cannot change the admitted turn's outcome.
-`protocol/http/v1/progress.py` owns the exact framing and bounds.
+`protocol/http/rust` (`progress`) owns the exact framing and bounds.
 
 ### Assistant integration administration
 

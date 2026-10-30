@@ -7,18 +7,19 @@ The repository is consumed by the Shimpz umbrella at the root `teams/` checkout.
 
 ## Source organization
 
-- `assistant/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`, `action/`, and `storage/` are
-  named Team responsibilities.
-- `core/` contains only cohesive Team invariants: canonical JSON, identifiers, and strict HTTP parsing and routing.
-- `local/` owns the controller entrypoint, state, audit, validation, token, labels, and lifecycle used by the Local
-  Space applied by the release-bound CLI. Its `assistant/`, `chat/`, `http/`, and `install/` children separate runtime
-  responsibilities.
+- The Team controller is one Rust workspace (ADR-0123): each crate lives in the responsibility directory it serves.
+  `action/`, `assistant/`, `browser/task/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`,
+  `prepare/`, `routine/`, and `storage/` are named Team responsibilities.
+- `core/` contains only cohesive Team invariants: the clock, entropy, file custody, durable writes, and identifiers.
+- `local/` is the `shimpz-team` binary and the only crate that reaches Docker or serves HTTP: the composition root,
+  the HTTP server and authority, Docker and isolation, lifecycle coordination, audit, and each service group used by
+  the Local Space applied by the release-bound CLI.
 - `install/` owns publication verification and binding.
 - `protocol/http/` is Team's HTTP authority; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
   used for independent admission and installation conformance.
 - `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.
-- The repository root contains governance and dependency metadata only; runtime Python belongs to a named
-  responsibility or profile.
+- The repository root contains governance and the workspace's dependency metadata only; every crate belongs to a
+  named responsibility or profile.
 
 Directory names use the shortest clear responsibility term, such as `install/`. A peer domain may appear in a leaf
 adapter name but never as a child domain owned by Team.
@@ -33,9 +34,6 @@ every owned Team.
 
 ## Local validation
 
-Use Python 3.14 and the committed dependency lock. Lint with the umbrella's `ruff.toml` from the umbrella root
-(`ruff check --config ruff.toml teams` and `ruff format --config ruff.toml --check teams`), then run the suite here:
-
-```bash
-uv run --frozen --python 3.14 python -m unittest discover -s tests -p "test_*.py"
-```
+From the umbrella root, run the workspace's lane (fmt, clippy, documentation, machete, the tests, and the fuzz
+targets): `.scripts/gate/rust crate teams`. The real-daemon controller suite runs from the `fixture` target of
+`local/Dockerfile` through `.scripts/gate/live controller-local`.
