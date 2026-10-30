@@ -206,6 +206,45 @@ async fn a_record_outside_the_protocol_ends_the_stream_incomplete() {
 }
 
 #[tokio::test]
+async fn an_unrecordable_terminal_record_never_completes_the_stream() {
+    let release = Arc::new(Notify::new());
+    let gate = Arc::clone(&release);
+    let fake = Fake::answering(move |_| {
+        let gate = Arc::clone(&gate);
+        Box::pin(async move {
+            let (sender, receiver) = mpsc::channel(4);
+            tokio::spawn(async move {
+                let _ = sender.send(progress(1)).await;
+                gate.notified().await;
+                let body = object_of(vec![]);
+                let _ = sender
+                    .send(StreamRecord::Terminal { status: 200, body })
+                    .await;
+            });
+            Ok(Answer::Stream(receiver))
+        })
+    });
+    let harness = Arc::new(harness(fake));
+    let reply = tokio::spawn({
+        let harness = Arc::clone(&harness);
+        async move { harness.as_routine(RUN, b"{}", &harness.keys.routine).await }
+    });
+    for _ in 0..500 {
+        if !harness.fake.seen().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    harness.audit.fail(true);
+    release.notify_one();
+    let reply = reply.await.expect("joined");
+    assert_eq!(reply.status, 200);
+    let (chunks, complete) = reply.chunks();
+    assert_eq!(chunks.len(), 1, "only the progress record was written");
+    assert!(!complete);
+}
+
+#[tokio::test]
 async fn bytes_are_framed_exactly() {
     let harness = harness(answering(|_| {
         Ok(Answer::Binary {

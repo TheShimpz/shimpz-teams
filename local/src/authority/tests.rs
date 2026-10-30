@@ -364,6 +364,23 @@ fn jti_replay_refused() {
 }
 
 #[test]
+fn a_refused_assertion_does_not_consume_its_nonce() {
+    let keys = Keys::new();
+    let verifier = keys.verifier(64);
+    let assertion = signed(&keys, session("GET", "/v1/teams", no_body()));
+    let elsewhere = request("GET", "/v1/assistants");
+    assert_eq!(
+        verify(&verifier, &assertion, &elsewhere),
+        Err(Refusal::Denied)
+    );
+    let mut tampered = assertion.clone();
+    let last = tampered.len() - 2;
+    tampered[last] = if tampered[last] == b'A' { b'B' } else { b'A' };
+    assert_eq!(verify(&verifier, &tampered, &teams()), Err(Refusal::Denied));
+    assert!(verify(&verifier, &assertion, &teams()).is_ok());
+}
+
+#[test]
 fn replay_cache_saturation_answers_unavailable() {
     let guard = ReplayGuard::with_capacity(2);
     assert_eq!(guard.consume("a", NOW + 5, NOW), Ok(()));
@@ -432,6 +449,22 @@ fn published_key_custody_is_exact() {
     let mut other_group = keys.files.clone();
     other_group.key_group = Some(keys.files.key_group.expect("group") + 1);
     let verifier = Verifier::new(other_group, ReplayGuard::default());
+    assert_eq!(
+        verify(&verifier, &listing(&keys.supervisor), &teams()),
+        Err(Refusal::Unavailable)
+    );
+    std::fs::remove_file(&keys.files.supervisor).expect("removed");
+    std::fs::write(
+        &keys.files.supervisor,
+        b"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VuAyEA\n-----END PUBLIC KEY-----\n",
+    )
+    .expect("written");
+    std::fs::set_permissions(
+        &keys.files.supervisor,
+        std::fs::Permissions::from_mode(0o440),
+    )
+    .expect("mode");
+    let verifier = keys.verifier(64);
     assert_eq!(
         verify(&verifier, &listing(&keys.supervisor), &teams()),
         Err(Refusal::Unavailable)
