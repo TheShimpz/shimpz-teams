@@ -98,6 +98,23 @@ fn write_temporary(
     file.sync_all()
 }
 
+/// Opens `path` to append, never through a link at its last component; with `create`, an absent file is created
+/// owner-only (`0600`).
+///
+/// # Errors
+/// The operating system's error, including `ELOOP` for a link.
+pub fn open_append(path: &Path, create: bool) -> io::Result<File> {
+    let mut flags = OFlags::WRONLY | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    if create {
+        flags |= OFlags::CREATE;
+    }
+    Ok(File::from(rustix::fs::open(
+        path,
+        flags,
+        RawMode::from_raw_mode(0o600),
+    )?))
+}
+
 /// Why a directory could not be proven private.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DirectoryError {
@@ -219,6 +236,28 @@ mod tests {
         assert!(fsync_directory(&link).is_err());
         assert!(fsync_directory(&root.path().join("missing")).is_err());
         fsync_directory(root.path()).expect("synchronized");
+    }
+
+    #[test]
+    fn appends_never_follow_a_link_and_create_owner_only() {
+        use std::io::Write as _;
+        let root = tempfile::tempdir().expect("temporary directory");
+        let path = root.path().join("log");
+        assert!(super::open_append(&path, false).is_err());
+        super::open_append(&path, true)
+            .expect("created")
+            .write_all(b"a")
+            .expect("written");
+        super::open_append(&path, false)
+            .expect("opened")
+            .write_all(b"b")
+            .expect("written");
+        assert_eq!(fs::read(&path).expect("read"), b"ab");
+        assert_eq!(fs::metadata(&path).expect("stat").mode() & 0o7777, 0o600);
+        let link = root.path().join("link");
+        symlink(&path, &link).expect("linked");
+        assert!(super::open_append(&link, true).is_err());
+        assert_eq!(fs::read(&path).expect("read"), b"ab");
     }
 
     #[test]
