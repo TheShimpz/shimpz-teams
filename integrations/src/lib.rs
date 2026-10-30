@@ -8,6 +8,7 @@
 pub mod broker;
 pub mod capability;
 pub mod challenge;
+pub mod flow;
 pub mod https;
 pub mod pending;
 pub mod pkce;
