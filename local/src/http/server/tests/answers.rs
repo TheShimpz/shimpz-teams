@@ -327,10 +327,7 @@ async fn an_accepted_upgrade_is_answered_101_then_relayed() {
         .expect("echoed")
         .expect("read");
     assert_eq!(&echoed, b"frame-bytes");
-    let key = harness.fake.seen()[0]
-        .context
-        .as_ref()
-        .and_then(|context| context.websocket_key.clone());
+    let key = harness.fake.seen()[0].upgrade_key.clone();
     assert_eq!(key.as_deref(), Some("AAAAAAAAAAAAAAAAAAAAAA=="));
 }
 
@@ -439,4 +436,45 @@ async fn a_supervisor_mutation_keeps_the_team_busy() {
         .await;
     assert_eq!(reply.status, 200);
     assert_eq!(harness.activity.state(), "busy");
+}
+
+#[tokio::test]
+async fn brain_usage_rides_on_the_next_audit_event_and_the_meter_ends() {
+    use crate::http::server::current_request;
+    use crate::http::server::usage::{ModelUsageSink, UsageCounts, UsageEntry};
+    let meter: Arc<std::sync::OnceLock<Arc<super::MemoryUsage>>> = Arc::default();
+    let slot = Arc::clone(&meter);
+    let harness = harness(Fake::answering(move |_| {
+        let slot = Arc::clone(&slot);
+        Box::pin(async move {
+            let trace = current_request().expect("context").trace_id;
+            let entry = UsageEntry {
+                operation: "turn",
+                provider: "openai".to_owned(),
+                model: "m".to_owned(),
+                counts: UsageCounts {
+                    model_calls: 1,
+                    input_tokens: 9,
+                    ..UsageCounts::default()
+                },
+            };
+            slot.get().expect("meter").record(&trace, entry);
+            Ok(Answer::Json {
+                status: 200,
+                body: object_of(vec![]),
+            })
+        })
+    }));
+    let _ = meter.set(Arc::clone(&harness.usage));
+    let reply = harness.request("GET", "/v1/activity", &[], b"").await;
+    let trace = reply.text("trace_id").expect("trace");
+    let usage = r#""model_usage":[{"cache_read_tokens":0,"cache_write_tokens":0,"count":1"#;
+    assert!(harness.journaled(&[
+        r#""operation":"activity""#,
+        r#""result":"ok""#,
+        usage,
+        &trace
+    ]));
+    assert!(!harness.journaled(&[r#""operation":"machine-authority""#, "model_usage"]));
+    assert!(harness.usage.ended.lock().expect("ended").contains(&trace));
 }

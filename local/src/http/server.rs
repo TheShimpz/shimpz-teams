@@ -23,6 +23,7 @@ pub mod limits;
 pub mod request;
 pub mod respond;
 mod stream;
+pub mod usage;
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -86,8 +87,6 @@ pub struct RequestContext {
     pub credential_state: &'static str,
     /// For a Supervisor assertion, the fingerprint of the pinned key that verified it.
     pub supervisor_key: Option<String>,
-    /// For a Browser view upgrade, the viewer's admitted WebSocket key the display must answer.
-    pub websocket_key: Option<String>,
 }
 
 tokio::task_local! {
@@ -132,6 +131,8 @@ pub struct ServerParts {
     pub activity: Arc<Activity>,
     /// The audit journal.
     pub audit: Arc<dyn AuditSink>,
+    /// Where each request's Brain usage accumulates until its next audit event.
+    pub usage: Arc<dyn usage::ModelUsageSink>,
     /// The wall clock assertions are judged by.
     pub clock: Arc<dyn Clock>,
     /// The source of trace ids.

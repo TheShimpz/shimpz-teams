@@ -73,6 +73,7 @@ impl Pump {
         {
             activity.supervised();
         }
+        self.audit.end();
         drop(self.working);
         drop(self.slot);
     }

@@ -19,6 +19,7 @@ use team_protocol::python::value::{int, object_of, text};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use super::usage::{ModelUsageSink, UsageEntry};
 use super::{
     ChallengeBook, Limits, PendingChallenge, RequestContext, Server, ServerParts, current_request,
 };
@@ -37,6 +38,7 @@ pub struct Seen {
     pub body: Body,
     pub model: Option<(String, String)>,
     pub decision: Option<String>,
+    pub upgrade_key: Option<String>,
     pub context: Option<RequestContext>,
 }
 
@@ -103,9 +105,40 @@ impl Service for Fake {
                     .decision_key
                     .as_ref()
                     .map(|key| key.expose().to_owned()),
+                upgrade_key: call.upgrade_key.clone(),
                 context: current_request(),
             });
         (self.respond)(call.operation())
+    }
+}
+
+/// Each request's Brain usage in memory, and the requests whose meter ended.
+#[derive(Default)]
+pub struct MemoryUsage {
+    entries: Mutex<Vec<(String, UsageEntry)>>,
+    pub ended: Mutex<Vec<String>>,
+}
+
+impl ModelUsageSink for MemoryUsage {
+    fn record(&self, trace_id: &str, entry: UsageEntry) {
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((trace_id.to_owned(), entry));
+    }
+
+    fn drain(&self, trace_id: &str) -> Vec<UsageEntry> {
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        let (drained, kept) = entries.drain(..).partition(|(trace, _)| trace == trace_id);
+        *entries = kept;
+        drained.into_iter().map(|(_, entry)| entry).collect()
+    }
+
+    fn end(&self, trace_id: &str) {
+        self.ended
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(trace_id.to_owned());
     }
 }
 
@@ -125,6 +158,7 @@ impl ChallengeBook for Pending {
 /// A running server.
 pub struct Harness {
     pub address: SocketAddr,
+    pub usage: Arc<MemoryUsage>,
     pub keys: Keys,
     pub audit: Arc<MemoryAudit>,
     pub fake: Arc<Fake>,
@@ -149,6 +183,7 @@ impl Harness {
     pub fn with(limits: Limits, fake: Fake, pending: Pending) -> Self {
         let keys = Keys::new();
         let audit = Arc::new(MemoryAudit::default());
+        let usage = Arc::new(MemoryUsage::default());
         let fake = Arc::new(fake);
         let activity = Arc::new(Activity::default());
         let service: Arc<dyn Service> = fake.clone();
@@ -171,6 +206,7 @@ impl Harness {
             challenges: Arc::new(pending),
             activity: Arc::clone(&activity),
             audit: audit.clone(),
+            usage: usage.clone(),
             clock: Arc::new(FakeClock::at(now)),
             entropy: Arc::new(OsEntropy),
             limits,
@@ -180,6 +216,7 @@ impl Harness {
         tokio::spawn(async move { server.serve(listener, std::future::pending()).await });
         Self {
             address,
+            usage,
             keys,
             audit,
             fake,

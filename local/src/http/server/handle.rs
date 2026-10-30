@@ -151,6 +151,7 @@ struct Exchange<'a> {
     working: Option<OwnedWorking>,
     upgrade: Option<OnUpgrade>,
     slot: Arc<OwnedSemaphorePermit>,
+    streaming: bool,
 }
 
 /// Runs key-file work off the async workers; a lost task is unavailable.
@@ -201,9 +202,15 @@ impl Inner {
         let Ok(trace_id) = token_hex(self.parts.entropy.as_ref(), 16) else {
             return respond::internal(None, MAX_API_RESPONSE_BYTES);
         };
-        let mut audit = RequestAudit::new(Arc::clone(&self.parts.audit), trace_id);
+        let mut audit = RequestAudit::new(
+            Arc::clone(&self.parts.audit),
+            Arc::clone(&self.parts.usage),
+            trace_id,
+        );
         if !request::bearer_matches(request.headers(), &self.parts.token) {
-            return unauthenticated(&mut audit).await;
+            let answer = unauthenticated(&mut audit).await;
+            audit.end();
+            return answer;
         }
         let mutating = !matches!(*request.method(), hyper::Method::GET | hyper::Method::HEAD);
         let working = mutating.then(|| Activity::owned_working(&self.parts.activity));
@@ -220,8 +227,13 @@ impl Inner {
             working,
             upgrade: Some(upgrade),
             slot,
+            streaming: false,
         };
         let answer = exchange.answered().await;
+        // A stream ends its usage meter after its terminal record.
+        if !exchange.streaming {
+            exchange.audit.end();
+        }
         // A stream took its work unit and marks the Supervisor's activity when it ends.
         if exchange.working.is_some() && exchange.audit.principal_class == "human" {
             self.parts.activity.supervised();
@@ -318,7 +330,6 @@ impl<'a> Exchange<'a> {
             principal_class: self.audit.principal_class,
             credential_state: self.audit.credential_state,
             supervisor_key: ready.supervisor_key,
-            websocket_key: ready.websocket_key.clone(),
         };
         let call = Call {
             route,
@@ -331,6 +342,7 @@ impl<'a> Exchange<'a> {
             }),
             decision_key: ready.decision,
             trace_id: self.audit.trace_id.clone(),
+            upgrade_key: ready.websocket_key.clone(),
         };
         let service = self
             .server
@@ -522,7 +534,8 @@ impl<'a> Exchange<'a> {
             Principal::HostReset
         } else {
             Principal::Supervisor {
-                assurance: evidence.assurance.unwrap_or_default(),
+                supervisor_id: evidence.supervisor_id,
+                assurance: evidence.assurance,
             }
         };
         Ok(Authorized {
@@ -671,6 +684,7 @@ impl<'a> Exchange<'a> {
     /// The NDJSON answer: its records are written as they come, and the terminal one is recorded first.
     fn stream(&mut self, records: mpsc::Receiver<StreamRecord>) -> Answer {
         let (response, frames) = respond::ndjson();
+        self.streaming = true;
         let supervised = self
             .mutating
             .then(|| Arc::clone(&self.server.parts.activity));

@@ -161,7 +161,8 @@ async fn a_bound_supervisor_assertion_authorizes_with_its_context() {
     let seen = harness.fake.seen();
     assert_eq!(seen[0].operation, Operation::TeamCreate);
     let unassured = Principal::Supervisor {
-        assurance: String::new(),
+        supervisor_id: SUPERVISOR_ID.to_owned(),
+        assurance: None,
     };
     assert_eq!(seen[0].principal, unassured);
     assert_eq!(
@@ -387,7 +388,8 @@ async fn an_approval_of_an_authentication_challenge_must_bind_its_assurance() {
         .await;
     assert_eq!(with.status, 200);
     let assured = Principal::Supervisor {
-        assurance: "auth:totp".to_owned(),
+        supervisor_id: SUPERVISOR_ID.to_owned(),
+        assurance: Some("auth:totp".to_owned()),
     };
     assert_eq!(harness.fake.seen()[0].principal, assured);
     // A denial binds no assurance.

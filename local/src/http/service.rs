@@ -18,11 +18,13 @@ use super::route::{Group, RouteMatch};
 pub enum Principal {
     /// The controller bearer alone.
     Machine,
-    /// A Supervisor session assertion, with the assurance it was signed under (`auth:password`, `auth:totp`, or
-    /// `auth:passkey`).
+    /// A Supervisor session assertion: who signed it, and the human assurance it bound, if any.
     Supervisor {
-        /// The assertion's assurance kind.
-        assurance: String,
+        /// The Supervisor's opaque 32-hex id (the assertion's subject).
+        supervisor_id: String,
+        /// The assurance kind it bound (`auth:password`, `auth:totp`, or `auth:passkey`), only on an approval of an
+        /// authentication challenge.
+        assurance: Option<String>,
     },
     /// The CLI's host-reset assertion (only on `space-reset`).
     HostReset,
@@ -72,6 +74,8 @@ pub struct Call<'a> {
     pub decision_key: Option<Secret>,
     /// The metadata-only trace id the answer carries.
     pub trace_id: String,
+    /// On a Browser view upgrade, the viewer's admitted WebSocket key the display must answer.
+    pub upgrade_key: Option<String>,
 }
 
 impl Call<'_> {

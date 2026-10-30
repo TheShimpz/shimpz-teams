@@ -5,10 +5,13 @@ use std::sync::Arc;
 use strict_json::Value;
 use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
 
+use super::usage::{ModelUsageSink, model_usage};
+
 /// The principal and credential state of one request, and its trace id.
 #[derive(Clone)]
 pub struct RequestAudit {
     sink: Arc<dyn AuditSink>,
+    usage: Arc<dyn ModelUsageSink>,
     /// The request's trace id: 32 lowercase hex digits.
     pub trace_id: String,
     /// The resolved operation's name, `request` until the route resolves.
@@ -37,9 +40,10 @@ impl std::fmt::Debug for RequestAudit {
 
 impl RequestAudit {
     /// A request that presented the controller bearer, before anything else is known.
-    pub fn new(sink: Arc<dyn AuditSink>, trace_id: String) -> Self {
+    pub fn new(sink: Arc<dyn AuditSink>, usage: Arc<dyn ModelUsageSink>, trace_id: String) -> Self {
         Self {
             sink,
+            usage,
             trace_id,
             operation: "request",
             principal_id: None,
@@ -110,7 +114,8 @@ impl RequestAudit {
         event
     }
 
-    /// Records one event; a tolerant operation proceeds when the journal cannot record it.
+    /// Records one event, carrying the Brain usage the request reported since its previous event; a tolerant
+    /// operation proceeds when the journal cannot record it.
     ///
     /// # Errors
     /// [`AuditUnavailable`] when the event was not recorded and the operation is not tolerant.
@@ -121,10 +126,16 @@ impl RequestAudit {
         assistant: Option<&str>,
         detail: Option<&str>,
     ) -> Result<(), AuditUnavailable> {
-        let recorded = self
-            .sink
-            .record(self.event(operation, result, assistant, detail))
-            .await;
+        let mut event = self.event(operation, result, assistant, detail);
+        if let Some(usage) = model_usage(&self.usage.drain(&self.trace_id)) {
+            event = event.with("model_usage", usage);
+        }
+        let recorded = self.sink.record(event).await;
         if self.tolerant { Ok(()) } else { recorded }
+    }
+
+    /// Ends the request's usage meter: its answer is complete.
+    pub fn end(&self) {
+        self.usage.end(&self.trace_id);
     }
 }

@@ -58,12 +58,14 @@ async fn call(
     let call = Call {
         route: &route,
         principal: Principal::Supervisor {
-            assurance: String::new(),
+            supervisor_id: "1".repeat(32),
+            assurance: None,
         },
         body,
         model: None,
         decision_key: None,
         trace_id: "0".repeat(32),
+        upgrade_key: None,
     };
     let context = RequestContext {
         trace_id: "0".repeat(32),
@@ -71,7 +73,6 @@ async fn call(
         principal_class: "human",
         credential_state: "assertion_present",
         supervisor_key: key,
-        websocket_key: None,
     };
     REQUEST
         .scope(context, async { owners.controller.call(call).await })
