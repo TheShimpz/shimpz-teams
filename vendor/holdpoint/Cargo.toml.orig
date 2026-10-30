@@ -1,0 +1,43 @@
+[package]
+name = "holdpoint"
+description = "A crash-proof agent runtime: every run resumes from its last committed step"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["agent", "durable-execution", "llm", "workflow", "sqlite"]
+categories = ["development-tools"]
+
+[features]
+default = []
+# OpenAI Responses and Anthropic Messages adapters over blocking HTTPS.
+openai = ["dep:ureq"]
+anthropic = ["dep:ureq"]
+# Scripted models, fake activities and hosts for tests of hosts and of this crate.
+testing = []
+# Compiled crash points selected by HOLDPOINT_FAILPOINT; never enabled in a release build of a host.
+failpoints = []
+
+[dependencies]
+base64 = "0.22"
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+ureq = { version = "3", optional = true, default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "runtime"
+harness = false
+required-features = ["testing"]

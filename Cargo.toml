@@ -29,6 +29,7 @@ exclude = [
     "vendor/action-schema",
     "vendor/assistant-install/rust",
     "vendor/assistant-protocol",
+    "vendor/holdpoint",
     "vendor/strict-json",
 ]
 
@@ -51,6 +52,7 @@ fancy-regex = { version = "=0.19.2", default-features = false, features = ["std"
 futures-core = "=0.3.34"
 getrandom = "=0.4.3"
 hmac = "=0.13.0"
+holdpoint = { path = "vendor/holdpoint" }
 http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", default-features = false }
 hyper-util = { version = "=0.1.21", default-features = false }
@@ -64,6 +66,7 @@ rusqlite = { version = "=0.41.1", features = ["bundled"] }
 rustix = { version = "=1.1.5", default-features = false, features = ["fs", "process", "std"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "=0.8.4"
+serde_json = "=1.0.152"
 sha2 = "=0.11.0"
 strict-json = { path = "vendor/strict-json" }
 subtle = "=2.6.1"
