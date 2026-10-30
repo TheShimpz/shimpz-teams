@@ -1,7 +1,24 @@
 {
   "repository": "https://github.com/TheShimpz/shimpz-developers",
-  "commit": "0914d1a3af94b65f51bcead7fa557f52639d1dea",
-  "path": "protocol/assistant/v1",
-  "tree": "3182c35373b8446f2e1f6c71d3fa72de04039549",
-  "contract_files_sha256": "d19dd5d7ce7659de748bf6c5bbaa1b079ec38beffecd9bb8d12dd8c81a420317"
+  "commit": "194802bbfa0282eb121ee05567b38c3fa80f87c0",
+  "path": "protocol/assistant/v1/vectors",
+  "files": {
+    "action-effect.json": "26501431045b045e3414e49181e95ea895a2fc755a5557261cb8d97c94f3ab5c",
+    "action-schema.json": "83fab320261d0fd8534647fbd73778202e28260faf7f506824361e10dac855cf",
+    "catalog.json": "dc4cd15d3d4cc4b0f7b80d5da407c6e68104fd070588302c0b33d3ae93d9b68b",
+    "failure.json": "489701e0fdec231a6957204e3d0c0dbbe67fe8b96970ef278297e27191e07208",
+    "fetch.json": "03176889606a1be5bb5b3d3f6f200b411b20b91346aba4df136274356503cf92",
+    "file-invocation.json": "6111e87f53e5e4582484d2ec7c6ac0b1abcbeabe7de7c5ec833ce25d3594ac54",
+    "human-request.json": "8e097be0cfded9d29440c9dd675f23f5da7ef80af2a3b7bf695be95077b8c57d",
+    "input-file.json": "ad2f0fa3650115d1c0cdc219b8881c6a13a594f7615c8f154f8736570f5e7ef4",
+    "invocation.json": "b850d8c282bfa6982a51df290a0c3e380dceed0be41210e3104974ecdeb6a6cb",
+    "manifest-id.json": "35ac6d8b22faf1f000a0bb00c4446703282bc178b950e199a76b238524de68fa",
+    "manifest.json": "06fbc363af024067bf7f6d850d2d9c068af48d25edefb4387b720b5825e4a2b7",
+    "pattern-program.json": "f31e24459915eed77de4990c8c96c76773be7c28389b6181a65981c1be81081a",
+    "pattern.json": "ab53de673ab089810b75079d22955517462048e8fce690fb11c270410e6bffbd",
+    "payload.json": "de62863546fe8995597c74fb2534d036061ed9e70e46a9a6691889b23ac6d3c5",
+    "route-match.json": "8d49be33e3058ca866e88cbb9333613989d79180d8a070b4e4a486ef87856200",
+    "route.json": "a2b3042aeba06d3170deaa110272b836fd58b970e8acc7c32aba7165f7058df3",
+    "unicode-category.json": "8878fe801128468f12510539ed3b780ae7e0cfbfd638d91275a7353c0af64cda"
+  }
 }
