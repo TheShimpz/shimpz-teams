@@ -2288,6 +2288,7 @@ dependencies = [
  "sha2",
  "strict-json",
  "subtle",
+ "team-assistant",
  "team-core",
  "team-integrations",
  "team-protocol",
@@ -2358,6 +2359,9 @@ dependencies = [
 name = "team-inference"
 version = "0.1.0"
 dependencies = [
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "rustix",
  "sha2",
  "strict-json",
@@ -2418,6 +2422,7 @@ name = "team-local"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "assistant-protocol",
  "base64 0.23.1",
  "bollard",
  "futures-core",
