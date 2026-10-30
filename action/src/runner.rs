@@ -823,7 +823,13 @@ impl ActionExecutor for Executor {
                 .await
             {
                 Ok(Outcome::Completed(result)) => Ok(result),
-                Ok(Outcome::Request(_)) => Err(ActionFailure::HumanRequestRequired),
+                Ok(Outcome::Request(_)) => {
+                    // The direct route cannot ask a person: the refusal is audited against the Action.
+                    let _ = runner
+                        .record(&target, "denied", "human-request-required")
+                        .await;
+                    Err(ActionFailure::HumanRequestRequired)
+                }
                 Err(Failed::NotDispatched(failure) | Failed::Uncertain(failure)) => Err(failure),
                 Err(Failed::Handled) => Err(ActionFailure::Failed),
             }
