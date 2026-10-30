@@ -627,3 +627,71 @@ async fn the_sink_records_or_answers_unavailable() {
         ["sink"]
     );
 }
+
+/// The Python writer's fixed clock (2027-01-15T08:00:00Z).
+const PYTHON_EPOCH: u64 = 1_800_000_000;
+
+fn python_log() -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/state/var/log/shimpz-local/audit.jsonl");
+    fs::read(path).expect("the golden audit log")
+}
+
+/// The event a Python line recorded: every field but those the writer adds.
+fn event_of(line: &[u8]) -> AuditEvent {
+    let Value::Object(fields) = strict_json::parse(line).expect("JSON") else {
+        panic!("an object");
+    };
+    fields
+        .into_iter()
+        .filter(|(name, _)| !["ts", "service", "prev_sha256"].contains(&name.as_str()))
+        .fold(AuditEvent::new(), |event, (name, value)| {
+            event.with(&name, value)
+        })
+}
+
+fn python_epoch_log(path: &Path) -> AuditLog {
+    AuditLog::new(
+        path.to_path_buf(),
+        SLOW,
+        Arc::new(FakeClock::at(
+            UNIX_EPOCH + Duration::from_secs(PYTHON_EPOCH),
+        )),
+        Arc::new(CountingEntropy::default()),
+    )
+}
+
+#[test]
+fn the_python_chain_verifies_and_is_rewritten_byte_for_byte() {
+    let python = python_log();
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("audit.jsonl");
+    fs::write(&path, &python).expect("written");
+    let events = chained(&[&path]).expect("the Python chain holds");
+    assert_eq!(events.len(), 5);
+    fs::remove_file(&path).expect("removed");
+    let log = python_epoch_log(&path);
+    for line in python.split_inclusive(|byte| *byte == b'\n') {
+        log.record_blocking(&event_of(line)).expect("recorded");
+    }
+    log.close().expect("closed");
+    assert_eq!(fs::read(&path).expect("read"), python);
+}
+
+#[test]
+fn the_rust_writer_continues_the_python_chain() {
+    let python = python_log();
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let path = directory.path().join("audit.jsonl");
+    fs::write(&path, &python).expect("written");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("mode set");
+    let log = python_epoch_log(&path);
+    record(&log, "after-swap");
+    log.close().expect("closed");
+    let events = chained(&[&path]).expect("the chain continues");
+    assert_eq!(
+        operations(&events).last().map(String::as_str),
+        Some("after-swap")
+    );
+    assert!(fs::read(&path).expect("read").starts_with(&python));
+}
