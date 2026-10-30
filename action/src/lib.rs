@@ -6,3 +6,5 @@
 //! [`executor`] is the frozen seam the chat turn, the Routine run, and the direct invoke route drive.
 
 pub mod executor;
+pub mod journal;
+pub mod result;
