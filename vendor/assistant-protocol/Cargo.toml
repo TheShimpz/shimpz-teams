@@ -8,10 +8,11 @@ license = "Apache-2.0"
 description = "The Assistant protocol v1 reference rules on strict JSON values, shared by Developers and Team"
 
 [dependencies]
-# The pins the Developers workspace uses for the same packages, so its lock resolves them identically.
+# sha2 is the Developers workspace pin; unicode-normalization is the Team HTTP protocol crate's, so Team, which links
+# both, resolves one version.
 sha2 = "=0.11.0"
 strict-json = { path = "../../vendor/strict-json" }
-unicode-normalization = { version = "=0.1.25", default-features = false, features = ["std"] }
+unicode-normalization = { version = "=0.1.24", default-features = false, features = ["std"] }
 
 # The ADR-0123 lints and complexity bound (clippy.toml holds its thresholds).
 [lints.rust]
