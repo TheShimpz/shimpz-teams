@@ -8,6 +8,7 @@
 pub mod executor;
 pub mod failure;
 pub mod frames;
+pub mod human;
 pub mod journal;
 pub mod provider;
 pub mod result;
