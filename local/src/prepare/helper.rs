@@ -291,5 +291,5 @@ pub async fn remove_all(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests;

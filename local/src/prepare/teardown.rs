@@ -62,5 +62,5 @@ impl HelperRemover for HelperTeardown {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests;

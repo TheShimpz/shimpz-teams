@@ -6,7 +6,7 @@
 
 pub mod admission;
 pub mod exchange;
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod fakes;
 pub mod files;
 pub mod helper;

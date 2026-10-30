@@ -192,5 +192,5 @@ impl<'a> Session<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests;

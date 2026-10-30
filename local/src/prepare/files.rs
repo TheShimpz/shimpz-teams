@@ -419,5 +419,5 @@ impl Service for Files {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests;

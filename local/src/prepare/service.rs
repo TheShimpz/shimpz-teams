@@ -400,5 +400,5 @@ impl Preparer for LocalPreparer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "testing"))]
 mod tests;
