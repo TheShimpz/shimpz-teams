@@ -9,7 +9,7 @@ use team_protocol::python::value::{exact_object, field};
 use tokio::time::sleep;
 
 use super::{Activity, DELETE, RECOVER_SECONDS, SessionError, SignInSessions, UNAVAILABLE};
-use crate::browser::audit::{Actor, Field};
+use crate::browser::audit::{Actor, Field, human};
 use crate::browser::sign_ins::{Deleting, Pending};
 
 /// A Supervisor's deletion of a Team's Sign-in, as its activity events name it until its completion is recorded.
@@ -150,7 +150,7 @@ impl SignInSessions {
             team_id: team_id.to_owned(),
             deleting: Deleting {
                 event_id: self.token()?,
-                initiator_id: actor.human(),
+                initiator_id: human(actor),
                 factor: text(members, "factor").to_owned(),
                 origin: text(members, "origin").to_owned(),
             },

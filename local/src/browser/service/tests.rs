@@ -14,7 +14,6 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use super::{BrowserService, BrowserTurn, ServiceParts, WebFiles, language};
-use crate::browser::audit::Actor;
 use crate::browser::fake::{Fixture, driver, field, image};
 use crate::browser::view::Refused;
 use crate::http::service::Principal;
@@ -185,7 +184,7 @@ impl Case {
             stop: self.stop.clone(),
             brain,
             price: Arc::new(|_| (100, 400)),
-            actor: Actor::request(&Principal::Machine, &"a".repeat(32)),
+            actor: crate::browser::audit::request_actor(&Principal::Machine, &"a".repeat(32)),
         }
     }
 

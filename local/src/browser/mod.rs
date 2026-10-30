@@ -11,10 +11,12 @@ pub mod credentials;
 pub mod envelope;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod http;
 pub mod release;
 pub mod runtime;
 pub mod service;
 pub mod sign_in;
 pub mod sign_ins;
+pub mod teardown;
 pub mod tunnel;
 pub mod view;

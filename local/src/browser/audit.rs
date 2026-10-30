@@ -7,82 +7,58 @@
 use std::sync::Arc;
 
 use strict_json::{Number, Value};
-use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
+use team_core::audit::{AuditSink, AuditUnavailable};
 
+use crate::audit::{Outcome, PrincipalClass};
 use crate::http::service::Principal;
 
-/// Who an audit event names as its actor.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Actor {
-    /// The principal's id (`admin`, `admin-routine`, `team-local`, or a Supervisor's opaque id).
-    pub principal_id: Option<String>,
-    /// `human`, `machine`, or `absent`.
-    pub principal_class: &'static str,
-    /// How the request proved it, for a request's principal.
-    pub credential_state: Option<&'static str>,
-    /// The request's trace id, when the event belongs to one.
-    pub trace_id: Option<String>,
+/// Who an audit event names as its actor: the verified principal of a request, or Team itself.
+pub type Actor = crate::audit::Principal;
+
+/// The verified principal of one request, as its audit lines name it.
+#[must_use]
+pub fn request_actor(principal: &Principal, trace_id: &str) -> Actor {
+    let (id, class, credential_state) = match principal {
+        Principal::Machine => (
+            Some("admin".to_owned()),
+            PrincipalClass::Machine,
+            "machine_bearer_present",
+        ),
+        Principal::Routine { .. } => (
+            Some("admin-routine".to_owned()),
+            PrincipalClass::Machine,
+            "assertion_present",
+        ),
+        Principal::Supervisor { supervisor_id, .. } => (
+            Some(supervisor_id.clone()),
+            PrincipalClass::Human,
+            "assertion_present",
+        ),
+        Principal::HostReset => (None, PrincipalClass::Absent, "assertion_present"),
+    };
+    Actor {
+        id,
+        class,
+        credential_state: Some(credential_state),
+        trace_id: Some(trace_id.to_owned()),
+    }
 }
 
-impl Actor {
-    /// Team itself, for what it records on its own behalf.
-    #[must_use]
-    pub fn team() -> Self {
-        Self {
-            principal_id: Some("team-local".to_owned()),
-            principal_class: "machine",
-            credential_state: None,
-            trace_id: None,
-        }
+/// The verified person an actor is, as an activity event's initiator; empty when no person is.
+#[must_use]
+pub fn human(actor: &Actor) -> String {
+    if actor.class == PrincipalClass::Human {
+        actor.id.clone().unwrap_or_default()
+    } else {
+        String::new()
     }
+}
 
-    /// The verified principal of one request.
-    #[must_use]
-    pub fn request(principal: &Principal, trace_id: &str) -> Self {
-        let (principal_id, principal_class, credential_state) = match principal {
-            Principal::Machine => (Some("admin"), "machine", "machine_bearer_present"),
-            Principal::Routine { .. } => (Some("admin-routine"), "machine", "assertion_present"),
-            // The Supervisor's opaque id is not part of the W0 principal yet (reported as an interface change).
-            Principal::Supervisor { .. } | Principal::HostReset => {
-                (None, "human", "assertion_present")
-            }
-        };
-        Self {
-            principal_id: principal_id.map(str::to_owned),
-            principal_class,
-            credential_state: Some(credential_state),
-            trace_id: Some(trace_id.to_owned()),
-        }
-    }
-
-    /// The verified human who made the request, as an activity event's initiator; empty when no human did.
-    #[must_use]
-    pub fn human(&self) -> String {
-        if self.principal_class == "human" {
-            self.principal_id.clone().unwrap_or_default()
-        } else {
-            String::new()
-        }
-    }
-
-    fn event(&self, operation: &str, result: &str, team_id: &str) -> AuditEvent {
-        let text = |value: &str| Value::String(value.to_owned());
-        let mut event = AuditEvent::new()
-            .with("operation", text(operation))
-            .with("result", text(result))
-            .with(
-                "principal_id",
-                self.principal_id.as_deref().map_or(Value::Null, text),
-            )
-            .with("principal_class", text(self.principal_class))
-            .with("team_id", text(team_id));
-        if let Some(state) = self.credential_state {
-            event = event.with("credential_state", text(state));
-        }
-        if let Some(trace_id) = &self.trace_id {
-            event = event.with("trace_id", text(trace_id));
-        }
-        event
+fn outcome(result: &str) -> Outcome {
+    match result {
+        "ok" => Outcome::Ok,
+        "denied" => Outcome::Denied,
+        _ => Outcome::Error,
     }
 }
 
@@ -109,7 +85,8 @@ pub async fn record(
 ) -> Result<(), AuditUnavailable> {
     sink.record(
         actor
-            .event(operation, result, team_id)
+            .event(operation, outcome(result))
+            .with("team_id", Value::String(team_id.to_owned()))
             .with("detail", Value::String(detail.to_owned())),
     )
     .await
@@ -139,7 +116,8 @@ pub async fn activity(
         .collect();
     sink.record(
         actor
-            .event(operation, result, team_id)
+            .event(operation, outcome(result))
+            .with("team_id", Value::String(team_id.to_owned()))
             .with("activity", Value::Object(members)),
     )
     .await

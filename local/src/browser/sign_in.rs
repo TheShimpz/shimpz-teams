@@ -188,6 +188,12 @@ impl SignInSessions {
         }
     }
 
+    /// The Browser service the sessions hold the Space's Browser through.
+    #[must_use]
+    pub fn service(&self) -> &Arc<BrowserService> {
+        &self.service
+    }
+
     fn guard(&self) -> MutexGuard<'_, Guarded> {
         self.guard.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -502,7 +508,7 @@ impl SignInSessions {
             released: Stop::new(),
             removed: AtomicBool::new(false),
             flags: Mutex::new(Flags::default()),
-            initiator: request.actor.human(),
+            initiator: audit::human(request.actor),
             origin: request.origin.to_owned(),
         }))
     }
@@ -860,4 +866,4 @@ struct Start<'a> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

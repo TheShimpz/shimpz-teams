@@ -30,7 +30,7 @@ fn incarnation() -> String {
 }
 
 /// The Team's incarnation, as a test sets it.
-struct Incarnation(Mutex<Option<String>>);
+pub(crate) struct Incarnation(pub(crate) Mutex<Option<String>>);
 
 impl Incarnations for Incarnation {
     fn current<'a>(&'a self, _team_id: &'a str) -> BoxFuture<'a, Option<String>> {
@@ -51,19 +51,19 @@ impl WebFiles for NoFiles {
     }
 }
 
-struct Case {
-    fixture: Fixture,
+pub(crate) struct Case {
+    pub(crate) fixture: Fixture,
     _scratch: Scratch,
-    store: Arc<SignInStore>,
-    sessions: Arc<SignInSessions>,
-    audit: Arc<MemoryAudit>,
-    incarnation: Arc<Incarnation>,
-    windows: Arc<AtomicUsize>,
-    actor: Actor,
+    pub(crate) store: Arc<SignInStore>,
+    pub(crate) sessions: Arc<SignInSessions>,
+    pub(crate) audit: Arc<MemoryAudit>,
+    pub(crate) incarnation: Arc<Incarnation>,
+    pub(crate) windows: Arc<AtomicUsize>,
+    pub(crate) actor: Actor,
 }
 
 impl Case {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let mut fixture = Fixture::new();
         let scratch = Scratch::new();
         let clock = Arc::new(FakeClock::at(UNIX_EPOCH + Duration::from_hours(500_000)));
@@ -100,7 +100,7 @@ impl Case {
             audit,
             incarnation,
             windows,
-            actor: Actor::request(&Principal::Machine, &"a".repeat(32)),
+            actor: crate::browser::audit::request_actor(&Principal::Machine, &"a".repeat(32)),
         };
         case.sessions.startup().await;
         case
