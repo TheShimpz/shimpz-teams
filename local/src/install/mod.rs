@@ -7,6 +7,8 @@
 //! module owns what an Assistant may be: its binding, its review, its icon, and its update transaction.
 
 pub mod admission;
+pub mod automatic;
+pub mod collector;
 pub mod local;
 pub mod problem;
 pub mod publication;

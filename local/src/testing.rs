@@ -261,6 +261,7 @@ fn summary(container: &Container) -> ContainerSummary {
         id: Some(container.id.clone()),
         names: Some(vec![format!("/{}", container.name)]),
         image: container.body.image.clone(),
+        image_id: container.image_id.clone(),
         labels: container.body.labels.clone(),
         ..ContainerSummary::default()
     }

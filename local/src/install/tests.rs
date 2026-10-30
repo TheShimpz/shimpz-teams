@@ -37,15 +37,15 @@ use crate::http::service::Problem;
 use crate::lifecycle::network::TeamNetworks;
 use crate::testing::FakeDocker;
 
-const TEAM: &str = "team_1";
+pub(super) const TEAM: &str = "team_1";
 const ASSISTANT: &str = "hello-world";
 const ICON: &[u8] = b"icon bytes";
 
-fn digest(digit: char) -> String {
+pub(super) fn digest(digit: char) -> String {
     format!("sha256:{}", digit.to_string().repeat(64))
 }
 
-fn reference(digit: char) -> String {
+pub(super) fn reference(digit: char) -> String {
     format!("ghcr.io/theshimpz/shimpz-assistant@{}", digest(digit))
 }
 
@@ -61,7 +61,7 @@ fn set(document: &mut Value, key: &str, value: Value) {
 }
 
 /// The protocol's resolution fixture, with admitted closed Action schemas, as version `version` of source `source` running image `image`.
-fn publication(version: &str, source: char, image: char) -> Value {
+pub(super) fn publication(version: &str, source: char, image: char) -> Value {
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../protocol/install/v1/vectors.json");
     let vectors = strict_json::parse(&fs::read(path).expect("vectors")).expect("JSON");
@@ -100,6 +100,7 @@ fn publication(version: &str, source: char, image: char) -> Value {
 #[derive(Default)]
 struct Developers {
     publications: Mutex<HashMap<String, Value>>,
+    latest: Mutex<Option<Value>>,
     drift: AtomicBool,
     resolved: AtomicUsize,
 }
@@ -140,7 +141,12 @@ impl Resolver for Developers {
     }
 
     fn latest<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Resolution, ResolveError>> {
-        Box::pin(async { Err(ResolveError::NotInstallable) })
+        let latest = self.latest.lock().expect("usable").clone();
+        Box::pin(async move {
+            latest
+                .map(Resolution::admitted)
+                .ok_or(ResolveError::NotInstallable)
+        })
     }
 
     fn icon<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<Vec<u8>, ResolveError>> {
@@ -277,7 +283,7 @@ struct Harness {
     private: Arc<Private>,
     coordination: Coordination,
     registry: Arc<Registry>,
-    assistants: Assistants,
+    assistants: Arc<Assistants>,
 }
 
 /// Makes the published image `image` of `source` pullable, carrying its reviewed labels.
@@ -342,7 +348,7 @@ async fn harness() -> Harness {
     let coordination = Coordination::new(Arc::new(Limit));
     let (developers, trust) = (Arc::new(Developers::default()), Arc::new(Trust::default()));
     let (executor, private) = (Arc::new(Executor::default()), Arc::new(Private::default()));
-    let assistants = Assistants::new(Parts {
+    let assistants = Arc::new(Assistants::new(Parts {
         coordination: coordination.clone(),
         networks,
         containers: Arc::new(containers),
@@ -358,7 +364,7 @@ async fn harness() -> Harness {
             entropy,
         },
         audit: Arc::new(MemoryAudit::default()),
-    });
+    }));
     Harness {
         _directory: directory,
         docker,
@@ -601,4 +607,32 @@ async fn direct_invocation_answers_the_result_and_refuses_a_human_request() {
             .await,
         Err(HUMAN_REQUEST_REQUIRED)
     );
+}
+
+#[tokio::test]
+async fn the_automatic_updater_installs_the_latest_publication_over_the_bound_one() {
+    let harness = harness().await;
+    harness
+        .install(publication("0.1.0", 'a', 'b'))
+        .await
+        .expect("installed");
+    let successor = publication("0.2.0", 'c', 'd');
+    harness.developers.publish(successor.clone());
+    *harness.developers.latest.lock().expect("usable") = Some(successor);
+    let lifecycle = super::automatic::Lifecycle {
+        assistants: harness.assistants.clone(),
+        collector: Arc::new(super::collector::SnapshotCollector::new(
+            harness.docker.clone(),
+            harness.registry.clone(),
+        )),
+    };
+    let updates = super::automatic::AutomaticUpdates::new(
+        Arc::new(lifecycle),
+        Arc::new(MemoryAudit::default()),
+        Arc::new(crate::http::activity::Activity::default()),
+        Arc::new(CountingEntropy::default()),
+    );
+    assert!(updates.run_once().await);
+    assert_eq!(harness.version().await.as_deref(), Some("0.2.0"));
+    assert_eq!(harness.docker.removed_images(), [digest('b')]);
 }
