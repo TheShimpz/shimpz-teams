@@ -6,6 +6,7 @@
 //! tasks, and Team deletion call the Brain through; [`runtime`] is a chat turn's typed Brain operations over it.
 
 pub mod brain;
+pub mod client;
 pub mod credential;
 pub mod runtime;
 #[cfg(any(test, feature = "testing"))]
