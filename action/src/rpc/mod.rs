@@ -182,8 +182,8 @@ pub enum RpcError {
     Failed {
         /// The failure kind.
         kind: RpcFailure,
-        /// `timeout`, `transport-failed`, `frame-invalid`, `exit-unavailable`, `exit-status:<n>`, `stderr-output`, or
-        /// `request-after-provider-call`.
+        /// `timeout`, `transport-failed`, `frame-invalid`, `exit-unavailable`, `exit-status:<n>`, `stderr-output`,
+        /// `stopped`, or `request-after-provider-call`.
         condition: String,
     },
 }
@@ -198,10 +198,22 @@ pub struct RpcCall<'a> {
     pub encoded: &'a [u8],
     /// The absolute deadline.
     pub deadline: Instant,
-    /// The turn's Stop, observed while waiting for a slot.
+    /// The turn's Stop, observed while waiting for a slot and throughout the exec's startup and exchange.
     pub stop: &'a Stop,
     /// Team's answer to the Action's provider calls, when it declares any.
     pub broker: Option<&'a mut dyn CallBroker>,
+}
+
+/// The exec that runs `action` in `container` as the Assistant's RPC user.
+fn action_exec(container: &str, action: &str) -> ExecSpec {
+    ExecSpec {
+        container: container.to_owned(),
+        argv: vec![ACTION_COMMAND.to_owned(), action.to_owned()],
+        user: ASSISTANT_RPC_USER.to_owned(),
+        working_dir: Some(ASSISTANT_WORKDIR.to_owned()),
+        env: Vec::new(),
+        stdin: true,
+    }
 }
 
 /// Runs one RPC and returns its terminal frame, a strict JSON object.
@@ -221,20 +233,18 @@ pub async fn exchange(
         stop,
         mut broker,
     } = call;
-    let spec = ExecSpec {
-        container: container.to_owned(),
-        argv: vec![ACTION_COMMAND.to_owned(), action.to_owned()],
-        user: ASSISTANT_RPC_USER.to_owned(),
-        working_dir: Some(ASSISTANT_WORKDIR.to_owned()),
-        env: Vec::new(),
-        stdin: true,
-    };
+    let spec = action_exec(container, action);
     let failed = |kind, condition: &str| (kind, condition.to_owned());
+    let Some(permit) = slots.admit(deadline, Some(stop)).await else {
+        return Err(RpcError::NotDispatched);
+    };
+    if stop.is_stopped() {
+        return Err(RpcError::NotDispatched);
+    }
     let attempt = async {
-        let permit = slots.admit(deadline, Some(stop)).await.ok_or(None)?;
         let session = match tokio::time::timeout_at(deadline, engine.start_exec(&spec)).await {
-            Err(_) => return Err(Some(failed(RpcFailure::Timeout, "timeout"))),
-            Ok(Err(_)) => return Err(Some(failed(RpcFailure::Failed, "transport-failed"))),
+            Err(_) => return Err(failed(RpcFailure::Timeout, "timeout")),
+            Ok(Err(_)) => return Err(failed(RpcFailure::Failed, "transport-failed")),
             Ok(Ok(session)) => session,
         };
         drop(permit);
@@ -250,17 +260,21 @@ pub async fn exchange(
         )
         .await
     };
-    let (stdout, calls) = match attempt.await {
+    // From the moment the exec may start, Stop interrupts it: the workload may already be running, so it is
+    // fail-stopped and its outcome stays uncertain, exactly as for any other fault after a possible dispatch.
+    let outcome = tokio::select! {
+        biased;
+        () = stop.stopped() => Err(failed(RpcFailure::Ambiguous, "stopped")),
+        answer = attempt => answer,
+    };
+    let (stdout, calls) = match outcome {
         Ok(answer) => answer,
-        Err(None) => return Err(RpcError::NotDispatched),
-        Err(Some((kind, condition))) => {
-            return Err(fail_stop(engine, container, kind, condition).await);
-        }
+        Err((kind, condition)) => return Err(fail_stop(engine, container, kind, condition).await),
     };
     terminal(&stdout, calls)
 }
 
-type Attempted = Result<(Vec<u8>, usize), Option<(RpcFailure, String)>>;
+type Attempted = Result<(Vec<u8>, usize), (RpcFailure, String)>;
 
 /// The started process's exchange and exit inspection: its stdout and how many provider calls it made.
 async fn run<'b>(
@@ -284,24 +298,17 @@ async fn run<'b>(
     )
     .await;
     let calls = broker.as_ref().map_or(0, |broker| broker.calls());
-    let (stdout, stderr) = output.map_err(|error| {
-        Some(match error {
-            FrameError::Timeout => failed(RpcFailure::Timeout, "timeout"),
-            FrameError::Invalid => failed(RpcFailure::Failed, "frame-invalid"),
-            FrameError::Transport => failed(RpcFailure::Failed, "transport-failed"),
-        })
+    let (stdout, stderr) = output.map_err(|error| match error {
+        FrameError::Timeout => failed(RpcFailure::Timeout, "timeout"),
+        FrameError::Invalid => failed(RpcFailure::Failed, "frame-invalid"),
+        FrameError::Transport => failed(RpcFailure::Failed, "transport-failed"),
     })?;
-    let exit = inspect(engine, slots, &session.id, deadline)
-        .await
-        .map_err(Some)?;
+    let exit = inspect(engine, slots, &session.id, deadline).await?;
     if exit != 0 {
-        return Err(Some(failed(
-            RpcFailure::Failed,
-            &format!("exit-status:{exit}"),
-        )));
+        return Err(failed(RpcFailure::Failed, &format!("exit-status:{exit}")));
     }
     if !stderr.is_empty() {
-        return Err(Some(failed(RpcFailure::Failed, "stderr-output")));
+        return Err(failed(RpcFailure::Failed, "stderr-output"));
     }
     Ok((stdout, calls))
 }

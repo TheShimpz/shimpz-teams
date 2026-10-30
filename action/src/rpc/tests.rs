@@ -254,3 +254,53 @@ fn a_request_after_a_provider_call_is_refused() {
         );
     }
 }
+
+/// Runs one exchange whose workload never answers, stopped 20 ms in.
+async fn stopped_mid_exchange(engine: &FakeExec) -> Result<Value, RpcError> {
+    let (ours, workload) = duplex(1024);
+    engine.push(ScriptedExec {
+        stream: ours,
+        exit: ExecExit {
+            running: true,
+            exit_code: None,
+        },
+    });
+    let stop = Stop::new();
+    let stopping = stop.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        stopping.stop();
+    });
+    let outcome = run(engine, &DockerSlots::default(), &stop, soon()).await;
+    drop(workload);
+    outcome
+}
+
+#[tokio::test]
+async fn a_stop_while_the_action_runs_fail_stops_its_workload_and_leaves_it_uncertain() {
+    let engine = FakeExec::default();
+    let started = Instant::now();
+    let outcome = stopped_mid_exchange(&engine).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "Stop, not the deadline, ended it"
+    );
+    assert_eq!(
+        (outcome, engine.started().len(), engine.stopped().len()),
+        (
+            Err(RpcError::Failed {
+                kind: RpcFailure::Ambiguous,
+                condition: "stopped".to_owned(),
+            }),
+            1,
+            1
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_stopped_workload_that_cannot_be_proven_stopped_is_blocked() {
+    let engine = FakeExec::default();
+    engine.block_fail_stop();
+    assert_eq!(stopped_mid_exchange(&engine).await, Err(RpcError::Blocked));
+}
