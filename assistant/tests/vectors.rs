@@ -81,3 +81,31 @@ fn every_published_action_schema_vector_agrees_in_both_positions() {
         }
     }
 }
+
+#[test]
+fn every_published_manifest_id_vector_agrees() {
+    let vectors = common::protocol("vectors/manifest-id.json");
+    assert_eq!(vectors.get("missing_is_invalid"), Some(&Value::Bool(true)));
+    let admitted = |id: &Value| {
+        let raw = common::manifest(&["api.example.com"], common::SUMMARY, "");
+        let text = String::from_utf8(raw).expect("utf-8");
+        let replacement = match id {
+            Value::String(id) => format!("id = \"{id}\""),
+            _ => String::new(),
+        };
+        parse_manifest_contract(
+            text.replacen("id = \"fixture-assistant\"", &replacement, 1)
+                .as_bytes(),
+        )
+        .is_ok()
+    };
+    for (list, expected) in [("valid", true), ("invalid", false)] {
+        let Some(Value::Array(ids)) = vectors.get(list) else {
+            panic!("{list}")
+        };
+        assert_ne!(ids.len(), 0);
+        for id in ids {
+            assert_eq!(admitted(id), expected, "{id:?}");
+        }
+    }
+}
