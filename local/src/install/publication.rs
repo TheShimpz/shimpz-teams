@@ -5,7 +5,7 @@ use bollard::models::ImageInspect;
 use strict_json::Value;
 use team_assistant::manifest::automatic_update_preserves_egress;
 use team_core::future::BoxFuture;
-use team_install::bindings::{Binding, Provenance};
+use team_install::bindings::{Binding, BindingError, Provenance};
 use team_install::icons::IconIdentity;
 use team_install::trust::{ResolveError, Resolver};
 
@@ -368,12 +368,17 @@ impl Assistants {
             previous,
             ..
         } = *generation;
-        // A commit whose outcome is unknown leaves the transaction for recovery to read the registry.
+        // Only a definite conflict proves the binding unchanged; any other failure, such as a write whose rename landed
+        // before its directory sync failed, leaves the transaction for recovery to read the registry.
         let committed = self
-            .commit_successor(team_id, previous, successor)
+            .registry
+            .replace(team_id, previous, successor)
             .await
             .map_err(Unswitched::Unproven)?;
-        if committed.is_err() {
+        if let Err(error) = committed {
+            if error != BindingError::Conflict {
+                return Err(Unswitched::Unproven(binding_problem(error)));
+            }
             self.containers
                 .uninstall(
                     team_id,
@@ -436,27 +441,6 @@ impl Assistants {
             .ensure(team_id, network, &after.container_spec(), start)
             .await
             .map(|_| ())
-    }
-
-    /// Replaces the binding, only while it is still `previous`.
-    async fn commit_successor(
-        &self,
-        team_id: &str,
-        previous: &Binding,
-        successor: &Binding,
-    ) -> Result<Result<Binding, team_install::bindings::BindingError>, Problem> {
-        let (team, expected, document) = (
-            team_id.to_owned(),
-            previous.binding_digest.clone(),
-            successor.document.clone(),
-        );
-        let provenance = previous.provenance;
-        self.registry
-            .store(move |store| match provenance {
-                Provenance::Published => store.replace(&team, &expected, document),
-                Provenance::Local => store.replace_local(&team, &expected, document),
-            })
-            .await
     }
 
     /// Recreates the previous generation after a failed update, and queues the successor's pulled image.

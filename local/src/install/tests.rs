@@ -656,6 +656,31 @@ async fn a_failed_update_keeps_its_transaction_until_its_rollback_is_proven() {
 }
 
 #[tokio::test]
+async fn a_commit_whose_write_landed_but_failed_keeps_its_transaction_for_recovery() {
+    let harness = harness().await;
+    harness
+        .install(publication("0.1.0", 'a', 'b'))
+        .await
+        .expect("installed");
+    // The replacement is renamed into place, then its directory sync fails: the registry holds the successor.
+    harness.registry.unacknowledge_next_replacement();
+    assert!(
+        harness
+            .install(publication("0.2.0", 'c', 'd'))
+            .await
+            .is_err()
+    );
+    assert_eq!(harness.version().await.as_deref(), Some("0.2.0"));
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 1);
+    harness.assistants.recover_updates().await;
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 0);
+    assert_eq!(harness.version().await.as_deref(), Some("0.2.0"));
+    assert!(harness.running());
+}
+
+#[tokio::test]
 async fn a_successor_widening_egress_needs_approval_and_keeps_the_previous_generation() {
     let harness = harness().await;
     harness

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
-use team_install::bindings::{Binding, BindingError, BindingStore, LocalRecordValidator};
+use team_install::bindings::{
+    Binding, BindingError, BindingStore, LocalRecordValidator, Provenance,
+};
 use team_install::icons::{IconError, IconStore};
 use team_install::update::{ResidueStore, UpdateStore};
 
@@ -24,6 +26,10 @@ pub struct Registry {
     icons: Arc<IconStore>,
     updates: PathBuf,
     residues: Arc<ResidueStore>,
+    /// Reports the next completed binding replacement as unavailable, as a write whose directory sync failed after
+    /// its rename does (feature `testing`).
+    #[cfg(feature = "testing")]
+    unacknowledged: std::sync::atomic::AtomicBool,
 }
 
 /// A registry failure as the install routes report it.
@@ -59,7 +65,49 @@ impl Registry {
             icons: IconStore::new(&root.join("icons")),
             updates: root.join("updates"),
             residues: Arc::new(ResidueStore::new(&root.join("residues"))),
+            #[cfg(feature = "testing")]
+            unacknowledged: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Reports the next completed binding replacement as unavailable (feature `testing`).
+    #[cfg(feature = "testing")]
+    pub fn unacknowledge_next_replacement(&self) {
+        self.unacknowledged
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Replaces `previous` with `successor`'s document, only while the binding is still `previous`.
+    ///
+    /// # Errors
+    /// `internal-error` when the blocking task did not complete; the inner [`BindingError`] for the registry.
+    pub async fn replace(
+        &self,
+        team_id: &str,
+        previous: &Binding,
+        successor: &Binding,
+    ) -> Result<Result<Binding, BindingError>, Problem> {
+        let (team, expected, document) = (
+            team_id.to_owned(),
+            previous.binding_digest.clone(),
+            successor.document.clone(),
+        );
+        let provenance = previous.provenance;
+        let replaced = self
+            .store(move |store| match provenance {
+                Provenance::Published => store.replace(&team, &expected, document),
+                Provenance::Local => store.replace_local(&team, &expected, document),
+            })
+            .await?;
+        #[cfg(feature = "testing")]
+        if replaced.is_ok()
+            && self
+                .unacknowledged
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(Err(BindingError::Unavailable));
+        }
+        Ok(replaced)
     }
 
     /// The icon store.
