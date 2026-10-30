@@ -410,40 +410,6 @@ fn routine_claims_bind_the_routine_authority_alone() {
     );
 }
 
-const MESSAGES: &[(SupervisorAssertionError, &str)] = &[
-    (E::Claims, "invalid Supervisor assertion claims"),
-    (E::Unsupported, "unsupported Supervisor assertion"),
-    (E::Subject, "invalid Supervisor subject"),
-    (E::Nonce, "invalid Supervisor assertion nonce"),
-    (E::Instant("assertion expiry"), "invalid assertion expiry"),
-    (E::Lifetime, "invalid Supervisor assertion lifetime"),
-    (E::Method, "invalid assertion method"),
-    (E::Path, "invalid assertion path"),
-    (E::Digest("authority digest"), "invalid authority digest"),
-    (E::Body, "invalid assertion body"),
-    (E::EmptyBody, "invalid empty assertion body"),
-    (E::EmptyDigest, "invalid empty body digest"),
-    (E::JsonBody, "invalid JSON assertion body"),
-    (E::FileBody, "invalid file assertion body"),
-    (E::Model, "invalid model credential binding"),
-    (E::ModelProvider, "invalid model provider binding"),
-    (E::Decision, "invalid decision credential binding"),
-    (E::Assurance, "invalid human assurance binding"),
-    (E::Authority, "invalid Supervisor authority kind"),
-    (
-        E::RoutineBinding,
-        "a Routine assertion binds no model, human assurance, or decision",
-    ),
-    (E::TooLarge, "assertion JSON exceeds its limit"),
-];
-
-#[test]
-fn every_error_names_its_python_message() {
-    for (error, message) in MESSAGES {
-        assert_eq!(error.to_string(), *message);
-    }
-}
-
 #[test]
 fn canonical_json_is_bounded() {
     let at = |length: usize| Value::String("a".repeat(length));

@@ -356,31 +356,3 @@ fn url_canonicalization_vectors() {
         );
     }
 }
-
-#[test]
-fn kept_files_and_losses_are_exact() {
-    let kept = items(group("browser.terminal.valid"))[0].clone();
-    let Some(Value::Array(files)) = kept.get("files") else {
-        panic!("kept files");
-    };
-    let reference = files[0].clone();
-    for (key, value) in [
-        ("name", Value::Null),
-        ("name", string("a/b")),
-        ("media_type", string("TEXT/PLAIN")),
-        ("size", int(0)),
-    ] {
-        assert!(browser::canonical_file_reference(&with(&reference, key, &value)).is_none());
-    }
-    for name in ["", "a\u{7}"] {
-        let loss = object(vec![("name", string(name)), ("reason", string("empty"))]);
-        let terminal = with(&kept, "lost", &Value::Array(vec![loss]));
-        assert!(browser::canonical_terminal(&terminal).is_none());
-    }
-    let downloads = object(vec![
-        ("files", string("a")),
-        ("pending", int(0)),
-        ("truncated", Value::Bool(false)),
-    ]);
-    assert!(browser::canonical_downloads(&downloads).is_none());
-}

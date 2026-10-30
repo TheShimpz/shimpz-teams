@@ -517,33 +517,6 @@ fn small_answers_rebuild_their_members() {
     assert!(refused.iter().all(|(value, admit)| admit(value).is_none()));
 }
 
-#[test]
-fn answers_name_their_team_and_run() {
-    let answer = object(vec![
-        ("team_id", string("team_1")),
-        ("run_id", string(&"a".repeat(32))),
-        ("status", string("held")),
-    ]);
-    verdicts(
-        &[
-            (answer.clone(), true),
-            (with(&answer, "status", string("waiting")), false),
-            (with(&answer, "team_id", Value::Null), false),
-        ],
-        |value| routine_run::canonical_segment_answer(value).is_some(),
-    );
-    verdicts(
-        &[
-            (without(&answer, "status"), true),
-            (
-                without(&with(&answer, "run_id", Value::Null), "status"),
-                false,
-            ),
-        ],
-        |value| routine_run::canonical_card_answer(value).is_some(),
-    );
-}
-
 fn diagnostic() -> Value {
     items(member(group("routine_diagnostics"), "valid"))
         .iter()

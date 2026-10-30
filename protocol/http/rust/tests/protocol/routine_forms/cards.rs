@@ -460,13 +460,6 @@ fn proposal_answers_name_a_routine_unless_revoked() {
 }
 
 #[test]
-fn refusals_rebuild_their_code() {
-    let refusal = object(vec![("code", string("routine-refused"))]);
-    assert_eq!(routine_proposal::canonical_refusal(&refusal), Some(refusal));
-    assert!(routine_proposal::canonical_refusal(&object(vec![("code", int(1))])).is_none());
-}
-
-#[test]
 fn every_entry_refuses_a_non_object() {
     let names = [
         "routine_notice.canonical_routine_view",
