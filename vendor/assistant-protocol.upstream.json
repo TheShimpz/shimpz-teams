@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/TheShimpz/shimpz-developers",
-  "commit": "194802bbfa0282eb121ee05567b38c3fa80f87c0",
+  "commit": "6bab59ddefc02f966020549a4749f7edc7cc188f",
   "path": "crates/assistant-protocol",
   "tree": "5003688fc45afcc53617a52c269e481999143abf",
   "contract_files_sha256": "29a9567d66546a4689f355c8b9e608d4ed72f4e701492d0070e97634c9213ead"

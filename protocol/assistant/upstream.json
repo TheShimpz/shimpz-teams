@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/TheShimpz/shimpz-developers",
-  "commit": "194802bbfa0282eb121ee05567b38c3fa80f87c0",
+  "commit": "6bab59ddefc02f966020549a4749f7edc7cc188f",
   "path": "protocol/assistant/v1/vectors",
   "files": {
     "action-effect.json": "26501431045b045e3414e49181e95ea895a2fc755a5557261cb8d97c94f3ab5c",
