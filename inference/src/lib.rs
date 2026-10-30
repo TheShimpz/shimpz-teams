@@ -10,6 +10,7 @@ pub mod client;
 pub mod config;
 pub mod credential;
 pub mod memory;
+pub mod route;
 pub mod runtime;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
