@@ -546,15 +546,26 @@ impl Containers {
     /// # Errors
     /// [`DockerError`] when it may remain (an absent container is removed).
     pub async fn remove(&self, admitted: &Admitted) -> Result<Removed, DockerError> {
-        self.admission.forget(&admitted.id);
-        match self.docker.remove_container(&admitted.id).await {
+        self.remove_container(&admitted.id, admitted.image_id.clone())
+            .await
+    }
+
+    /// Removes the container `id`, which ran image `image_id`, once its owner proved it the Team's.
+    ///
+    /// # Errors
+    /// [`DockerError`] when it may remain (an absent container is removed).
+    pub async fn remove_container(
+        &self,
+        id: &str,
+        image_id: Option<String>,
+    ) -> Result<Removed, DockerError> {
+        self.admission.forget(id);
+        match self.docker.remove_container(id).await {
             Ok(()) | Err(DockerError::NotFound) => {}
             Err(error) => return Err(error),
         }
-        self.blocked().remove(&admitted.id);
-        Ok(Removed {
-            image_id: admitted.image_id.clone(),
-        })
+        self.blocked().remove(id);
+        Ok(Removed { image_id })
     }
 
     /// Fail-stops `container`: proven stopped, or blocked until it is reinstalled.

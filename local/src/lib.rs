@@ -15,6 +15,8 @@ pub mod coordination;
 pub mod docker;
 pub mod http;
 pub mod layout;
+pub mod lifecycle;
+pub mod names;
 pub mod prepare;
 pub mod seams;
 #[cfg(feature = "testing")]
