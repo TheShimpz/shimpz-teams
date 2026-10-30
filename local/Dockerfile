@@ -147,7 +147,7 @@ COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/h
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \
-    protocol/assistant/v1/validators/unicode_category.py ./protocol/assistant/v1/validators/
+    ./protocol/assistant/v1/validators/
 COPY --link action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/

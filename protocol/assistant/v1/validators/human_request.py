@@ -7,8 +7,6 @@ import json
 import re
 from collections.abc import Mapping
 
-from .unicode_category import printable
-
 BASE = {"kind", "ordinal", "title", "description"}
 LENGTH_KINDS = {
     "input:text": 4096,
@@ -306,7 +304,7 @@ def _option(value: object) -> bool:
 
 
 def _text(value: object, maximum: int) -> bool:
-    return isinstance(value, str) and value == value.strip() and 0 < len(value) <= maximum and printable(value)
+    return isinstance(value, str) and value == value.strip() and 0 < len(value) <= maximum and value.isprintable()
 
 
 def _identifier(value: object) -> bool:

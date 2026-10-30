@@ -29,9 +29,9 @@
           "kind": "assistant-direct-v1",
           "db": false,
           "user": "10001:10001",
-          "interpreter": "/opt/shimpz/runtime/bin/python3",
+          "interpreter": "/opt/shimpz/runtime/bin/python3.14",
           "entrypoint": [
-            "/opt/shimpz/runtime/bin/python3",
+            "/opt/shimpz/runtime/bin/python3.14",
             "-c",
             "import signal; signal.pause()"
           ],

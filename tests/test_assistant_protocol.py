@@ -19,10 +19,10 @@ VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" 
 PROTOCOL = VECTORS.parents[1]
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "8a1086ea3111d1e8e81ffa60a8de10cd8a669d24",
+    "commit": "0914d1a3af94b65f51bcead7fa557f52639d1dea",
     "path": "protocol/assistant/v1",
-    "tree": "2507c374ebf33ff3227e5288da7eb0047544cb8a",
-    "contract_files_sha256": "faef3d0370dc399be525b6630a567ea8d817494dda6f8f896a2fad7b42cafdbe",
+    "tree": "3182c35373b8446f2e1f6c71d3fa72de04039549",
+    "contract_files_sha256": "d19dd5d7ce7659de748bf6c5bbaa1b079ec38beffecd9bb8d12dd8c81a420317",
 }
 
 

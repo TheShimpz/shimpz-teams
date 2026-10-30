@@ -11,7 +11,6 @@ import re
 import stat
 import sys
 from collections.abc import Callable
-from itertools import pairwise
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -267,7 +266,6 @@ human_request = importlib.import_module("validators.human_request")
 input_file = importlib.import_module("validators.input_file")
 message_catalog = importlib.import_module("validators.message_catalog")
 route = importlib.import_module("validators.route")
-unicode_category = importlib.import_module("validators.unicode_category")
 EFFECTS, effect_error = action_effect.EFFECTS, action_effect.effect_error
 FAILURE_KEYS, failure_error = failure.FAILURE_KEYS, failure.failure_error
 reference_error, verify_human_vectors = human_request.reference_error, human_request.verify_vectors
@@ -449,44 +447,5 @@ try:
     verify_catalog_vectors(json.loads((HERE / "vectors/catalog.json").read_bytes()), reference_error)
 except KeyError, TypeError, ValueError:
     fail("Assistant message catalog vectors are invalid")
-
-# The pinned Unicode table is one ordered cover of every code point, and the differential vectors record what it, not
-# a newer Unicode, decides for each code point whose category differs there.
-starts, categories = unicode_category.STARTS, unicode_category.CATEGORIES
-if (
-    not starts
-    or starts[0] != 0
-    or any(left >= right for left, right in pairwise(starts))
-    or starts[-1] > 0x10FFFF
-    or len(categories) != 2 * len(starts)
-):
-    fail("Assistant Unicode category table is invalid")
-differential = json.loads((HERE / "vectors/unicode-category.json").read_bytes())
-cases = differential.get("cases")
-if (
-    set(differential) != {"version", "unicode", "newer_unicode", "cases"}
-    or differential["version"] != 1
-    or differential["unicode"] != unicode_category.UNICODE_VERSION
-    or not isinstance(cases, list)
-    or not cases
-):
-    fail("Assistant Unicode category vectors are invalid")
-previous = -1
-for case in cases:
-    if (
-        not isinstance(case, dict)
-        or set(case) != {"first", "last", "category", "newer", "public"}
-        or not isinstance(case["first"], int)
-        or not previous < case["first"] <= case["last"] <= 0x10FFFF
-        or case["category"] == case["newer"]
-    ):
-        fail("Assistant Unicode category vectors are invalid")
-    previous = case["last"]
-    for code in range(case["first"], case["last"] + 1):
-        character = chr(code)
-        if unicode_category.category(character) != case["category"] or (
-            message_catalog.public_text(character, 1) is not case["public"]
-        ):
-            fail(f"Assistant Unicode category vector U+{code:04X} differs from the pinned table")
 
 print("Assistant protocol artifacts and conformance vectors are valid")

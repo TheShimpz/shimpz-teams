@@ -78,7 +78,7 @@ def write(path):
 def execute():
     path = "/tmp/probe-exec"
     with open(path, "w") as handle:
-        handle.write("#!/opt/shimpz/runtime/bin/python3\n")
+        handle.write("#!/opt/shimpz/runtime/bin/python3.14\n")
     os.chmod(path, 0o755)
     subprocess.run([path], check=False, timeout=5)
 def raw_socket():
@@ -138,7 +138,7 @@ for thread in threads:
 print("joined", len(threads), flush=True)
 """
 PARALLEL_INVOCATIONS = 2
-PYTHON = "/opt/shimpz/runtime/bin/python3"
+PYTHON = "/opt/shimpz/runtime/bin/python3.14"
 
 
 class MeasurementError(RuntimeError):
