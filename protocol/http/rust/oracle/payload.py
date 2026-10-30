@@ -1,25 +1,14 @@
-"""`identifiers`, `purpose`, `payload`, and the canonical JSON v1 writer."""
+"""`identifiers`, `purpose`, and `payload`."""
 
 from __future__ import annotations
 
 import datetime
-import importlib.util
 
 import identifiers
 import payload
 import purpose
 
-from .common import V1, arguments, cases, group, small, text
-
-
-def _load_canonical_json():
-    spec = importlib.util.spec_from_file_location("team_canonical_json", V1.parents[2] / "core" / "canonical_json.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-canonical_json = _load_canonical_json()
+from .common import arguments, cases, group, small, text
 
 
 def _fromisoformat(value):
@@ -169,10 +158,6 @@ def _seeds(*paths: str):
 
 ENTRIES = {
     "datetime.fromisoformat": (_fromisoformat, lambda: ISOFORMATS),
-    "canonical_json.encode": (
-        lambda value: canonical_json.encode(value).decode(),
-        lambda: [case["value"] for case in group("canonical_json.canonical")],
-    ),
     "identifiers.canonical_team_id": (identifiers.canonical_team_id, _seeds("identifiers.team")),
     "identifiers.canonical_assistant_id": (identifiers.canonical_assistant_id, _seeds("identifiers.assistant")),
     "identifiers.canonical_identifier": (identifiers.canonical_identifier, _seeds("identifiers.identifier")),
