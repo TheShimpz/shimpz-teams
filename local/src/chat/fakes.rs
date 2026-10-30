@@ -13,6 +13,7 @@ use team_assistant::language::LanguagePack;
 use team_assistant::manifest::ManifestPresentation;
 use team_assistant::spec::{ActionSpec, RuntimeContract};
 use team_core::future::BoxFuture;
+use team_core::secret::Secret;
 use team_core::stop::Stop;
 use team_routine::pin::PinnedAssistant;
 
@@ -290,6 +291,8 @@ pub struct FakeExecutor {
     pub answers: Arc<Mutex<VecDeque<Answer>>>,
     /// Every scope a batch was opened for.
     pub scopes: Arc<Mutex<Vec<BatchScope>>>,
+    /// The values every invoke reports it injected (an Integration token, a Stored Input value).
+    pub injected: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for FakeExecutor {
@@ -298,6 +301,7 @@ impl Default for FakeExecutor {
             events: Arc::new(Mutex::new(Vec::new())),
             answers: Arc::new(Mutex::new(VecDeque::new())),
             scopes: Arc::new(Mutex::new(Vec::new())),
+            injected: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -340,6 +344,7 @@ impl FakeExecutor {
 struct FakeBatch {
     events: Arc<Mutex<Vec<String>>>,
     answers: Arc<Mutex<VecDeque<Answer>>>,
+    injected: Arc<Mutex<Vec<String>>>,
 }
 
 impl ActionBatch for FakeBatch {
@@ -389,6 +394,13 @@ impl ActionBatch for FakeBatch {
         lock(&self.events).push("terminate".to_owned());
         Box::pin(async { Ok(true) })
     }
+
+    fn injected(&self) -> Vec<Secret> {
+        lock(&self.injected)
+            .iter()
+            .map(|value| Secret::new(value.clone()))
+            .collect()
+    }
 }
 
 impl ActionExecutor for FakeExecutor {
@@ -397,6 +409,7 @@ impl ActionExecutor for FakeExecutor {
         Box::new(FakeBatch {
             events: Arc::clone(&self.events),
             answers: Arc::clone(&self.answers),
+            injected: Arc::clone(&self.injected),
         })
     }
 

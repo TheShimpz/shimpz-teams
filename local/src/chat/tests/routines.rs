@@ -293,3 +293,45 @@ async fn a_turn_about_a_routine_reasons_with_the_routine_model() {
         .await;
     assert_eq!(model(&ordinary), json(r#""gpt-6-luna""#));
 }
+
+#[tokio::test]
+async fn an_injected_integration_token_never_reaches_a_recording() {
+    const TOKEN: &str = "integration-token-value-1";
+    let harness = harness();
+    harness
+        .executor
+        .injected
+        .lock()
+        .expect("injected")
+        .push(TOKEN.to_owned());
+    // The model holds the token (a result echoed it, or a person pasted it) and passes it on as an input.
+    harness.brain.answer(Ok(turn(&format!(
+        r#""status":"action-required","reply":"","actions":[{{"interrupt_id":"interrupt-1",
+        "assistant_id":"shimpz-cloudflare","action":"list-zones","input":{{"zone":"{TOKEN}"}}}}]"#
+    ))));
+    harness
+        .executor
+        .complete(json(&format!(r#"{{"zones":["{TOKEN}"]}}"#)));
+    harness.brain.answer(Ok(recorded(&record())));
+    let message = format!("Liste as zonas de {TOKEN} a cada hora e mostre sempre");
+    let done = harness.chat(fresh(&harness, &message)).await;
+    assert!(
+        !format!("{:?}", done.body).contains(TOKEN),
+        "{:?}",
+        done.body
+    );
+    let routine = &harness.parts.routine;
+    if let Some(card) = done.body.get("routine_proposal") {
+        let id = card
+            .get("proposal_id")
+            .and_then(team_protocol::python::value::string)
+            .expect("id")
+            .to_owned();
+        let actor = actor();
+        let _ = routine
+            .confirm(&answering(&harness, &actor, Some(SUPERVISOR)), TEAM, &id)
+            .await;
+    }
+    let state = load(&routine.routines, TEAM).expect("state");
+    assert!(!format!("{:?}", state.routines).contains(TOKEN));
+}

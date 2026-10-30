@@ -396,32 +396,21 @@ struct Tracked {
 }
 
 impl Tracked {
-    /// Protects the Stored Input values Team injects into a recording send's call before its RPC.
-    fn protect_injected(&self, request: &ActionRequest) {
-        let Some((recording, assistants)) = &self.recording else {
+    /// Protects every value the executor injected into a recording send's call (its Integration tokens and Stored
+    /// Input values) before anything of the call is kept.
+    fn protect_injected(&self) {
+        let Some((recording, _)) = &self.recording else {
             return;
         };
-        let Some(active) = assistants
+        let values: Vec<String> = self
+            .inner
+            .injected()
             .iter()
-            .find(|active| active.id() == request.assistant_id)
-        else {
-            return;
-        };
-        let Some(action) = active.action(&request.action) else {
-            return;
-        };
-        let stored = &self.service.parts.stored_inputs;
-        let values: Vec<String> = action
-            .stored_inputs
-            .iter()
-            .filter_map(|name| {
-                let kind = &active.pinned.stored_inputs.get(name)?.kind;
-                let held = stored
-                    .resolve((&self.team_id, active.id(), name), kind)
-                    .ok()?;
-                Some(held.value.expose().to_owned())
-            })
+            .map(|value| value.expose().to_owned())
             .collect();
+        if values.is_empty() {
+            return;
+        }
         self.service
             .parts
             .routine
@@ -469,8 +458,8 @@ impl ActionBatch for Tracked {
             self.service
                 .executing()
                 .insert(self.team_id.clone(), self.token.clone());
-            self.protect_injected(request);
             let outcome = self.inner.invoke(request, stop).await;
+            self.protect_injected();
             self.record(request, &outcome);
             let mut executing = self.service.executing();
             if executing.get(&self.team_id) == Some(&self.token) {
@@ -489,6 +478,10 @@ impl ActionBatch for Tracked {
 
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
         self.inner.terminate()
+    }
+
+    fn injected(&self) -> Vec<Secret> {
+        self.inner.injected()
     }
 }
 

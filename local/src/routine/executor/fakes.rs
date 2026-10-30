@@ -13,6 +13,7 @@ use team_action::executor::{
 use team_action::failure::ActionFailure;
 use team_action::journal::OperationRecord;
 use team_core::future::BoxFuture;
+use team_core::secret::Secret;
 use team_core::stop::Stop;
 
 use super::{
@@ -484,6 +485,13 @@ impl ActionBatch for FakeBatch {
             batches.remove(&self.scope.generation);
             Ok(true)
         })
+    }
+
+    fn injected(&self) -> Vec<Secret> {
+        lock(&self.actions.injected)
+            .iter()
+            .map(|value| Secret::new(value.clone()))
+            .collect()
     }
 }
 

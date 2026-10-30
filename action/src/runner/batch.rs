@@ -12,10 +12,13 @@ use std::sync::Arc;
 use strict_json::Value;
 use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
+use team_core::secret::Secret;
 use team_core::stop::Stop;
 
-use super::{Binding, Delivery, Failed, Outcome, Runner};
-use crate::executor::{ActionBatch, ActionFailure, ActionRequest, BatchScope, InvokeOutcome};
+use super::{Binding, Delivery, Failed, Outcome, Runner, Watch};
+use crate::executor::{
+    ActionBatch, ActionFailure, ActionRequest, BatchScope, DispatchObserver, InvokeOutcome,
+};
 use crate::files;
 use crate::human::ActionTranscript;
 use crate::journal::{self, JournalError, Operation, canonical, sha256_hex};
@@ -38,6 +41,10 @@ pub(super) struct Batch {
     prepared: Vec<(String, Prepared)>,
     origins: Vec<String>,
     executing_here: Vec<String>,
+    /// A Routine run's observer, told around every dispatch.
+    observer: Option<Arc<dyn DispatchObserver>>,
+    /// What the most recent invoke's attempt was given.
+    injected: Vec<Secret>,
 }
 
 /// The origin binding a newly sealed Stored Input to one exact Brain Action interrupt.
@@ -94,7 +101,11 @@ fn journal_failure(error: JournalError) -> ActionFailure {
 }
 
 impl Batch {
-    pub(super) fn new(runner: Arc<Runner>, scope: BatchScope) -> Self {
+    pub(super) fn new(
+        runner: Arc<Runner>,
+        scope: BatchScope,
+        observer: Option<Arc<dyn DispatchObserver>>,
+    ) -> Self {
         Self {
             runner,
             scope,
@@ -102,6 +113,8 @@ impl Batch {
             prepared: Vec::new(),
             origins: Vec::new(),
             executing_here: Vec::new(),
+            observer,
+            injected: Vec::new(),
         }
     }
 
@@ -181,7 +194,10 @@ impl Batch {
         let operation = Operation {
             interrupt_id: request.interrupt_id.clone(),
             fingerprint: sha256_hex(&canonical(&identity)),
-            operation_id: None,
+            operation_id: self
+                .observer
+                .as_ref()
+                .and_then(|observer| observer.logical_operation(request)),
         };
         Ok((operation, present))
     }
@@ -190,25 +206,32 @@ impl Batch {
         self.runner.transcript(&self.scope.team_id, interrupt_id)
     }
 
-    async fn run(
-        &mut self,
-        request: &ActionRequest,
-        stop: &Stop,
-    ) -> Result<InvokeOutcome, ActionFailure> {
-        let journal = Arc::clone(&self.runner.journal);
-        let handle = self.handle.clone().ok_or(ActionFailure::ContextChanged)?;
-        let prepared = self
+    /// The prepared operation of `request`, refused as a changed context unless its binding, input, and private-value
+    /// generations are still the ones it was prepared with.
+    async fn unchanged(&self, request: &ActionRequest) -> Result<Operation, ActionFailure> {
+        let (operation, present) = self
             .prepared
             .iter()
             .find(|(interrupt, _)| *interrupt == request.interrupt_id)
             .map(|(_, prepared)| (prepared.operation.clone(), prepared.present.clone()))
             .ok_or(ActionFailure::ContextChanged)?;
-        let (operation, present) = prepared;
         let (current, now_present) = self.operation(request, &self.origins.clone()).await?;
         let unchanged = present.iter().all(|entry| now_present.contains(entry));
         if current.fingerprint != operation.fingerprint || !unchanged {
             return Err(ActionFailure::ContextChanged);
         }
+        Ok(operation)
+    }
+
+    async fn run(
+        &mut self,
+        request: &ActionRequest,
+        stop: &Stop,
+    ) -> Result<InvokeOutcome, ActionFailure> {
+        self.injected.clear();
+        let journal = Arc::clone(&self.runner.journal);
+        let handle = self.handle.clone().ok_or(ActionFailure::ContextChanged)?;
+        let operation = self.unchanged(request).await?;
         let (binding, action) = self.runner.admitted(&self.scope.team_id, request).await?;
         let file = files::action_file(&action.input_files, &request.input, &request.files)
             .map_err(|_| ActionFailure::FileUnavailable)?;
@@ -233,9 +256,20 @@ impl Batch {
             operation_id: &decision.operation_id,
         };
         let delivery = Delivery { file, admitted };
+        let mut watch = Watch {
+            observer: self.observer.as_deref().map(|observer| (observer, request)),
+            injected: Vec::new(),
+        };
         let attempt = runner
-            .attempt(&target, &request.input, &transcript, delivery, stop)
+            .attempt(
+                &target,
+                &request.input,
+                &transcript,
+                delivery,
+                (stop, &mut watch),
+            )
             .await;
+        self.injected = watch.injected;
         self.settle(&handle, &operation, &action, attempt).await
     }
 
@@ -366,6 +400,10 @@ impl ActionBatch for Batch {
             self.release();
             Ok(())
         })
+    }
+
+    fn injected(&self) -> Vec<Secret> {
+        self.injected.clone()
     }
 
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {

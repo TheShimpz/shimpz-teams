@@ -269,6 +269,10 @@ impl ActionBatch for FakeBatch {
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
         Box::pin(async { Ok(true) })
     }
+
+    fn injected(&self) -> Vec<Secret> {
+        Vec::new()
+    }
 }
 
 type Validate = Box<dyn Fn(&str, &str, &Value) -> Result<Value, ChatError> + Send + Sync>;

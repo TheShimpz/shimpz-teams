@@ -727,8 +727,8 @@ pub fn labeled(span: Option<&Span>, results: Value) -> Value {
 /// then its input and result are kept under the span's whole protection. A result whose secret positions cannot be
 /// read refuses the recording instead, so nothing unprotected is ever kept.
 ///
-/// The values Team injects into an attempt stay inside the Action executor; a result never echoes one (its projection
-/// refuses that), so the span protects the Stored Input values the caller hands it with [`RecordingBook::protect`].
+/// The caller first protects every value the Action executor reports it injected into the call (its Integration tokens
+/// and Stored Input values) with [`RecordingBook::protect`], so an input or result that carries one is never kept.
 pub fn recorded(
     book: &RecordingBook,
     recording: (&str, &str),

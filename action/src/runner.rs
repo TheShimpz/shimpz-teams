@@ -24,6 +24,7 @@ use tokio::time::Instant;
 
 use crate::executor::{
     ActionBatch, ActionExecutor, ActionFailure, ActionFile, ActionRequest, BatchScope,
+    DispatchObserver, Fault,
 };
 use crate::files::{self, Admitted, FileSlot, FileSource};
 use crate::human::{ActionTranscript, HumanRequest};
@@ -140,6 +141,47 @@ pub(crate) enum Outcome {
     Completed(Value),
     /// A human request; the operation returns to `prepared`.
     Request(HumanRequest),
+}
+
+/// Who watches one attempt, and what it was given: the observer of a Routine run's batch, and every value Team
+/// injected into the attempt once its private values are resolved.
+pub(crate) struct Watch<'a> {
+    /// The observer and the request it is told about, for a Routine run's batch.
+    pub observer: Option<(&'a dyn DispatchObserver, &'a ActionRequest)>,
+    /// The attempt's Integration tokens and Stored Input values.
+    pub injected: Vec<Secret>,
+}
+
+impl Watch<'_> {
+    /// Tells the observer the attempt is about to be sent; its refusal sends nothing.
+    fn dispatching(&self, target: &Target<'_>) -> Result<(), Failed> {
+        let Some((observer, request)) = self.observer else {
+            return Ok(());
+        };
+        let workload = &target.binding.container;
+        observer
+            .dispatching(request, target.operation_id, workload, &self.injected)
+            .map_err(|_| Failed::NotDispatched(ActionFailure::StateUnavailable))
+    }
+
+    fn returned(&self) {
+        if let Some((observer, request)) = self.observer {
+            observer.returned(request);
+        }
+    }
+
+    fn failed(&self, target: &Target<'_>, fault: Fault) {
+        if let Some((observer, request)) = self.observer {
+            observer.failed(request, target.operation_id, fault, &self.injected);
+        }
+    }
+}
+
+/// What one attempt sends: the encoded invocation, the file it delivers, and whether that file's bytes are withheld.
+pub(crate) struct Sent<'a> {
+    encoded: &'a [u8],
+    delivered: Option<(String, i64)>,
+    withheld: bool,
 }
 
 /// How one attempt failed, with what the journal may conclude.
@@ -489,13 +531,18 @@ impl Runner {
         input: &Value,
         transcript: &ActionTranscript,
         delivery: Delivery<'_>,
-        stop: &Stop,
+        (stop, watch): (&Stop, &mut Watch<'_>),
     ) -> Result<Outcome, Failed> {
         let binding = target.binding;
         if self.is_blocked(&binding.container) {
             return Err(Failed::NotDispatched(ActionFailure::Blocked));
         }
         let private = self.private(target).await.map_err(Failed::NotDispatched)?;
+        watch.injected = private
+            .injected()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
         let names = private.held();
         let files = self
             .invocation_files(target, input, transcript, &delivery)
@@ -509,33 +556,60 @@ impl Runner {
             &transcript.payloads(),
         )
         .map_err(|_| Failed::NotDispatched(ActionFailure::InvalidInput))?;
-        let mut broker = self.broker(target, &private, transcript, stop);
+        watch.dispatching(target)?;
         self.record(target, "ok", "started")
             .await
             .map_err(Failed::NotDispatched)?;
+        let withheld =
+            delivery.file.is_some() && !transcript.authorized(&target.action.human_requests);
+        let sent = Sent {
+            encoded: &encoded,
+            delivered: files::delivered(&files),
+            withheld,
+        };
+        self.dispatch(
+            target,
+            &private,
+            transcript,
+            (&delivery, sent),
+            (stop, watch),
+        )
+        .await
+    }
+
+    /// Sends the encoded invocation through the provider broker and settles what came back.
+    async fn dispatch(
+        &self,
+        target: &Target<'_>,
+        private: &Private,
+        transcript: &ActionTranscript,
+        (delivery, sent): (&Delivery<'_>, Sent<'_>),
+        (stop, watch): (&Stop, &Watch<'_>),
+    ) -> Result<Outcome, Failed> {
+        let mut broker = self.broker(target, private, transcript, stop);
         let deadline = delivery.admitted.as_ref().map_or_else(
             || Instant::now() + rpc::RPC_TIMEOUT,
             |admitted| admitted.deadline,
         );
         let call = RpcCall {
-            container: &binding.container,
+            container: &target.binding.container,
             action: &target.action.id,
-            encoded: &encoded,
+            encoded: sent.encoded,
             deadline,
             stop,
             broker: Some(&mut broker),
         };
         let exchanged = rpc::exchange(self.engine.as_ref(), &self.slots, call).await;
-        let withheld =
-            delivery.file.is_some() && !transcript.authorized(&target.action.human_requests);
-        self.exchanged(
-            target,
-            exchanged,
-            files::delivered(&files).as_ref(),
-            (&private, transcript, withheld),
-            stop,
-        )
-        .await
+        if exchanged.is_ok() {
+            watch.returned();
+        }
+        let context = (private, transcript, sent.withheld);
+        self.exchanged(target, exchanged, sent.delivered.as_ref(), context, stop)
+            .await
+            .map_err(|(failed, fault)| {
+                watch.failed(target, fault);
+                failed
+            })
     }
 
     async fn exchanged(
@@ -545,7 +619,7 @@ impl Runner {
         sent: Option<&(String, i64)>,
         context: (&Private, &ActionTranscript, bool),
         stop: &Stop,
-    ) -> Result<Outcome, Failed> {
+    ) -> Result<Outcome, (Failed, Fault)> {
         match exchanged {
             Ok(raw) => {
                 if let Some(sent) = sent {
@@ -565,20 +639,37 @@ impl Runner {
         }
     }
 
-    async fn rpc_failed(&self, target: &Target<'_>, error: RpcError, stop: &Stop) -> Failed {
+    async fn rpc_failed(
+        &self,
+        target: &Target<'_>,
+        error: RpcError,
+        stop: &Stop,
+    ) -> (Failed, Fault) {
         let _ = self.record(target, "error", "failed").await;
         match error {
             RpcError::NotDispatched if stop.is_stopped() => {
-                Failed::NotDispatched(ActionFailure::Stopped)
+                (Failed::NotDispatched(ActionFailure::Stopped), Fault::Other)
             }
-            RpcError::NotDispatched => Failed::NotDispatched(ActionFailure::DockerUnavailable),
+            RpcError::NotDispatched => (
+                Failed::NotDispatched(ActionFailure::DockerUnavailable),
+                Fault::Other,
+            ),
             RpcError::Blocked => {
                 if let Ok(mut blocked) = self.blocked.lock() {
                     blocked.insert(target.binding.container.clone());
                 }
-                Failed::Uncertain(ActionFailure::Blocked)
+                (Failed::Uncertain(ActionFailure::Blocked), Fault::Unquiesced)
             }
-            RpcError::Failed { .. } => Failed::Uncertain(ActionFailure::Uncertain),
+            RpcError::Failed { kind, condition } => {
+                // An invalid frame or result is Team-detected policy; every other fault fail-stopped its workload.
+                let fault =
+                    if kind == rpc::RpcFailure::InvalidResult || condition == "frame-invalid" {
+                        Fault::Policy(Some(condition))
+                    } else {
+                        Fault::Transport(condition)
+                    };
+                (Failed::Uncertain(ActionFailure::Uncertain), fault)
+            }
         }
     }
 
@@ -587,7 +678,7 @@ impl Runner {
         target: &Target<'_>,
         raw: &Value,
         (private, transcript, file_withheld): (&Private, &ActionTranscript, bool),
-    ) -> Result<Outcome, Failed> {
+    ) -> Result<Outcome, (Failed, Fault)> {
         let action = target.action;
         let injected = private.injected();
         let held = private.held();
@@ -620,7 +711,7 @@ impl Runner {
         &self,
         target: &Target<'_>,
         projected: Result<Projected, Refused>,
-    ) -> Result<Outcome, Failed> {
+    ) -> Result<Outcome, (Failed, Fault)> {
         match projected {
             Ok(Projected::Result(result)) => {
                 let _ = self.record(target, "ok", "completed").await;
@@ -632,15 +723,18 @@ impl Runner {
                 let _ = self
                     .stored_inputs
                     .delete((target.team, &target.binding.assistant_id, &id));
-                Err(Failed::Uncertain(ActionFailure::Failed))
+                Err((Failed::Uncertain(ActionFailure::Failed), Fault::Other))
             }
-            Err(Refused::Failure(_)) => {
+            Err(Refused::Failure(failure)) => {
                 let _ = self.record(target, "error", "action-failed").await;
-                Err(Failed::Handled)
+                Err((Failed::Handled, Fault::Handled(Box::new(failure))))
             }
             Err(Refused::SecretExposure | Refused::Invalid) => {
                 let _ = self.record(target, "error", "invalid-output").await;
-                Err(Failed::Uncertain(ActionFailure::Uncertain))
+                Err((
+                    Failed::Uncertain(ActionFailure::Uncertain),
+                    Fault::Policy(None),
+                ))
             }
         }
     }
@@ -668,9 +762,25 @@ impl Runner {
 #[derive(Clone, Debug)]
 pub struct Executor(pub Arc<Runner>);
 
+impl Executor {
+    /// A Routine run's batch bound to `scope`, which tells `observer` around every dispatch.
+    #[must_use]
+    pub fn observed(
+        &self,
+        scope: BatchScope,
+        observer: Arc<dyn DispatchObserver>,
+    ) -> Box<dyn ActionBatch> {
+        Box::new(batch::Batch::new(
+            Arc::clone(&self.0),
+            scope,
+            Some(observer),
+        ))
+    }
+}
+
 impl ActionExecutor for Executor {
     fn batch(&self, scope: BatchScope) -> Box<dyn ActionBatch> {
-        Box::new(batch::Batch::new(Arc::clone(&self.0), scope))
+        Box::new(batch::Batch::new(Arc::clone(&self.0), scope, None))
     }
 
     fn invoke<'a>(
@@ -698,8 +808,18 @@ impl ActionExecutor for Executor {
                 file,
                 admitted: None,
             };
+            let mut watch = Watch {
+                observer: None,
+                injected: Vec::new(),
+            };
             match runner
-                .attempt(&target, &request.input, &transcript, delivery, stop)
+                .attempt(
+                    &target,
+                    &request.input,
+                    &transcript,
+                    delivery,
+                    (stop, &mut watch),
+                )
                 .await
             {
                 Ok(Outcome::Completed(result)) => Ok(result),

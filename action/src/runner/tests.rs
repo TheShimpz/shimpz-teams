@@ -20,7 +20,10 @@ use team_integrations::store::IntegrationStore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 use super::{Binding, Executor, Runner, Workloads};
-use crate::executor::{ActionExecutor, ActionFailure, ActionRequest, BatchScope, InvokeOutcome};
+use crate::executor::{
+    ActionExecutor, ActionFailure, ActionRequest, BatchScope, DispatchObserver, DispatchRefused,
+    Fault, InvokeOutcome,
+};
 use crate::frames::tests::frame;
 use crate::journal::{Journal, Limits};
 use crate::provider::{Capacity, Transport};
@@ -67,7 +70,7 @@ fn binding() -> Binding {
             action("publish", "mutating"),
             crate::files::tests::upload(),
             ActionSpec::of(&json(
-                r#"{"id":"sync","input_schema":{"type":"object"},"integrations":["cloudflare-write"]}"#,
+                r#"{"id":"sync","input_schema":{"type":"object"},"output_schema":{"type":"object"},"integrations":["cloudflare-write"]}"#,
             )),
         ],
         allowed_hosts: vec!["api.example.com".to_owned()],
@@ -458,9 +461,20 @@ async fn delivered_bytes_outside_an_admitted_slot_never_reach_the_workload() {
         admitted: None,
     };
     let transcript = crate::files::tests::approved("i-1");
+    let mut watch = super::Watch {
+        observer: None,
+        injected: Vec::new(),
+    };
+    let stop = Stop::new();
     let attempt = world
         .runner
-        .attempt(&target, &request.input, &transcript, delivery, &Stop::new())
+        .attempt(
+            &target,
+            &request.input,
+            &transcript,
+            delivery,
+            (&stop, &mut watch),
+        )
         .await;
     let refused = super::Failed::NotDispatched(ActionFailure::FileUnavailable);
     assert_eq!(attempt, Err(refused));
@@ -502,4 +516,190 @@ async fn an_unavailable_integration_is_refused_before_dispatch() {
     let prepared = batch.prepare(std::slice::from_ref(&sync)).await;
     assert_eq!(prepared, Err(ActionFailure::IntegrationUnavailable));
     assert_eq!(world.engine.started().len(), 0);
+}
+
+/// What a Routine run's batch told its observer; it refuses every dispatch when `refuse` is set.
+#[derive(Default)]
+struct Observer {
+    refuse: bool,
+    events: Mutex<Vec<String>>,
+    injected: Mutex<Vec<String>>,
+    faults: Mutex<Vec<Fault>>,
+}
+
+fn exposed(values: &[Secret]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.expose().to_owned())
+        .collect()
+}
+
+impl DispatchObserver for Observer {
+    fn logical_operation(&self, _request: &ActionRequest) -> Option<String> {
+        None
+    }
+
+    fn dispatching(
+        &self,
+        request: &ActionRequest,
+        _operation_id: &str,
+        workload: &str,
+        injected: &[Secret],
+    ) -> Result<(), DispatchRefused> {
+        let event = format!("dispatching {} {workload}", request.interrupt_id);
+        self.events.lock().expect("events").push(event);
+        *self.injected.lock().expect("injected") = exposed(injected);
+        if self.refuse {
+            Err(DispatchRefused)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn returned(&self, request: &ActionRequest) {
+        let event = format!("returned {}", request.interrupt_id);
+        self.events.lock().expect("events").push(event);
+    }
+
+    fn failed(
+        &self,
+        request: &ActionRequest,
+        _operation_id: &str,
+        fault: Fault,
+        injected: &[Secret],
+    ) {
+        let event = format!("failed {}", request.interrupt_id);
+        self.events.lock().expect("events").push(event);
+        assert_eq!(exposed(injected), *self.injected.lock().expect("injected"));
+        self.faults.lock().expect("faults").push(fault);
+    }
+}
+
+const TOKEN: &str = "integration-token-value-1";
+const STORED: &str = "stored-secret-value-1234";
+
+/// Connects the `sync` Action's Integration and seals the `api-key` Stored Input the other Actions declare.
+fn connected(world: &World) {
+    let tokens = team_integrations::token::TokenSet {
+        access_token: Secret::new(TOKEN.to_owned()),
+        refresh_token: None,
+        scopes: vec!["zone.read".to_owned()],
+        expires_in: 3600,
+        broker_lease: None,
+    };
+    let scopes = ["zone.read".to_owned()];
+    world
+        .runner
+        .integrations
+        .put(
+            ("team_1", "example", "cloudflare-write"),
+            ("cloudflare", &scopes),
+            &tokens,
+            None,
+        )
+        .expect("connected");
+    world
+        .runner
+        .stored_inputs
+        .seal(
+            ("team_1", "example", "api-key"),
+            "password",
+            &Secret::new(STORED.to_owned()),
+            &"a".repeat(64),
+        )
+        .expect("sealed");
+}
+
+#[tokio::test]
+async fn a_batch_reports_every_value_it_injected_into_its_last_call() {
+    let world = world();
+    connected(&world);
+    let ok = r#"{"type":"result","result":{"ok":true}}"#;
+    let _first = scripted(&world.engine, ok, 0);
+    let _second = scripted(&world.engine, ok, 0);
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [request("i-1", "sync"), request("i-2", "lookup")];
+    let mut batch = executor.batch(scope(false));
+    batch.prepare(&requests).await.expect("prepared");
+    let completed = InvokeOutcome::Completed(json(r#"{"ok":true}"#));
+    assert_eq!(
+        batch.invoke(&requests[0], &Stop::new()).await,
+        Ok(completed.clone())
+    );
+    assert_eq!(exposed(&batch.injected()), [TOKEN]);
+    assert_eq!(
+        batch.invoke(&requests[1], &Stop::new()).await,
+        Ok(completed)
+    );
+    assert_eq!(exposed(&batch.injected()), [STORED]);
+}
+
+#[tokio::test]
+async fn a_routine_batch_seals_each_dispatch_with_its_workload_and_values_before_the_rpc() {
+    let world = world();
+    connected(&world);
+    let _sent = scripted(
+        &world.engine,
+        r#"{"type":"result","result":{"ok":true}}"#,
+        0,
+    );
+    let observer = Arc::new(Observer::default());
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [request("i-1", "lookup")];
+    let mut batch = executor.observed(scope(true), observer.clone());
+    batch.prepare(&requests).await.expect("prepared");
+    assert!(batch.invoke(&requests[0], &Stop::new()).await.is_ok());
+    let events = observer.events.lock().expect("events").clone();
+    assert_eq!(events, ["dispatching i-1 container", "returned i-1"]);
+    assert_eq!(*observer.injected.lock().expect("injected"), [STORED]);
+}
+
+#[tokio::test]
+async fn a_dispatch_the_run_cannot_seal_is_never_sent() {
+    let world = world();
+    connected(&world);
+    let observer = Arc::new(Observer {
+        refuse: true,
+        ..Observer::default()
+    });
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [request("i-1", "lookup")];
+    let mut batch = executor.observed(scope(true), observer.clone());
+    batch.prepare(&requests).await.expect("prepared");
+    assert_eq!(
+        batch.invoke(&requests[0], &Stop::new()).await,
+        Err(ActionFailure::StateUnavailable)
+    );
+    assert_eq!(world.engine.started().len(), 0);
+    assert!(observer.faults.lock().expect("faults").is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_dispatch_is_classified_by_team_and_told_once() {
+    let world = world();
+    connected(&world);
+    let failure = r#"{"type":"failure","failure":{"error_type":"E","message":"m","provider":null,"http_status":null,"response_excerpt":null,"redacted":false,"truncated":false}}"#;
+    let _handled = scripted(&world.engine, failure, 0);
+    let _invalid = scripted(&world.engine, r#"{"type":"result","result":[]}"#, 0);
+    let observer = Arc::new(Observer::default());
+    let executor = Executor(Arc::clone(&world.runner));
+    let requests = [request("i-1", "lookup"), request("i-2", "lookup")];
+    let mut batch = executor.observed(scope(true), observer.clone());
+    batch.prepare(&requests).await.expect("prepared");
+    assert_eq!(
+        batch.invoke(&requests[0], &Stop::new()).await,
+        Err(ActionFailure::Failed)
+    );
+    assert!(batch.invoke(&requests[1], &Stop::new()).await.is_err());
+    let faults = observer.faults.lock().expect("faults").clone();
+    assert!(matches!(
+        faults.as_slice(),
+        [Fault::Handled(_), Fault::Policy(_)]
+    ));
+    let events = observer.events.lock().expect("events").clone();
+    let failed = events
+        .iter()
+        .filter(|event| event.starts_with("failed"))
+        .count();
+    assert_eq!(failed, 2);
 }

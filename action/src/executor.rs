@@ -9,6 +9,7 @@
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
+use team_core::secret::Secret;
 use team_core::stop::Stop;
 
 /// One Action request of a Brain suspension.
@@ -130,6 +131,63 @@ pub trait ActionBatch: Send {
     /// # Errors
     /// [`ActionFailure::StateUnavailable`] when the journal cannot record it.
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>>;
+
+    /// Every value Team injected into the most recent [`ActionBatch::invoke`]'s attempt: its Integration tokens and its
+    /// Stored Input values. A caller that keeps anything of the call (a Routine recording) protects them first; it is
+    /// empty when that invoke dispatched nothing or replayed a receipt.
+    fn injected(&self) -> Vec<Secret>;
+}
+
+/// Team's own classification of one failed dispatched attempt (ADR-0092), never a model's or a message's.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Fault {
+    /// The Action answered this Team-admitted handled failure.
+    Handled(Box<crate::failure::ActionFailure>),
+    /// The exchange failed with this closed condition after the workload was proven fail-stopped.
+    Transport(String),
+    /// Team could not prove the workload stopped after an ambiguous outcome.
+    Unquiesced,
+    /// A Team-detected policy fault: an invalid frame (its condition) or result, or a secret echo.
+    Policy(Option<String>),
+    /// Anything else, such as a workload that never received the call or a rejected Stored Input.
+    Other,
+}
+
+/// The observer refused to seal a dispatch: nothing is sent, and the invoke fails with
+/// [`ActionFailure::StateUnavailable`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DispatchRefused;
+
+/// What a Routine run's batch tells the run around each dispatch.
+pub trait DispatchObserver: Send + Sync {
+    /// The logical operation a permitted retry repeats; `None` lets the journal mint the request's own.
+    fn logical_operation(&self, request: &ActionRequest) -> Option<String>;
+
+    /// Called after the operation is journaled `executing` and before its RPC, with the workload it is sent to and
+    /// every value Team injects into it.
+    ///
+    /// # Errors
+    /// [`DispatchRefused`] when the dispatch cannot be sealed; the RPC is then not sent.
+    fn dispatching(
+        &self,
+        request: &ActionRequest,
+        operation_id: &str,
+        workload: &str,
+        injected: &[Secret],
+    ) -> Result<(), DispatchRefused>;
+
+    /// The dispatched Action returned a result or a human request, before Team projects anything of it.
+    fn returned(&self, request: &ActionRequest);
+
+    /// The dispatched Action failed; called once, before the invoke returns its failure, with the values the
+    /// attempt was given.
+    fn failed(
+        &self,
+        request: &ActionRequest,
+        operation_id: &str,
+        fault: Fault,
+        injected: &[Secret],
+    );
 }
 
 /// Runs Actions for every caller.
