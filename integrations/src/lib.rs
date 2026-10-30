@@ -10,4 +10,6 @@ pub mod challenge;
 pub mod pending;
 pub mod pkce;
 pub mod providers;
+pub mod store;
+pub mod text;
 pub mod token;
