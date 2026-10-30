@@ -18,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     esac && \
     curl -LsSf "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
         -o /tmp/cosign && \
-    echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -
+    echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c - && \
+    chmod 0555 /tmp/cosign
 
 # PDFium for the attachment worker: the archive and the library inside it are both hash-checked against the pins of
 # prepare/pdfium.toml, which is copied beside the library as its provenance (V8- and XFA-free builds).
@@ -34,7 +35,9 @@ RUN --mount=type=bind,source=prepare/pdfium.toml,target=/tmp/pdfium.toml \
     curl -LsSf "$(pin url)" -o /tmp/pdfium.tgz && \
     echo "$(pin archive_sha256)  /tmp/pdfium.tgz" | sha256sum -c - && \
     mkdir /tmp/pdfium && tar --no-same-owner -xzf /tmp/pdfium.tgz -C /tmp/pdfium lib/libpdfium.so && \
-    echo "$(pin library_sha256)  /tmp/pdfium/lib/libpdfium.so" | sha256sum -c -
+    echo "$(pin library_sha256)  /tmp/pdfium/lib/libpdfium.so" | sha256sum -c - && \
+    cp /tmp/pdfium.toml /tmp/pdfium/lib/pdfium.toml && \
+    chmod 0444 /tmp/pdfium/lib/libpdfium.so /tmp/pdfium/lib/pdfium.toml
 
 # The zone database the Routine phrase tables were generated from (2026c), taken whole from the pinned base that
 # carries it; the controller reads it through TZDIR.
@@ -45,14 +48,17 @@ RUN test "$(head -n 1 /usr/share/zoneinfo/tzdata.zi)" = "# version 2026c"
 # mode; the runtime copies the tree as it is. The groups are named because the controller resolves them by name, and
 # the base's own accounts are kept.
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS rootfs
-RUN mkdir -p /rootfs/etc /rootfs/run/shimpz-local /rootfs/run/shimpz-brain-runtime /rootfs/run/shimpz-local-supervisor \
-        /rootfs/var/log/shimpz-local && \
-    for name in storage inference action-journal publications cosign assistant-egress; do \
-        mkdir -p "/rootfs/var/lib/shimpz-local/${name}"; \
-    done && \
-    for name in assistant-integrations assistant-stored-inputs chat-continuations routines browser-sign-ins; do \
-        mkdir -p "/rootfs/var/lib/shimpz-local/${name}/state" "/rootfs/var/lib/shimpz-local/${name}/key"; \
-    done && \
+RUN mkdir -p /rootfs/etc /rootfs/run/shimpz-local /rootfs/run/shimpz-brain-runtime \
+        /rootfs/run/shimpz-local-supervisor /rootfs/var/lib/shimpz-local/assistant-egress \
+        /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local/storage /rootfs/var/lib/shimpz-local/inference \
+        /rootfs/var/lib/shimpz-local/action-journal /rootfs/var/lib/shimpz-local/publications \
+        /rootfs/var/lib/shimpz-local/cosign /rootfs/var/lib/shimpz-local/assistant-integrations/state \
+        /rootfs/var/lib/shimpz-local/assistant-integrations/key \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/state \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/key \
+        /rootfs/var/lib/shimpz-local/chat-continuations/state /rootfs/var/lib/shimpz-local/chat-continuations/key \
+        /rootfs/var/lib/shimpz-local/routines/state /rootfs/var/lib/shimpz-local/routines/key \
+        /rootfs/var/lib/shimpz-local/browser-sign-ins/state /rootfs/var/lib/shimpz-local/browser-sign-ins/key && \
     printf '%s\n' 'root:x:0:0:root:/root:/sbin/nologin' 'nobody:x:65534:65534:nobody:/nonexistent:/sbin/nologin' \
         'nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin' \
         'shimpzlocal:x:10001:10001::/nonexistent:/usr/sbin/nologin' > /rootfs/etc/passwd && \
@@ -61,16 +67,34 @@ RUN mkdir -p /rootfs/etc /rootfs/run/shimpz-local /rootfs/run/shimpz-brain-runti
         'shimpzassistant-egress-policy:x:10017:shimpzlocal' 'shimpzsupervisor-key:x:10021:shimpzlocal' \
         'shimpzaccount-egress-token:x:10022:shimpzlocal' > /rootfs/etc/group && \
     chmod 0644 /rootfs/etc/passwd /rootfs/etc/group && \
-    chown -R 10001:10001 /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local && \
-    chown 0:0 /rootfs/var/lib/shimpz-local /rootfs/var/lib/shimpz-local/assistant-integrations \
-        /rootfs/var/lib/shimpz-local/assistant-stored-inputs /rootfs/var/lib/shimpz-local/chat-continuations \
-        /rootfs/var/lib/shimpz-local/routines /rootfs/var/lib/shimpz-local/browser-sign-ins && \
-    find /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local -mindepth 0 -type d -user 10001 -exec chmod 0700 {} + && \
+    chown 10001:10001 /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local/storage \
+        /rootfs/var/lib/shimpz-local/inference /rootfs/var/lib/shimpz-local/action-journal \
+        /rootfs/var/lib/shimpz-local/publications /rootfs/var/lib/shimpz-local/cosign \
+        /rootfs/var/lib/shimpz-local/assistant-integrations/state \
+        /rootfs/var/lib/shimpz-local/assistant-integrations/key \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/state \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/key \
+        /rootfs/var/lib/shimpz-local/chat-continuations/state /rootfs/var/lib/shimpz-local/chat-continuations/key \
+        /rootfs/var/lib/shimpz-local/routines/state /rootfs/var/lib/shimpz-local/routines/key \
+        /rootfs/var/lib/shimpz-local/browser-sign-ins/state /rootfs/var/lib/shimpz-local/browser-sign-ins/key && \
+    chmod 0700 /rootfs/var/log/shimpz-local /rootfs/var/lib/shimpz-local/storage \
+        /rootfs/var/lib/shimpz-local/inference /rootfs/var/lib/shimpz-local/action-journal \
+        /rootfs/var/lib/shimpz-local/publications /rootfs/var/lib/shimpz-local/cosign \
+        /rootfs/var/lib/shimpz-local/assistant-integrations/state \
+        /rootfs/var/lib/shimpz-local/assistant-integrations/key \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/state \
+        /rootfs/var/lib/shimpz-local/assistant-stored-inputs/key \
+        /rootfs/var/lib/shimpz-local/chat-continuations/state /rootfs/var/lib/shimpz-local/chat-continuations/key \
+        /rootfs/var/lib/shimpz-local/routines/state /rootfs/var/lib/shimpz-local/routines/key \
+        /rootfs/var/lib/shimpz-local/browser-sign-ins/state /rootfs/var/lib/shimpz-local/browser-sign-ins/key && \
     chown 10001:10017 /rootfs/var/lib/shimpz-local/assistant-egress && \
     chmod 0750 /rootfs/var/lib/shimpz-local/assistant-egress && \
-    chown 10001:10010 /rootfs/run/shimpz-local && chmod 2750 /rootfs/run/shimpz-local && \
-    chown 10001:10016 /rootfs/run/shimpz-brain-runtime && chmod 0750 /rootfs/run/shimpz-brain-runtime && \
-    chown 0:10021 /rootfs/run/shimpz-local-supervisor && chmod 2770 /rootfs/run/shimpz-local-supervisor && \
+    chown 10001:10010 /rootfs/run/shimpz-local && \
+    chmod 2750 /rootfs/run/shimpz-local && \
+    chown 10001:10016 /rootfs/run/shimpz-brain-runtime && \
+    chmod 0750 /rootfs/run/shimpz-brain-runtime && \
+    chown 0:10021 /rootfs/run/shimpz-local-supervisor && \
+    chmod 2770 /rootfs/run/shimpz-local-supervisor && \
     find /rootfs -depth -exec touch -h -d @0 {} +
 
 # The workspace as the dependency build sees it: every manifest and lock file, and a stub in place of each library
@@ -101,24 +125,27 @@ RUN cargo build --release --locked --package team-local --bin shimpz-team
 FROM dependencies AS build
 COPY . .
 RUN find . -name '*.rs' -not -path './target/*' -exec touch {} + && \
-    cargo build --release --locked --package team-local --bin shimpz-team
+    cargo build --release --locked --package team-local --bin shimpz-team && \
+    chmod 0555 target/release/shimpz-team
 
 # Test only: the controller suite, its runner, and the live artifact-trust probe, each built on its own so none widens
 # another's features.
 FROM build AS suite
 RUN cargo build --release --locked --package team-local-fixture --bin shimpz-team-fixture && \
     cargo build --release --locked --package team-local-docker --bin shimpz-team-docker-suite && \
-    cargo build --release --locked --package team-local-trust --bin shimpz-team-trust-probe
+    cargo build --release --locked --package team-local-trust --bin shimpz-team-trust-probe && \
+    chmod 0555 target/release/shimpz-team-fixture target/release/shimpz-team-docker-suite \
+        target/release/shimpz-team-trust-probe
 
 # The controller image: the distroless glibc base, the root-owned binaries, PDFium with its provenance, the pinned
 # zone database, and the account and directory tree. No shell, interpreter, or package manager.
 FROM gcr.io/distroless/cc-debian13@sha256:ed7c407fd64eb0af9dddb9456b94cee188a40a7f53cf38c9836e1e9ae14fca02 AS controller
 COPY --link --from=rootfs /rootfs/ /
 COPY --link --from=tzdata /usr/share/zoneinfo /usr/share/shimpz-team/zoneinfo
-COPY --link --chown=0:0 --from=cosign --chmod=0555 /tmp/cosign /usr/local/bin/cosign
-COPY --link --chown=0:0 --from=pdfium --chmod=0444 /tmp/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
-COPY --link --chown=0:0 --chmod=0444 prepare/pdfium.toml /usr/local/lib/pdfium.toml
-COPY --link --chown=0:0 --from=build --chmod=0555 /workspace/target/release/shimpz-team /usr/local/bin/shimpz-team
+# Each file's mode is set where it is made: a COPY --chmod would also give the directories it creates that mode.
+COPY --link --chown=0:0 --from=cosign /tmp/cosign /usr/local/bin/cosign
+COPY --link --chown=0:0 --from=pdfium /tmp/pdfium/lib/libpdfium.so /tmp/pdfium/lib/pdfium.toml /usr/local/lib/
+COPY --link --chown=0:0 --from=build /workspace/target/release/shimpz-team /usr/local/bin/shimpz-team
 ENV TZDIR=/usr/share/shimpz-team/zoneinfo
 # The exact Browser image built with this Team image (ADR-0117 §9); the deploy and the publisher pass its digest.
 ARG SHIMPZ_BROWSER_IMAGE=""
@@ -136,7 +163,7 @@ CMD ["serve"]
 # Test only, never published: the controller image plus the suite, the runner the suite starts it with, and the
 # live artifact-trust probe.
 FROM controller AS fixture
-COPY --link --chown=0:0 --from=suite --chmod=0555 /workspace/target/release/shimpz-team-fixture \
+COPY --link --chown=0:0 --from=suite /workspace/target/release/shimpz-team-fixture \
     /workspace/target/release/shimpz-team-docker-suite /workspace/target/release/shimpz-team-trust-probe \
     /usr/local/bin/
 
