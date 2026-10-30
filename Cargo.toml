@@ -30,10 +30,16 @@ publish = false
 # Exact pins, shared with the Developers, Store, and Account workspaces where they use the same crate. A workstream that
 # needs another dependency adds it here, exactly pinned, in alphabetical order.
 [workspace.dependencies]
+aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
 bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
 getrandom = "=0.4.3"
+hmac = "=0.13.0"
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["fs", "process", "std"] }
 sha2 = "=0.11.0"
 strict-json = { path = "vendor/strict-json" }
+subtle = "=2.6.1"
 team-action = { path = "action" }
 team-assistant = { path = "assistant" }
 team-browser = { path = "browser/task" }
@@ -47,6 +53,7 @@ team-prepare = { path = "prepare" }
 team-protocol = { path = "protocol/http/rust" }
 team-routine = { path = "routine" }
 team-storage = { path = "storage" }
+tempfile = "=3.27.0"
 tokio = { version = "=1.53.3", default-features = false }
 zeroize = "=1.9.1"
 
