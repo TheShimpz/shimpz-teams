@@ -161,6 +161,34 @@ pub fn brain_thread_id(space_id: &str, team_id: &str, network_id: &str) -> Resul
     }
 }
 
+/// One Routine run's journal thread label, beside the Team's conversation in the same network generation.
+///
+/// # Errors
+/// `409 ownership-conflict` for an identity outside its persisted contract.
+pub fn routine_thread_id(
+    space_id: &str,
+    team_id: &str,
+    network_id: &str,
+    run_id: &str,
+) -> Result<String, Problem> {
+    let conversation = brain_thread_id(space_id, team_id, network_id)?;
+    let run = run_id.len() == 32
+        && run_id
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+    if !run {
+        return Err(Problem::new(
+            409,
+            "Team identity failed its persisted contract",
+            "ownership-conflict",
+        ));
+    }
+    Ok(format!(
+        "{}:routine-{run_id}",
+        conversation.trim_end_matches(":default")
+    ))
+}
+
 fn prepare_problem(error: PrepareError) -> Problem {
     match error {
         PrepareError::Stopped => problem::chat_stopped(),
@@ -510,7 +538,7 @@ impl Strategy for TurnStrategy<'_> {
 }
 
 /// The paused request admitted again against its Action's reviewed declarations and its binding's catalog.
-fn admitted_request<'s>(
+pub(crate) fn admitted_request<'s>(
     setup: &'s Setup,
     paused: &team_chat::orchestrator::ChatHumanSuspension,
 ) -> Result<
@@ -542,7 +570,7 @@ fn admitted_request<'s>(
 }
 
 /// The selected file an authorization discloses, and the projection of the input its card shows.
-fn presentation(
+pub(crate) fn presentation(
     spec: &team_assistant::spec::ActionSpec,
     action: &BrainRequest,
     context: &RuntimeContext,
