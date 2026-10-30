@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use strict_json::Value;
 use team_browser::ingest::PutRefused;
-use team_browser::task::{Answered, BrowserCall, StepFailed, TaskBrain, Usage};
+use team_browser::run::{Answered, BrowserCall, CallFailure, TaskBrain, Usage};
 use team_core::entropy::OsEntropy;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
@@ -73,7 +73,7 @@ impl TaskBrain for ScriptedBrain {
         call: BrowserCall,
         request: Value,
         _deadline: Instant,
-    ) -> BoxFuture<'_, Result<Answered, StepFailed>> {
+    ) -> BoxFuture<'_, Result<Answered, CallFailure>> {
         Box::pin(async move {
             self.calls.lock().expect("usable").push((call, request));
             self.asked.notify_waiters();
@@ -87,9 +87,9 @@ impl TaskBrain for ScriptedBrain {
                         Some(Step::Answer(text)) => Ok(answered(json(text))),
                         Some(Step::UntilStopped) => {
                             self.stop.stopped().await;
-                            Err(StepFailed)
+                            Err(CallFailure::Refused)
                         }
-                        Some(Step::Fail) | None => Err(StepFailed),
+                        Some(Step::Fail) | None => Err(CallFailure::Refused),
                     }
                 }
             }
@@ -131,6 +131,8 @@ impl WebFiles for MemoryFiles {
 
 struct Case {
     fixture: Fixture,
+    _ledger: tempfile::TempDir,
+    interrupts: std::sync::atomic::AtomicUsize,
     breaks: Arc<Mutex<VecDeque<usize>>>,
     service: Arc<BrowserService>,
     files: Arc<MemoryFiles>,
@@ -140,16 +142,21 @@ struct Case {
 
 impl Case {
     fn new() -> Self {
+        let ledger = tempfile::tempdir().expect("ledger directory");
         let mut fixture = Fixture::new();
         let runtime = Arc::new(fixture.runtime(Some(image())));
         let files = Arc::new(MemoryFiles::default());
         let audit = Arc::new(MemoryAudit::default());
-        let service = Arc::new(BrowserService::new(ServiceParts {
-            runtime,
-            files: files.clone(),
-            audit: audit.clone(),
-            entropy: Arc::new(OsEntropy),
-        }));
+        let service = Arc::new(
+            BrowserService::new(ServiceParts {
+                runtime,
+                files: files.clone(),
+                audit: audit.clone(),
+                entropy: Arc::new(OsEntropy),
+                runs: ledger.path().join("browser-runs"),
+            })
+            .expect("the service"),
+        );
         let mut attached = std::mem::replace(
             &mut fixture.attached,
             tokio::sync::mpsc::unbounded_channel().1,
@@ -166,6 +173,8 @@ impl Case {
         });
         let case = Self {
             fixture,
+            _ledger: ledger,
+            interrupts: std::sync::atomic::AtomicUsize::new(0),
             breaks,
             service,
             files,
@@ -174,6 +183,22 @@ impl Case {
         };
         case.listing(r#"{"files":[],"refused":[],"skipped":0}"#);
         case
+    }
+
+    /// Runs one task of `brain` toward `objective`, its own run.
+    async fn run(&self, brain: Arc<ScriptedBrain>, objective: &str) -> (Value, Value) {
+        let interrupt = self.interrupt();
+        self.service
+            .run(&self.turn(brain), objective, &interrupt)
+            .await
+    }
+
+    /// A fresh Browser interrupt: each task of a test is its own run.
+    fn interrupt(&self) -> String {
+        let next = self
+            .interrupts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("browser-interrupt-{next}")
     }
 
     fn turn(&self, brain: Arc<ScriptedBrain>) -> BrowserTurn {
@@ -218,7 +243,7 @@ impl Case {
 
 const DONE: &str = r#"{"kind":"done","summary":"Prazo: 30/11."}"#;
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_finished_task_ingests_its_downloads_and_always_releases() {
     let case = Case::new();
     case.listing(
@@ -228,10 +253,7 @@ async fn a_finished_task_ingests_its_downloads_and_always_releases() {
         .execs
         .script(&["files", "read", "edital.pdf"], b"9\n%PDF-1.4\n", 0);
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, terminal) = case
-        .service
-        .run(&case.turn(brain.clone()), "Find the deadline")
-        .await;
+    let (result, terminal) = case.run(brain.clone(), "Find the deadline").await;
     assert_eq!(
         result,
         json(
@@ -273,12 +295,12 @@ async fn a_finished_task_ingests_its_downloads_and_always_releases() {
     assert!(!case.service.runtime().dirty());
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_needs_person_task_says_why_and_a_failed_brain_ends_it() {
     let case = Case::new();
     let needs = r#"{"kind":"needs_person","reason":"sign-in","sentence":"O site pede login."}"#;
     let brain = ScriptedBrain::new(&[Step::Answer(needs)], &case.stop);
-    let (result, terminal) = case.service.run(&case.turn(brain), "x").await;
+    let (result, terminal) = case.run(brain, "x").await;
     assert_eq!(
         result,
         json(
@@ -287,19 +309,19 @@ async fn a_needs_person_task_says_why_and_a_failed_brain_ends_it() {
     );
     assert_eq!(terminal, json(r#"{"files":[],"lost":[],"skipped":0}"#));
     let brain = ScriptedBrain::new(&[Step::Fail, Step::Fail], &case.stop);
-    let (result, _) = case.service.run(&case.turn(brain), "x").await;
+    let (result, _) = case.run(brain, "x").await;
     assert_eq!(
         result,
         json(r#"{"status":"failed","reason":"model-unavailable","files":[]}"#)
     );
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unavailable_or_busy_browser_ends_the_task_before_any_container() {
     let case = Case::new();
     case.fixture.daemon.state().fail.insert("network");
     let brain = ScriptedBrain::new(&[], &case.stop);
-    let (result, terminal) = case.service.run(&case.turn(brain), "x").await;
+    let (result, terminal) = case.run(brain, "x").await;
     assert_eq!(
         result,
         json(r#"{"status":"failed","reason":"browser-unavailable","files":[]}"#)
@@ -309,12 +331,12 @@ async fn an_unavailable_or_busy_browser_ends_the_task_before_any_container() {
     assert_eq!(case.fixture.daemon.state().created.len(), 0);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn downloads_that_cannot_be_read_leave_the_answer_standing_and_say_why() {
     let case = Case::new();
     case.listing("not json");
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, terminal) = case.service.run(&case.turn(brain), "x").await;
+    let (result, terminal) = case.run(brain, "x").await;
     assert_eq!(
         field(&result, "status"),
         Some(&Value::String("done".to_owned()))
@@ -327,12 +349,12 @@ async fn downloads_that_cannot_be_read_leave_the_answer_standing_and_say_why() {
     assert!(case.details("browser-task")[1].contains(":cause=ingest/browser-lost:"));
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_release_is_reported_and_keeps_the_space_refusing() {
     let case = Case::new();
     case.fixture.daemon.state().fail.insert("survive");
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, _) = case.service.run(&case.turn(brain), "x").await;
+    let (result, _) = case.run(brain, "x").await;
     assert_eq!(
         result,
         json(
@@ -343,7 +365,7 @@ async fn a_failed_release_is_reported_and_keeps_the_space_refusing() {
     assert!(case.service.runtime().dirty());
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_removes_the_running_browser_and_nothing_is_ingested_after_it() {
     let case = Case::new();
     case.listing(r#"{"files":[{"name":"a.pdf","size":9}],"refused":[],"skipped":0}"#);
@@ -354,7 +376,7 @@ async fn stop_removes_the_running_browser_and_nothing_is_ingested_after_it() {
         asked.asked.notified().await;
         stop.stop();
     });
-    let (result, terminal) = case.service.run(&case.turn(brain), "x").await;
+    let (result, terminal) = case.run(brain, "x").await;
     stopper.await.expect("joined");
     assert_eq!(
         field(&result, "status"),
@@ -369,22 +391,19 @@ async fn stop_removes_the_running_browser_and_nothing_is_ingested_after_it() {
     assert!(!case.service.runtime().dirty());
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_before_the_task_opens_no_channel() {
     let case = Case::new();
     case.stop.stop();
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, _) = case.service.run(&case.turn(brain.clone()), "x").await;
-    assert_eq!(
-        result,
-        json(r#"{"status":"failed","reason":"browser-unavailable","files":[]}"#)
-    );
+    let (result, _) = case.run(brain.clone(), "x").await;
+    assert_eq!(result, json(r#"{"status":"stopped","files":[]}"#));
     assert_eq!(brain.calls().len(), 0);
     let opened = case.fixture.execs.state().execs.clone();
     assert!(!opened.iter().any(|(_, arguments, _)| arguments == &["mcp"]));
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn storage_failures_become_closed_losses() {
     for (refusal, reason) in [
         (PutRefused::QuotaExceeded, "quota-exceeded"),
@@ -398,7 +417,7 @@ async fn storage_failures_become_closed_losses() {
             .script(&["files", "read", "a.pdf"], b"9\n%PDF-1.4\n", 0);
         *case.files.refuse.lock().expect("usable") = Some(refusal);
         let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-        let (_, terminal) = case.service.run(&case.turn(brain), "x").await;
+        let (_, terminal) = case.run(brain, "x").await;
         assert_eq!(
             field(&terminal, "lost"),
             Some(&json(&format!(
@@ -408,7 +427,7 @@ async fn storage_failures_become_closed_losses() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_egress_replaced_during_the_task_loses_it() {
     let case = Case::new();
     case.listing(r#"{"files":[],"refused":[],"skipped":0}"#);
@@ -423,7 +442,7 @@ async fn an_egress_replaced_during_the_task_loses_it() {
         tokio::time::sleep(Duration::from_secs(1)).await;
         stop.stop();
     });
-    let (result, _) = case.service.run(&case.turn(brain), "x").await;
+    let (result, _) = case.run(brain, "x").await;
     let status = field(&result, "status").cloned();
     assert!(
         status == Some(Value::String("stopped".to_owned()))
@@ -431,7 +450,7 @@ async fn an_egress_replaced_during_the_task_loses_it() {
     );
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_screen_view_belongs_to_its_task_alone_and_streams_hold_one_of_two_slots() {
     let case = Case::new();
     assert_eq!(
@@ -456,7 +475,7 @@ async fn a_screen_view_belongs_to_its_task_alone_and_streams_hold_one_of_two_slo
         stop.stop();
         (view, other, wrong)
     });
-    let _ = case.service.run(&case.turn(brain), "x").await;
+    let _ = case.run(brain, "x").await;
     let (view, other, wrong) = observer.await.expect("joined");
     assert_eq!(view.len(), 32);
     assert_eq!(other, Err(Refused(NOT_RUNNING)));
@@ -489,13 +508,13 @@ fn the_page_language_follows_the_turn() {
     assert_eq!(language(None), "en");
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended() {
     // The first session opens (four answers) and then breaks as the task observes the page.
     let case = Case::new();
     case.breaks.lock().expect("usable").push_back(4);
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, _) = case.service.run(&case.turn(brain), "x").await;
+    let (result, _) = case.run(brain, "x").await;
     assert_eq!(
         field(&result, "status"),
         Some(&Value::String("done".to_owned()))
@@ -524,7 +543,7 @@ async fn a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(
         .running
         .insert(vec!["mcp".to_owned()]);
     let brain = ScriptedBrain::new(&[Step::Answer(DONE)], &case.stop);
-    let (result, _) = case.service.run(&case.turn(brain), "x").await;
+    let (result, _) = case.run(brain, "x").await;
     assert_eq!(
         field(&result, "status"),
         Some(&Value::String("failed".to_owned()))

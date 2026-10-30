@@ -181,6 +181,9 @@ pub trait Strategy: Send + Sync {
         None
     }
 
+    /// The Brain resumed with the Browser task's result: the task is delivered and is never run again (ADR-0125).
+    fn browser_delivered(&self, _request: &BrowserRequest) {}
+
     /// What the Brain receives of a batch's results (ADR-0122).
     fn shown_results(&self, results: Value) -> Value {
         results
@@ -432,6 +435,7 @@ async fn run_browser(
     strategy.validate_context().await?;
     let results = Value::Object(vec![(request.interrupt_id.clone(), result)]);
     let resumed = brain_call(strategy, runtime.resume(context, results, strategy.stop())).await?;
+    strategy.browser_delivered(request);
     if resumed.status != TurnStatus::Completed
         || !resumed.memory.is_empty()
         || resumed.routine.is_some()

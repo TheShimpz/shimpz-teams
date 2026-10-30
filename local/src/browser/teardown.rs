@@ -1,7 +1,7 @@
 //! The Browser's part of a Team's destruction and of the Space reset: its Browsers and its Sign-ins.
 //!
 //! A Team's destruction ends its sign-in session (keeping nothing, and fencing one still starting) and removes its
-//! Browser, proving it absent; then it deletes its Sign-in, fencing a Save under way. The Space reset ends every
+//! Browser, proving it absent, and its task ledger; then it deletes its Sign-in, fencing a Save under way. The Space reset ends every
 //! session and removes every Browser, restarting the egress; then it deletes every Sign-in, keeping only the fenced
 //! records of Supervisor deletions under way until their completions are recorded.
 
@@ -35,7 +35,11 @@ impl TeamTeardown for Browsers {
                 .runtime()
                 .remove_team(&team.team_id)
                 .await
-                .map_err(|_| TeardownFailed::Failed)
+                .map_err(|_| TeardownFailed::Failed)?;
+            // Its task ledger goes with its Browser: objectives, pages, and answers of every task it ran.
+            self.service
+                .forget_team(&team.team_id)
+                .map_err(|_| TeardownFailed::StateUnavailable)
         })
     }
 
@@ -46,7 +50,10 @@ impl TeamTeardown for Browsers {
                 .runtime()
                 .clean()
                 .await
-                .map_err(|_| TeardownFailed::Failed)
+                .map_err(|_| TeardownFailed::Failed)?;
+            self.service
+                .forget_all()
+                .map_err(|_| TeardownFailed::StateUnavailable)
         })
     }
 }

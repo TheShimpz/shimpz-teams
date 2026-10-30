@@ -77,12 +77,16 @@ impl Case {
             .expect("a store"),
         );
         let audit = Arc::new(MemoryAudit::default());
-        let service = Arc::new(BrowserService::new(ServiceParts {
-            runtime: Arc::new(fixture.runtime(Some(image()))),
-            files: Arc::new(NoFiles),
-            audit: audit.clone(),
-            entropy: Arc::new(OsEntropy),
-        }));
+        let service = Arc::new(
+            BrowserService::new(ServiceParts {
+                runtime: Arc::new(fixture.runtime(Some(image()))),
+                files: Arc::new(NoFiles),
+                audit: audit.clone(),
+                entropy: Arc::new(OsEntropy),
+                runs: scratch.0.join("browser-runs"),
+            })
+            .expect("the service"),
+        );
         let incarnation = Arc::new(Incarnation(Mutex::new(Some(incarnation()))));
         let sessions = Arc::new(SignInSessions::new(SessionParts {
             service,

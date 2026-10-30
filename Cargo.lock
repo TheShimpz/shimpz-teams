@@ -2335,6 +2335,7 @@ dependencies = [
  "team-core",
  "team-inference",
  "team-protocol",
+ "tempfile",
  "tokio",
 ]
 
@@ -2442,6 +2443,7 @@ dependencies = [
  "base64 0.23.1",
  "bollard",
  "futures-core",
+ "holdpoint",
  "http-body-util",
  "hyper",
  "hyper-util",

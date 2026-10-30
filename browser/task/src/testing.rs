@@ -275,6 +275,8 @@ pub(crate) struct Browser {
     pub(crate) calls: Vec<Vec<String>>,
     pub(crate) screenshots: Vec<bool>,
     pub(crate) reads: usize,
+    /// A file every page command is appended to as it reaches the page, so it outlives a crashed process.
+    pub(crate) log: Option<std::path::PathBuf>,
 }
 
 impl Default for Browser {
@@ -299,6 +301,7 @@ impl Default for Browser {
             calls: Vec::new(),
             screenshots: Vec::new(),
             reads: 0,
+            log: None,
         }
     }
 }
@@ -393,6 +396,15 @@ impl Browser {
     }
 
     fn act(&mut self, tool: &str, kind: &'static str, call: Vec<String>) -> Option<Value> {
+        if let Some(log) = &self.log {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)
+                .expect("effect log");
+            writeln!(file, "{}", call.join(" ")).expect("effect logged");
+        }
         self.calls.push(call);
         if self.fatal.contains(&kind) {
             return Some(json(r#"{"structuredContent": {"x": 1}, "isError": true}"#));
@@ -519,13 +531,6 @@ impl Driver {
 
     pub(crate) fn calls(&self) -> Vec<Vec<String>> {
         self.browser().calls.clone()
-    }
-
-    /// A session over this Browser's Driver, opened.
-    pub(crate) async fn opened(&self) -> crate::cua::CuaSession {
-        let mut session = crate::cua::CuaSession::new(Box::new(self.clone()));
-        session.open().await.expect("the fake Driver opens");
-        session
     }
 }
 

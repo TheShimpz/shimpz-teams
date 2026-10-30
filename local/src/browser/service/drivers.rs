@@ -1,4 +1,4 @@
-//! A task's Cua Driver sessions on its one Browser.
+//! A run's Cua Driver sessions on its one Browser.
 //!
 //! Each opens while the turn holds the Browser and is proven ended before the next; Chromium is started again when a
 //! page no session can read, or a session that cannot open, needs it. A session's channel sends nothing once the turn
@@ -9,8 +9,6 @@ use std::time::Duration;
 
 use strict_json::Value;
 use team_browser::cua::{Channel as CuaChannel, ChannelLost, CuaError, CuaSession};
-use team_browser::ingest::present;
-use team_browser::task::TaskHost;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
 use tokio::sync::Mutex;
@@ -212,7 +210,7 @@ impl Drivers {
     /// With `relaunch`, Chromium starts again first. Otherwise, a session that opened but cannot start on this
     /// Chromium is ended too, and Chromium starts again once before another opens; a channel that could not even be
     /// opened relaunches nothing.
-    async fn replace(
+    pub(super) async fn replace(
         &self,
         failed: CuaSession,
         deadline: Instant,
@@ -240,31 +238,15 @@ impl Drivers {
     }
 }
 
-impl TaskHost for Drivers {
-    fn intact(&self) -> BoxFuture<'_, bool> {
-        Box::pin(self.runtime.intact(&self.lease))
-    }
-
-    fn reopen(
-        &self,
-        failed: CuaSession,
-        deadline: Instant,
-        relaunch: bool,
-    ) -> BoxFuture<'_, Result<(CuaSession, bool), CuaError>> {
-        Box::pin(self.replace(failed, deadline, relaunch))
-    }
-
-    fn downloads(&self, deadline: Instant) -> BoxFuture<'_, Option<Value>> {
-        Box::pin(async move {
-            if !self.held.holds().await {
-                return None;
-            }
-            let listing = self
-                .runtime
-                .files(&self.lease, Some(deadline), Some(&self.held.stop))
-                .await
-                .ok()?;
-            present(&listing).ok()
-        })
+impl Drivers {
+    /// The task's downloads listing as the Browser reports it, read by `deadline` while the turn holds its Browser.
+    pub(super) async fn listing(&self, deadline: Instant) -> Option<Value> {
+        if !self.held.holds().await {
+            return None;
+        }
+        self.runtime
+            .files(&self.lease, Some(deadline), Some(&self.held.stop))
+            .await
+            .ok()
     }
 }

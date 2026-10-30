@@ -6,7 +6,9 @@ use std::sync::Arc;
 use strict_json::{Number, Value};
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
-use team_inference::brain::{BrainClient, BrainOperation, BrainRequest, ModelCredential};
+use team_inference::brain::{
+    BrainClient, BrainError, BrainOperation, BrainRequest, ModelCredential,
+};
 use team_protocol::turn::SAFE_ID_RE;
 use tokio::time::Instant;
 
@@ -111,6 +113,14 @@ impl BrowserCall {
         }
     }
 
+    /// The operation [`BrowserCall::operation`] names, or `None`.
+    #[must_use]
+    pub fn parse(operation: &str) -> Option<Self> {
+        [Self::Step, Self::Fold, Self::Check, Self::Final]
+            .into_iter()
+            .find(|call| call.operation() == operation)
+    }
+
     /// The fields of its answer beside the model and its usage.
     const fn fields(self) -> &'static [&'static str] {
         match self {
@@ -133,22 +143,40 @@ pub struct Answered {
     pub model: String,
 }
 
-/// The Brain could not answer a call; nothing of it is trusted.
+/// Why the Brain gave no admitted answer; nothing of the call is trusted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StepFailed;
+pub enum CallFailure {
+    /// The Brain or its provider could not be reached or failed on its side: another attempt may answer.
+    Unavailable,
+    /// The Brain refused the call, its time ran out, the turn stopped, or the answer was outside its form.
+    Refused,
+}
+
+impl From<BrainError> for CallFailure {
+    fn from(error: BrainError) -> Self {
+        match error {
+            BrainError::Unavailable => Self::Unavailable,
+            BrainError::Rejected(status) if status >= 500 => Self::Unavailable,
+            BrainError::Stopped
+            | BrainError::Deadline
+            | BrainError::Rejected(_)
+            | BrainError::Protocol => Self::Refused,
+        }
+    }
+}
 
 /// How a task calls the Brain.
 pub trait TaskBrain: Send + Sync {
     /// Posts one operation with `request`, abandoning it at `deadline`.
     ///
     /// # Errors
-    /// [`StepFailed`] for every unsuccessful outcome.
+    /// [`CallFailure`] for every unsuccessful outcome.
     fn call(
         &self,
         call: BrowserCall,
         request: Value,
         deadline: Instant,
-    ) -> BoxFuture<'_, Result<Answered, StepFailed>>;
+    ) -> BoxFuture<'_, Result<Answered, CallFailure>>;
 }
 
 /// Told of each admitted answer: its operation, its model, and its usage.
@@ -228,7 +256,7 @@ impl TaskBrain for BrainCalls {
         call: BrowserCall,
         request: Value,
         deadline: Instant,
-    ) -> BoxFuture<'_, Result<Answered, StepFailed>> {
+    ) -> BoxFuture<'_, Result<Answered, CallFailure>> {
         Box::pin(async move {
             let response = self
                 .client
@@ -240,8 +268,8 @@ impl TaskBrain for BrainCalls {
                     stop: &self.stop,
                 })
                 .await
-                .map_err(|_| StepFailed)?;
-            let answered = admit(call, &response).ok_or(StepFailed)?;
+                .map_err(CallFailure::from)?;
+            let answered = admit(call, &response).ok_or(CallFailure::Refused)?;
             (self.meter)(call, &answered.model, &answered.usage);
             Ok(answered)
         })
@@ -259,7 +287,7 @@ mod tests {
     use team_inference::testing::ScriptedBrain;
     use tokio::time::Instant;
 
-    use super::{BrainCalls, BrowserCall, StepFailed, TaskBrain, Usage, admit};
+    use super::{BrainCalls, BrowserCall, CallFailure, TaskBrain, Usage, admit};
     use crate::testing::json;
 
     const USAGE: &str = r#"{"model_calls": 1, "provider_requests": 1, "failed_calls": 0, "unreported_calls": 0, "input_tokens": 1200, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}"#;
@@ -317,13 +345,44 @@ mod tests {
         assert_eq!(received[0].operation, BrainOperation::BrowserStep);
         assert_eq!(received[0].body, request);
         assert_eq!(received[0].provider.as_deref(), Some("openai"));
-        // A Brain that could not answer is a failed step, metered nowhere.
-        client.answer(Err(BrainError::Unavailable));
-        assert_eq!(
-            calls.call(BrowserCall::Step, request, Instant::now()).await,
-            Err(StepFailed)
-        );
         assert_eq!(metered.lock().expect("meter").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_brain_may_answer_later_and_a_refusal_never() {
+        let client = Arc::new(ScriptedBrain::default());
+        let credential = ModelCredential {
+            provider: "openai".to_owned(),
+            model: "gpt-6.1-sol".to_owned(),
+            api_key: Secret::new("test-key".to_owned()),
+        };
+        let calls = BrainCalls::new(
+            client.clone(),
+            credential,
+            Stop::new(),
+            Arc::new(|_, _: &str, _: &Usage| {}),
+        );
+        let request = json(r#"{"objective": "x"}"#);
+        client.answer(Err(BrainError::Unavailable));
+        client.answer(Err(BrainError::Rejected(503)));
+        client.answer(Err(BrainError::Rejected(422)));
+        client.answer(Ok(with_usage(r#"{"step": {}, "model": 7}"#)));
+        for expected in [
+            CallFailure::Unavailable,
+            CallFailure::Unavailable,
+            CallFailure::Refused,
+            CallFailure::Refused,
+        ] {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            assert_eq!(
+                calls
+                    .call(BrowserCall::Step, request.clone(), deadline)
+                    .await,
+                Err(expected)
+            );
+        }
+        assert_eq!(BrowserCall::parse("browser-fold"), Some(BrowserCall::Fold));
+        assert_eq!(BrowserCall::parse("browser-walk"), None);
     }
 
     #[test]

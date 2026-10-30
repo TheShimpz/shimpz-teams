@@ -589,8 +589,16 @@ impl Strategy for TurnStrategy<'_> {
         let browser = self.service.parts.browser.clone()?;
         Some(Box::pin(async move {
             let turn = self.service.browser_turn(self.request, &self.setup);
-            browser.run(&turn, &request.objective).await
+            browser
+                .run(&turn, &request.objective, &request.interrupt_id)
+                .await
         }))
+    }
+
+    fn browser_delivered(&self, request: &BrowserRequest) {
+        if let Some(browser) = &self.service.parts.browser {
+            browser.acknowledge(&self.request.team_id, &request.interrupt_id);
+        }
     }
 
     fn shown_results(&self, results: Value) -> Value {
@@ -869,12 +877,12 @@ impl ChatService {
         request: &SegmentRequest,
         setup: &Setup,
     ) -> crate::browser::service::BrowserTurn {
-        use team_browser::task::{BrainCalls, BrowserCall, Usage};
+        use team_browser::run::{BrainCalls, BrowserCall, Usage};
         use team_inference::usage::{Counts, UsageRecorder};
         let provider = request.credential.0.clone();
         let usage = Arc::clone(&request.usage);
         let metered = provider.clone();
-        let meter: team_browser::task::Meter =
+        let meter: team_browser::run::Meter =
             Arc::new(move |call: BrowserCall, model: &str, counts: &Usage| {
                 let counts = Counts {
                     model_calls: counts.model_calls,

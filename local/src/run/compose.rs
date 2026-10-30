@@ -185,7 +185,7 @@ fn action_runner(shared: &Shared, publications: &Publications) -> Result<Actions
 async fn browser(
     shared: &Shared,
     team: &Arc<team::Team>,
-) -> (Arc<BrowserService>, Arc<SignInSessions>) {
+) -> Result<(Arc<BrowserService>, Arc<SignInSessions>), Startup> {
     let seams = &shared.seams;
     let host = Host {
         docker: seams.docker.clone(),
@@ -199,12 +199,16 @@ async fn browser(
         &shared.cpuset,
         image,
     ));
-    let service = Arc::new(BrowserService::new(ServiceParts {
-        runtime,
-        files: Arc::new(web::Downloads(shared.stores.files.clone())),
-        audit: shared.audit.clone(),
-        entropy: seams.entropy.clone(),
-    }));
+    let service = Arc::new(step(
+        BrowserService::new(ServiceParts {
+            runtime,
+            files: Arc::new(web::Downloads(shared.stores.files.clone())),
+            audit: shared.audit.clone(),
+            entropy: seams.entropy.clone(),
+            runs: shared.layout.browser_runs.clone(),
+        }),
+        "the Browser task ledger",
+    )?);
     let sessions = Arc::new(SignInSessions::new(SessionParts {
         service: service.clone(),
         store: shared.stores.sign_ins.clone(),
@@ -212,7 +216,7 @@ async fn browser(
         audit: shared.audit.clone(),
         entropy: seams.entropy.clone(),
     }));
-    (service, sessions)
+    Ok((service, sessions))
 }
 
 /// Every running group, and what runs beside the server.
@@ -563,7 +567,7 @@ async fn built(shared: &Shared) -> Result<Built, Startup> {
     let publications = publications(shared)?;
     let actions = action_runner(shared, &publications)?;
     let (preparer, store) = preparation(shared);
-    let (browser, sessions) = browser(shared, &publications.team).await;
+    let (browser, sessions) = browser(shared, &publications.team).await?;
     let turns = turns(
         shared,
         (&publications, &actions),

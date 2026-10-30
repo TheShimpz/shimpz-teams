@@ -10,16 +10,20 @@
 //! text. While a task runs, the Supervisor may watch its screen through the task's own view, which ends with the task.
 
 mod drivers;
+mod runs;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use holdpoint::{Clock as _, RunOptions, SystemClock};
 use strict_json::{Number, Value};
-use team_browser::cua::CuaError;
 use team_browser::ingest::{self, DownloadSink, Ingested, PutRefused, ReadLost};
-use team_browser::task::{MAX_SECONDS, Outcome, Price, Status, Task, TaskBrain, TaskSeams};
+use team_browser::run::{
+    DEFINITION, MAX_SECONDS, MAX_SPEND, Outcome, Price, RunCredentials, Status, TaskBrain,
+    TaskInput, outcome_of,
+};
 use team_core::audit::AuditSink;
-use team_core::entropy::{Entropy, token_hex};
+use team_core::entropy::Entropy;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
 use team_protocol::browser::MAX_UNSCREENED_URLS;
@@ -28,12 +32,13 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 
 use super::audit::{self, Actor, Lines, short};
-use super::runtime::{Acquire, BrowserError, BrowserRuntime, Lease, LeaseRelays, Mode};
+use super::runtime::{BrowserError, BrowserRuntime, Lease, LeaseRelays};
 use super::view::{Refused, RfbRelease, Stream, View, ViewParts};
 use crate::http::service::{Relay, Upgraded};
 
-use drivers::Drivers;
 pub(crate) use drivers::plain as drivers_channel;
+pub(crate) use runs::{Runs, RunsParts};
+pub use runs::{TurnContext, Unsettled};
 
 /// Streams of watched screens the Space carries at once.
 pub const VIEWS: usize = 2;
@@ -102,6 +107,8 @@ pub struct ServiceParts {
     pub audit: Arc<dyn AuditSink>,
     /// The random source of tokens and view ids.
     pub entropy: Arc<dyn Entropy>,
+    /// The directory each Team's task ledger lives under.
+    pub runs: std::path::PathBuf,
 }
 
 /// Runs Browser tasks for chat turns and carries the views of the Space's held Browser.
@@ -112,6 +119,7 @@ pub struct BrowserService {
     entropy: Arc<dyn Entropy>,
     running: Running,
     views: Arc<Semaphore>,
+    runs: Runs,
 }
 
 impl std::fmt::Debug for BrowserService {
@@ -120,24 +128,29 @@ impl std::fmt::Debug for BrowserService {
     }
 }
 
-/// How a task's work ended short of an outcome.
-enum Lost {
-    Runtime(BrowserError),
-    Driver(CuaError),
-}
-
 impl BrowserService {
-    /// The service over `parts`.
-    #[must_use]
-    pub fn new(parts: ServiceParts) -> Self {
-        Self {
+    /// The service over `parts`, its tasks' attempts driving Team's current runtime.
+    ///
+    /// # Errors
+    /// [`Unsettled`] when the runs cannot be set up.
+    pub fn new(parts: ServiceParts) -> Result<Self, Unsettled> {
+        let running: Running = Arc::new(Mutex::new(HashMap::new()));
+        let runs = Runs::new(RunsParts {
+            root: parts.runs,
+            runtime: Arc::clone(&parts.runtime),
+            running: Arc::clone(&running),
+            audit: Arc::clone(&parts.audit),
+            entropy: Arc::clone(&parts.entropy),
+        })?;
+        Ok(Self {
             runtime: parts.runtime,
             files: parts.files,
             audit: parts.audit,
             entropy: parts.entropy,
-            running: Arc::new(Mutex::new(HashMap::new())),
+            running,
             views: Arc::new(Semaphore::new(VIEWS)),
-        }
+            runs,
+        })
     }
 
     /// The runtime.
@@ -157,17 +170,7 @@ impl BrowserService {
     /// # Errors
     /// [`Refused`] when no id could be drawn.
     pub fn view(&self, lease: &Lease, lines: Lines, private: bool) -> Result<Arc<View>, Refused> {
-        View::new(ViewParts {
-            relays: Arc::new(LeaseRelays {
-                runtime: Arc::clone(&self.runtime),
-                lease: lease.clone(),
-            }),
-            lines,
-            credentials: lease.credentials.clone(),
-            private,
-            entropy: Arc::clone(&self.entropy),
-            release: Arc::new(RfbRelease(Arc::clone(&self.entropy))),
-        })
+        view_of(&self.runtime, &self.entropy, lease, lines, private)
     }
 
     /// Makes `lease` the Team's held Browser, watched through `view`; refused while the Team holds another.
@@ -245,207 +248,203 @@ impl BrowserService {
         Ok(Box::new(Slotted { stream, permit }))
     }
 
-    /// Ends the turn `token`'s held Browser at once: its view ends and it is removed; its task's release proves it.
-    async fn interrupt(&self, team_id: &str, token: &str) {
-        let lease = {
-            let mut running = self.running.lock().await;
-            match running.get(team_id) {
-                Some(held) if held.token == token => {
-                    // From here no download of the task is stored: a store under way finished before this took the lock.
-                    let held = running.remove(team_id);
-                    held.map(|held| {
-                        held.view.end();
-                        held.lease
-                    })
-                }
-                _ => None,
-            }
-        };
-        if let Some(lease) = lease {
-            // A failed removal leaves the release to prove it, which keeps the Space refusing tasks until it does.
-            let _ = self.runtime.kill(&lease).await;
-        }
-    }
-
-    /// Runs one turn's Browser task for `objective`: the result the Brain resumes with, and the terminal's `browser`
-    /// field.
-    pub async fn run(&self, turn: &BrowserTurn, objective: &str) -> (Value, Value) {
+    /// Runs one turn's Browser task for `objective` as the durable run answering the Brain's Browser
+    /// `interrupt_id`: the result the Brain resumes with, and the terminal's `browser` field. A run an earlier Team
+    /// process started for the same interrupt is driven on from its ledger.
+    pub async fn run(
+        &self,
+        turn: &BrowserTurn,
+        objective: &str,
+        interrupt_id: &str,
+    ) -> (Value, Value) {
         let page_language = language(turn.locale.as_deref());
-        // One absolute deadline from before the Browser starts, through its view and the task, to its ingest.
-        let deadline = Instant::now() + MAX_SECONDS;
-        let acquired = self
-            .runtime
-            .acquire(Acquire {
-                team_id: &turn.team_id,
-                language: page_language,
-                mode: Mode::Agent,
-                capsule: None,
-                deadline: Some(deadline),
-                stop: Some(&turn.stop),
-            })
-            .await;
-        let lease = match acquired {
-            Ok(lease) => lease,
-            Err(error) => {
-                let _ = audit::record(
-                    self.audit.as_ref(),
-                    &turn.actor,
-                    "browser-task",
-                    "denied",
-                    &turn.team_id,
-                    error.0,
-                )
-                .await;
-                let failed = Outcome {
-                    reason: Some(error.0.to_owned()),
-                    ..Outcome::new(Status::Failed)
-                };
-                return (result(&failed, None), terminal(None));
-            }
+        let input = TaskInput {
+            team_id: turn.team_id.clone(),
+            interrupt_id: interrupt_id.to_owned(),
+            objective: objective.to_owned(),
+            language: page_language.to_owned(),
+            started_ms: SystemClock.now_ms(),
+            dearest: (turn.price)(None),
         };
-        let (outcome, ingested) = self.held_task(turn, objective, &lease, deadline).await;
-        let released = self.runtime.release(&lease).await.is_ok();
-        let ending = format!("{}:released={}", ending(&outcome), u8::from(released));
-        let _ = self.audit_task(turn, &lease, &ending).await;
-        let outcome = if released {
-            outcome
-        } else {
-            lost(outcome, "release")
+        let run_id = input.run_id();
+        let worker = match self.runs.worker(&turn.team_id) {
+            Ok(worker) => worker,
+            Err(unsettled) => return self.denied(turn, unsettled.0).await,
         };
+        let options = RunOptions {
+            deadline_ms: Some(input.deadline_ms()),
+            spend_ceiling: Some(MAX_SPEND),
+        };
+        // The same run submitted again is the same run; one an earlier process started keeps its own input.
+        match worker.submit(DEFINITION, &run_id, &input.to_json(), &options) {
+            Ok(_) | Err(holdpoint::Error::Conflict(_)) => {}
+            Err(_) => return self.denied(turn, "browser-unavailable").await,
+        }
+        let context = Arc::new(TurnContext {
+            team_id: turn.team_id.clone(),
+            incarnation: turn.incarnation.clone(),
+            language: page_language.to_owned(),
+            stop: turn.stop.clone(),
+            actor: turn.actor.clone(),
+        });
+        let credentials = Arc::new(RunCredentials {
+            brain: Arc::clone(&turn.brain),
+            price: Arc::clone(&turn.price),
+        });
+        self.runs.lend(&run_id, context, credentials);
+        let outcome = self.drive(turn, &worker, &run_id).await;
+        let (outcome, ingested) = self.settle(turn, &run_id, outcome).await;
+        self.runs.unlend(&run_id);
         (
             result(&outcome, ingested.as_ref()),
             terminal(ingested.as_ref()),
         )
     }
 
-    /// From the moment it is held, the lease is released however the task ends; Stop removes it at once.
-    async fn held_task(
+    /// Acknowledges the run answering `interrupt_id` once the Brain resumed with its result: it is never run again.
+    pub fn acknowledge(&self, team_id: &str, interrupt_id: &str) {
+        self.runs
+            .acknowledge(team_id, &team_browser::run::run_id(team_id, interrupt_id));
+    }
+
+    /// Deletes a Team's task ledger, for its teardown.
+    ///
+    /// # Errors
+    /// [`BrowserError`] when it may remain.
+    pub fn forget_team(&self, team_id: &str) -> Result<(), BrowserError> {
+        self.runs
+            .forget_team(team_id)
+            .map_err(|_| BrowserError::UNAVAILABLE)
+    }
+
+    /// Deletes every Team's task ledger, for the Space reset.
+    ///
+    /// # Errors
+    /// [`BrowserError`] when one may remain.
+    pub fn forget_all(&self) -> Result<(), BrowserError> {
+        self.runs
+            .forget_all()
+            .map_err(|_| BrowserError::UNAVAILABLE)
+    }
+
+    /// A task refused before any Browser, audited as denied.
+    async fn denied(&self, turn: &BrowserTurn, reason: &'static str) -> (Value, Value) {
+        let _ = audit::record(
+            self.audit.as_ref(),
+            &turn.actor,
+            "browser-task",
+            "denied",
+            &turn.team_id,
+            reason,
+        )
+        .await;
+        let failed = Outcome {
+            reason: Some(reason.to_owned()),
+            ..Outcome::new(Status::Failed)
+        };
+        (result(&failed, None), terminal(None))
+    }
+
+    /// Drives the run to its end; the turn's Stop cancels it and removes its Browser at once.
+    async fn drive(
         &self,
         turn: &BrowserTurn,
-        objective: &str,
-        lease: &Lease,
-        deadline: Instant,
-    ) -> (Outcome, Option<Ingested>) {
-        let Some((token, view)) = self.hold_task(turn, lease).await else {
-            return (
-                lost(Outcome::new(Status::Failed), "runtime/browser-lost"),
-                None,
-            );
-        };
+        worker: &Arc<holdpoint::Worker>,
+        run_id: &str,
+    ) -> Outcome {
+        let deadline = Instant::now() + MAX_SECONDS + team_browser::run::FINISH_SECONDS;
         let done = Stop::new();
-        let worked = async {
-            let outcome = self.work(turn, objective, lease, &token, deadline).await;
+        let driven = async {
+            let driven = self.runs.drive(worker, run_id, deadline).await;
             done.stop();
-            outcome
+            driven
         };
         let watched = async {
-            // A Stop that came as the task ended still removes the Browser at once.
             tokio::select! {
                 biased;
-                () = turn.stop.stopped() => self.interrupt(&turn.team_id, &token).await,
+                () = turn.stop.stopped() => {
+                    let _ = worker.cancel(run_id);
+                    self.runs.interrupt(run_id).await;
+                }
                 () = done.stopped() => {}
             }
         };
-        let (worked, ()) = tokio::join!(worked, watched);
-        self.drop_view(&turn.team_id, &view).await;
-        view.end();
-        worked.unwrap_or_else(|failure| {
-            let outcome = match failure {
-                Lost::Runtime(error) => lost(
-                    Outcome::new(Status::Failed),
-                    &format!("runtime/{}", error.0),
-                ),
-                Lost::Driver(_) if turn.stop.is_stopped() => Outcome::new(Status::Stopped),
-                Lost::Driver(error) => lost(
-                    Outcome::new(Status::Failed),
-                    &format!("driver/{}", error.code),
-                ),
-            };
-            (outcome, None)
-        })
+        let (driven, ()) = tokio::join!(driven, watched);
+        match driven {
+            Ok(ended) => outcome_of(&ended),
+            Err(unsettled) => lost(
+                Outcome::new(Status::Failed),
+                &format!("run/{}", unsettled.0),
+            ),
+        }
     }
 
-    /// Holds `lease` as the Team's running task with its own token and view.
-    async fn hold_task(&self, turn: &BrowserTurn, lease: &Lease) -> Option<(String, Arc<View>)> {
-        let token = token_hex(self.entropy.as_ref(), 16).ok()?;
-        let lines = Lines::new(
-            Arc::clone(&self.audit),
-            turn.actor.clone(),
-            "browser-view",
-            &turn.team_id,
-            "",
-            format!(":container={}", short(&lease.container_id)),
-        );
-        let view = self.view(lease, lines, false).ok()?;
-        self.running.lock().await.insert(
-            turn.team_id.clone(),
-            Held {
-                token: token.clone(),
-                lease: lease.clone(),
-                view: Arc::clone(&view),
-            },
-        );
-        Some((token, view))
-    }
-
-    /// The task and then its downloads, each only while the turn runs; an egress replaced meanwhile loses it.
-    async fn work(
+    /// After the run: its downloads while the turn runs, then its Browser released and the ending audited.
+    async fn settle(
         &self,
         turn: &BrowserTurn,
-        objective: &str,
-        lease: &Lease,
-        token: &str,
-        deadline: Instant,
-    ) -> Result<(Outcome, Option<Ingested>), Lost> {
-        self.audit_task(turn, lease, "started")
-            .await
-            .map_err(|()| Lost::Runtime(BrowserError::LOST))?;
-        // A Stop during creation found no lease to remove: no channel opens once the turn is stopped.
-        if turn.stop.is_stopped() {
-            return Ok((Outcome::new(Status::Stopped), None));
-        }
-        // A start that took the whole deadline leaves the task no time.
-        if Instant::now() >= deadline {
-            return Ok((Outcome::new(Status::Budget), None));
-        }
-        let drivers = Arc::new(Drivers::new(
-            Arc::clone(&self.runtime),
-            Arc::clone(&self.running),
-            lease.clone(),
-            token.to_owned(),
-            turn.stop.clone(),
-        ));
-        let session = drivers
-            .fresh(deadline.min(Instant::now() + team_browser::cua::CALL_SECONDS))
-            .await
-            .map_err(|failure| match failure {
-                drivers::Fresh::Runtime(error) => Lost::Runtime(error),
-                drivers::Fresh::Driver(error) => Lost::Driver(error),
-            })?;
-        let seams = TaskSeams {
-            brain: Arc::clone(&turn.brain),
-            price: Arc::clone(&turn.price),
-            stop: turn.stop.clone(),
-            host: drivers,
+        run_id: &str,
+        outcome: Outcome,
+    ) -> (Outcome, Option<Ingested>) {
+        let (outcome, ingested) = match self.runs.held(run_id) {
+            Some((lease, token))
+                if outcome.status != Status::Stopped && !turn.stop.is_stopped() =>
+            {
+                let deadline = Instant::now() + team_browser::run::FINISH_SECONDS;
+                let (outcome, ingested) = self
+                    .downloads(turn, &lease, &token, deadline, outcome)
+                    .await;
+                if self.runtime.intact(&lease).await {
+                    (outcome, ingested)
+                } else {
+                    (lost(outcome, "runtime/not-intact"), ingested)
+                }
+            }
+            _ => (outcome, None),
         };
-        let page_language = language(turn.locale.as_deref()).to_owned();
-        let outcome = Task::new(
-            objective.to_owned(),
-            page_language,
-            session,
-            seams,
-            deadline,
-        )
-        .run()
-        .await;
-        if outcome.status == Status::Stopped || turn.stop.is_stopped() {
-            return Ok((outcome, None));
-        }
-        let (outcome, ingested) = self.downloads(turn, lease, token, deadline, outcome).await;
-        if !self.runtime.intact(lease).await {
-            return Ok((lost(outcome, "runtime/not-intact"), ingested));
-        }
-        Ok((outcome, ingested))
+        let (released, lease) = self.runs.release(run_id).await;
+        self.audit_ending(turn, lease.as_ref(), &outcome, released)
+            .await;
+        let outcome = if released {
+            outcome
+        } else {
+            lost(outcome, "release")
+        };
+        (outcome, ingested)
+    }
+
+    /// The task's ending in the audit: denied when no Browser was ever held, else its Browser's line.
+    async fn audit_ending(
+        &self,
+        turn: &BrowserTurn,
+        lease: Option<&Lease>,
+        outcome: &Outcome,
+        released: bool,
+    ) {
+        let Some(lease) = lease else {
+            if let (Status::Failed, Some(reason)) = (outcome.status, &outcome.reason) {
+                let sink = self.audit.as_ref();
+                let _ = audit::record(
+                    sink,
+                    &turn.actor,
+                    "browser-task",
+                    "denied",
+                    &turn.team_id,
+                    reason,
+                )
+                .await;
+            }
+            return;
+        };
+        let context = TurnContext {
+            team_id: turn.team_id.clone(),
+            incarnation: turn.incarnation.clone(),
+            language: String::new(),
+            stop: turn.stop.clone(),
+            actor: turn.actor.clone(),
+        };
+        let ending = format!("{}:released={}", ending(outcome), u8::from(released));
+        let _ = audit_task(self.audit.as_ref(), &context, lease, &ending).await;
     }
 
     /// The task's downloads; when they cannot be read, its own answer stands without them, the audit saying why.
@@ -476,29 +475,57 @@ impl BrowserService {
             Err(_) => (with_cause(outcome, "ingest/listing"), None),
         }
     }
+}
 
-    async fn audit_task(&self, turn: &BrowserTurn, lease: &Lease, state: &str) -> Result<(), ()> {
-        let egress = &lease.egress;
-        let detail = format!(
-            "{state}:incarnation={}:container={}:address={}:egress={}@{}:generation={}",
-            turn.incarnation.get(..12).unwrap_or(&turn.incarnation),
-            short(&lease.container_id),
-            lease.address,
-            short(&egress.container_id),
-            egress.started,
-            egress.generation
-        );
-        audit::record(
-            self.audit.as_ref(),
-            &turn.actor,
-            "browser-task",
-            "ok",
-            &turn.team_id,
-            &detail,
-        )
-        .await
-        .map_err(drop)
-    }
+/// One audit line of a task's Browser: its Team and incarnation, the container, its address, and the egress process
+/// and generation it ran on, never a URL or page text.
+pub(super) async fn audit_task(
+    sink: &dyn AuditSink,
+    turn: &TurnContext,
+    lease: &Lease,
+    state: &str,
+) -> Result<(), ()> {
+    let egress = &lease.egress;
+    let detail = format!(
+        "{state}:incarnation={}:container={}:address={}:egress={}@{}:generation={}",
+        turn.incarnation.get(..12).unwrap_or(&turn.incarnation),
+        short(&lease.container_id),
+        lease.address,
+        short(&egress.container_id),
+        egress.started,
+        egress.generation
+    );
+    audit::record(
+        sink,
+        &turn.actor,
+        "browser-task",
+        "ok",
+        &turn.team_id,
+        &detail,
+    )
+    .await
+    .map_err(drop)
+}
+
+/// A new view of `lease` for `lines`, controlled with `lease`'s credentials when it has them.
+pub(super) fn view_of(
+    runtime: &Arc<BrowserRuntime>,
+    entropy: &Arc<dyn Entropy>,
+    lease: &Lease,
+    lines: Lines,
+    private: bool,
+) -> Result<Arc<View>, Refused> {
+    View::new(ViewParts {
+        relays: Arc::new(LeaseRelays {
+            runtime: Arc::clone(runtime),
+            lease: lease.clone(),
+        }),
+        lines,
+        credentials: lease.credentials.clone(),
+        private,
+        entropy: Arc::clone(entropy),
+        release: Arc::new(RfbRelease(Arc::clone(entropy))),
+    })
 }
 
 /// A stream holding one of the Space's stream slots until it ends.

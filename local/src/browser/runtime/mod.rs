@@ -192,6 +192,8 @@ pub struct BrowserRuntime {
     held: AtomicBool,
     // Set when a removal failed or was not proven: the next holder cleans first.
     dirty: AtomicBool,
+    // Set once this process proved that no Browser of an earlier Team process is left.
+    cleaned: AtomicBool,
     // The egress generation an earlier task ran on, which no later task may share; unknown after a Team start.
     used: Mutex<Option<Generation>>,
     // The one pull of the pinned image under way, if any: its outcome once known.
@@ -254,6 +256,7 @@ impl BrowserRuntime {
             image,
             held: AtomicBool::new(false),
             dirty: AtomicBool::new(true),
+            cleaned: AtomicBool::new(false),
             used: Mutex::new(None),
             pull: Mutex::new(None),
         }
@@ -279,6 +282,13 @@ impl BrowserRuntime {
 
     fn free_slot(&self) {
         self.held.store(false, Ordering::SeqCst);
+    }
+
+    /// Whether this process proved that no Browser an earlier Team process left remains, so none of its Driver
+    /// sessions can act again.
+    #[must_use]
+    pub fn previous_gone(&self) -> bool {
+        self.cleaned.load(Ordering::SeqCst)
     }
 
     /// Whether the last cleanup or release left residue unproven.
@@ -401,6 +411,9 @@ impl BrowserRuntime {
             return false;
         }
         let outcome = self.remove_all(None).await.is_ok();
+        if outcome {
+            self.cleaned.store(true, Ordering::SeqCst);
+        }
         self.free_slot();
         outcome
     }
@@ -412,6 +425,7 @@ impl BrowserRuntime {
     /// [`BrowserError`] when either was not proven.
     pub async fn clean(&self) -> Result<(), BrowserError> {
         self.remove_all(None).await?;
+        self.cleaned.store(true, Ordering::SeqCst);
         if self.available() {
             self.restart_egress().await?;
         }
