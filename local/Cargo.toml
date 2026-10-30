@@ -24,7 +24,7 @@ base64.workspace = true
 bollard.workspace = true
 futures-core.workspace = true
 http-body-util.workspace = true
-hyper = { workspace = true, features = ["client", "http1"] }
+hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 ring.workspace = true
 rusqlite = { workspace = true, features = ["hooks", "serialize"] }

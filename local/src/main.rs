@@ -3,6 +3,8 @@
 use std::process::ExitCode;
 
 use team_local::cli::{self, Command};
+use team_local::http::probe;
+use team_local::layout::StateLayout;
 
 fn main() -> ExitCode {
     match cli::parse(std::env::args().skip(1)) {
@@ -16,9 +18,24 @@ fn main() -> ExitCode {
 
 /// Each subcommand is wired by its workstream; until then it reports that it is not available.
 fn run(command: &Command) -> ExitCode {
+    let token = StateLayout::local().controller_token;
     match command {
         Command::Prepare => team_prepare::worker::main(),
         Command::PrepareIdle => team_local::prepare::idle::main(),
+        Command::Healthcheck => {
+            if probe::healthy(&token, probe::PORT) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Command::Activity => match probe::activity(&token, probe::PORT) {
+            Some(state) => {
+                println!("{state}");
+                ExitCode::SUCCESS
+            }
+            None => ExitCode::FAILURE,
+        },
         _ => {
             eprintln!(
                 "shimpz-team: `{}` is not available in this build",
