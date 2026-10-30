@@ -1,0 +1,33 @@
+[package]
+name = "assistant-protocol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+license = "Apache-2.0"
+description = "The Assistant protocol v1 reference rules on strict JSON values, shared by Developers and Team"
+
+[dependencies]
+# The pins the Developers workspace uses for the same packages, so its lock resolves them identically.
+sha2 = "=0.11.0"
+strict-json = { path = "../../vendor/strict-json" }
+unicode-normalization = { version = "=0.1.25", default-features = false, features = ["std"] }
+
+# The ADR-0123 lints and complexity bound (clippy.toml holds its thresholds).
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cognitive_complexity = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+
+# The crate is its own workspace: the Developers workspace excludes it, and each consumer depends on it by path.
+[workspace]
+members = ["."]
