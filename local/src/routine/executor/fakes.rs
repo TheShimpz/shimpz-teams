@@ -227,7 +227,8 @@ impl FakeRoutineActions {
     }
 
     fn mint(&self) -> String {
-        format!("{:032x}", self.minted.fetch_add(1, Ordering::SeqCst) + 1)
+        let count = self.minted.fetch_add(1, Ordering::SeqCst) + 1;
+        format!("00000000-0000-4000-8000-{count:012x}")
     }
 
     fn next(&self) -> Outcome {
