@@ -72,15 +72,22 @@ impl ImageAdmission {
         container_file(&archive.metadata, &archive.tar, name, maximum).map_err(|_| MANIFEST_INVALID)
     }
 
-    /// The binding whose artifact `spec` runs.
+    /// The binding whose artifact `spec` runs: a committed one, or the verified successor an open update transaction
+    /// binds, whose container is created and admitted before its binding commits.
     async fn reviewed(&self, spec: &ContainerSpec) -> Result<AssistantSpec, Problem> {
         let bindings = self
             .registry
             .snapshot()
             .await
             .map_err(|_| MANIFEST_UNAVAILABLE)?;
+        let updates = self
+            .registry
+            .list_updates()
+            .await
+            .map_err(|_| MANIFEST_UNAVAILABLE)?;
         bindings
             .iter()
+            .chain(updates.iter().map(|update| &update.successor))
             .filter(|binding| binding.assistant_id() == spec.assistant_id)
             .filter_map(AssistantSpec::of)
             .find(|candidate| candidate.image == spec.image)

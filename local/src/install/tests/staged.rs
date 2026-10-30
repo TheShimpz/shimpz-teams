@@ -24,6 +24,7 @@ use crate::install::spec::AssistantSpec;
 
 const ASSISTANT: &str = "shimpz-cloudflare";
 const IMAGE: &str = "sha256:5555555555555555555555555555555555555555555555555555555555555555";
+const SUCCESSOR: &str = "sha256:6666666666666666666666666666666666666666666666666666666666666666";
 
 fn reference(name: &str) -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -87,6 +88,11 @@ fn labels(source: &str) -> HashMap<String, String> {
 
 /// Stages the reference Assistant as the exact image [`IMAGE`] carrying `manifest`.
 fn stage(harness: &Harness, manifest: &[u8]) {
+    stage_as(harness, manifest, IMAGE);
+}
+
+/// Stages the reference Assistant as the exact image `id` carrying `manifest`.
+fn stage_as(harness: &Harness, manifest: &[u8], id: &str) {
     let docker = harness.docker.as_ref();
     docker.set_info(SystemInfo {
         architecture: Some("x86_64".to_owned()),
@@ -100,12 +106,12 @@ fn stage(harness: &Harness, manifest: &[u8]) {
     );
     let labels = labels(&source);
     let mut image = staged_image();
-    image.id = Some(IMAGE.to_owned());
+    image.id = Some(id.to_owned());
     image.repo_tags = Some(vec![canonical_reference(ASSISTANT)]);
     if let Some(config) = image.config.as_mut() {
         config.labels = Some(labels);
     }
-    docker.add_image(IMAGE, image.clone());
+    docker.add_image(id, image.clone());
     docker.add_image(&canonical_reference(ASSISTANT), image);
     for (path, name, contents) in [
         (SOURCE_PATH, "source.package", package),
@@ -118,7 +124,7 @@ fn stage(harness: &Harness, manifest: &[u8]) {
         ),
         (PACK_PATH, "shimpz.pack.json", reference("shimpz.pack.json")),
     ] {
-        docker.add_image_file(IMAGE, path, archive(name, &contents));
+        docker.add_image_file(id, path, archive(name, &contents));
     }
 }
 
@@ -214,4 +220,36 @@ async fn the_image_review_refuses_a_manifest_that_differs_from_the_binding() {
         harness.admission.manifest(&container, &spec).await,
         Err(MANIFEST_INVALID)
     );
+}
+
+#[tokio::test]
+async fn a_successor_is_admitted_against_its_update_transaction_before_its_binding_commits() {
+    let harness = reviewing_harness().await;
+    let manifest = reference("shimpz.toml");
+    stage(&harness, &manifest);
+    harness
+        .assistants
+        .install_local(TEAM, IMAGE, true)
+        .await
+        .expect("installed");
+    // No other Team binds the successor's image, so only its update transaction can review it.
+    stage_as(&harness, &manifest, SUCCESSOR);
+    let updated = harness
+        .assistants
+        .install_local(TEAM, SUCCESSOR, false)
+        .await
+        .expect("updated");
+    assert_eq!(updated.get("updated"), Some(&Value::Bool(true)));
+    let binding = harness
+        .registry
+        .binding(TEAM, ASSISTANT)
+        .await
+        .expect("readable")
+        .expect("bound");
+    assert_eq!(
+        binding.document.get("image_id"),
+        Some(&Value::String(SUCCESSOR.to_owned()))
+    );
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 0);
 }
