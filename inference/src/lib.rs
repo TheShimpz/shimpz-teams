@@ -8,6 +8,7 @@
 pub mod brain;
 pub mod client;
 pub mod credential;
+pub mod memory;
 pub mod runtime;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
