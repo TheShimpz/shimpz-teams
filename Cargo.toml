@@ -37,7 +37,11 @@ bollard = { version = "=0.21.1", default-features = false, features = ["pipe"] }
 fancy-regex = { version = "=0.19.2", default-features = false, features = ["std", "unicode"] }
 getrandom = "=0.4.3"
 hmac = "=0.13.0"
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", default-features = false }
+hyper-util = { version = "=0.1.21", default-features = false }
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-fat", "tzdb-zoneinfo"] }
+ring = "=0.17.14"
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 rustix = { version = "=1.1.5", default-features = false, features = ["fs", "process", "std"] }
 sha2 = "=0.11.0"
