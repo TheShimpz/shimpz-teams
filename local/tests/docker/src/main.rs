@@ -53,10 +53,8 @@ fn main() -> ExitCode {
 
 fn suite(report: &mut Report) -> Outcome {
     let images = Images::from_environment()?;
-    if setup::reference_fixture().is_none() {
-        image::configuration(&images.team, report)?;
-        image::filesystem(&images.team, report)?;
-    }
+    image::configuration(&images.team, report)?;
+    image::filesystem(&images.team, report)?;
     probe::pull()?;
     let names = Names::fresh()?;
     let mut trusted = None;

@@ -280,31 +280,12 @@ fn controller_arguments(names: &Names, images: &Images, daemon: &Daemon, brain: 
                 arguments.flag("--volume", format!("{}:{target}{mode}", names.volume(stem)));
         }
     }
-    arguments = arguments
+    arguments
         .flag("--env", format!("SHIMPZ_SPACE_ID={}", names.space_id))
-        .flag("--env", format!("SHIMPZ_BRAIN_RUNTIME_URL={}", brain.url()));
-    match reference_fixture() {
-        Some(script) => arguments
-            .flag(
-                "--volume",
-                format!("{script}:/local-controller-fixture.py:ro"),
-            )
-            .flag("--entrypoint", "/opt/venv/bin/python")
-            .arg(&images.team)
-            .arg("/local-controller-fixture.py"),
-        None => arguments
-            .flag("--entrypoint", "/usr/local/bin/shimpz-team-fixture")
-            .arg(&images.fixture)
-            .arg("serve"),
-    }
-}
-
-/// `SHIMPZ_TEAM_REFERENCE_FIXTURE`: the Python reference runner, until the swap deletes the Python controller. With it,
-/// the suite drives the Python controller in the same envelope, proving the suite against the behaviour reference.
-pub fn reference_fixture() -> Option<String> {
-    std::env::var("SHIMPZ_TEAM_REFERENCE_FIXTURE")
-        .ok()
-        .filter(|path| !path.is_empty())
+        .flag("--env", format!("SHIMPZ_BRAIN_RUNTIME_URL={}", brain.url()))
+        .flag("--entrypoint", "/usr/local/bin/shimpz-team-fixture")
+        .arg(&images.fixture)
+        .arg("serve")
 }
 
 /// The started controller's port and bearer.
