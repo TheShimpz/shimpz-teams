@@ -302,6 +302,12 @@ a required `messages` list of `{id, msgid, max_length, params}` objects, sorted 
 
 - `msgid` is the English template: a trimmed, printable, NFC string of at most 500 characters without control, bidi
   override or isolate, or zero-width formatting characters. `id` is the lowercase SHA-256 of its exact UTF-8 bytes.
+- Printable and every general category these rules use come from Unicode 16.0.0, pinned in
+  `validators/unicode_category.py`, never from a reader's own Unicode tables: a character unassigned in 16.0.0 is not
+  printable for any reader. NFC is checked with the reader's normalization, which is stable for every character
+  assigned in 16.0.0 on any newer Unicode. `vectors/unicode-category.json` lists each code point whose category differs
+  in Unicode 17.0.0 with the pinned category and the one-character text verdict. Another Unicode version is a protocol
+  change: regenerate both with `../generate_unicode_category.py`.
 - A placeholder is one `string.Formatter` named field `{name}` whose name matches `[a-z][a-z0-9_]{0,31}`. Attribute
   or index access, conversion, format specification, nesting, positional or numeric fields, escaped `{{` or `}}`,
   and any other brace are refused. Each placeholder appears exactly once. There is no plural or context syntax.
@@ -522,7 +528,7 @@ turn-wide request limit and challenge lifetime.
 
 The root holds the five JSON Schemas, this README, `verify.py`, and `contract-files.sha256`. `vectors/` holds the
 golden conformance vectors and `validators/` the reference validators; each validator is a standalone module with no
-import of another. Every path in `contract-files.sha256` is relative to this directory, and nothing else may exist
+import of another, except that the text rules read `validators/unicode_category.py`, the generated Unicode table. Every path in `contract-files.sha256` is relative to this directory, and nothing else may exist
 at any depth: `verify.py` refuses an unlisted file, a symbolic link, or any other directory, including `__pycache__`,
 before it imports a validator, reads the manifest and every artifact only as a regular file, and writes no bytecode
 into the tree.

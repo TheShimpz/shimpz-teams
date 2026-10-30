@@ -8,6 +8,8 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 
+from .unicode_category import category, printable
+
 LOCALES = ("ar", "de", "es", "fr", "ja", "pt", "zh")
 PACK_FORMAT = "assistant-language-pack-v1"
 FIELD_BOUNDS = (80, 120, 160, 500)
@@ -68,12 +70,17 @@ def pack_digest(raw: bytes) -> str:
 
 
 def public_text(value: object, maximum: int) -> bool:
-    """Return whether a value is trimmed, printable, NFC, and within its character bound."""
+    """Return whether a value is trimmed, printable, NFC, and within its character bound.
+
+    Printability comes from the pinned Unicode table, never the running interpreter, so a character unassigned in the
+    pinned version is refused by every reader. NFC is the interpreter's: normalization is stable for every character
+    assigned in the pinned version, and every reader runs a Unicode version at least as new.
+    """
     return (
         isinstance(value, str)
         and value == value.strip()
         and 0 < len(value) <= maximum
-        and value.isprintable()
+        and printable(value)
         and unicodedata.is_normalized("NFC", value)
     )
 
@@ -237,7 +244,7 @@ def _mark_follows_field(template: str) -> bool:
     new rule. Renderings are still checked for NFC after insertion, and parameter values are never normalized.
     """
     following = (template[match.end() : match.end() + 1] for match in PLACEHOLDER.finditer(template))
-    return any(character and unicodedata.category(character).startswith("M") for character in following)
+    return any(character and category(character).startswith("M") for character in following)
 
 
 def _declarations(value: object) -> dict[str, dict[str, object]] | None:
