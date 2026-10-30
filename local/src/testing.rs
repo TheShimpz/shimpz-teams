@@ -8,12 +8,12 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bollard::models::{
     ContainerConfig, ContainerCreateBody, ContainerInspectResponse, ContainerState,
-    ContainerStateStatusEnum, ContainerSummary, EndpointSettings, ImageInspect, Network,
-    NetworkCreateRequest, NetworkInspect, NetworkSettings, SystemInfo,
+    ContainerStateStatusEnum, ContainerSummary, EndpointSettings, ImageInspect, ImageSummary,
+    Network, NetworkCreateRequest, NetworkInspect, NetworkSettings, SystemInfo,
 };
 use team_core::future::BoxFuture;
 
-use crate::docker::{DockerEngine, DockerError, Labels};
+use crate::docker::{Archive, DockerEngine, DockerError, Labels};
 
 /// The in-memory daemon.
 #[derive(Debug, Default)]
@@ -29,6 +29,8 @@ struct State {
     images: HashMap<String, ImageInspect>,
     remote: HashMap<String, ImageInspect>,
     pulled: Vec<String>,
+    removed_images: Vec<String>,
+    archives: HashMap<(String, String), Archive>,
     next: u64,
     unavailable: bool,
 }
@@ -85,6 +87,19 @@ impl FakeDocker {
     /// Makes `image` pullable as `reference`; it is inspectable only once pulled.
     pub fn add_remote_image(&self, reference: &str, image: ImageInspect) {
         self.state().remote.insert(reference.to_owned(), image);
+    }
+
+    /// Makes `path` of the container named `container` answer `archive` (its whole tar stream).
+    pub fn add_archive(&self, container: &str, path: &str, archive: Archive) {
+        self.state()
+            .archives
+            .insert((container.to_owned(), path.to_owned()), archive);
+    }
+
+    /// Every image removed so far, as named.
+    #[must_use]
+    pub fn removed_images(&self) -> Vec<String> {
+        self.state().removed_images.clone()
     }
 
     /// Every reference pulled so far.
@@ -445,6 +460,80 @@ impl DockerEngine for FakeDocker {
         })
     }
 
+    fn get_archive<'a>(
+        &'a self,
+        container: &'a str,
+        path: &'a str,
+        bound: usize,
+    ) -> BoxFuture<'a, Result<Archive, DockerError>> {
+        Box::pin(async move {
+            let state = self.reachable()?;
+            let name = Self::find(&state, container)?.name;
+            let mut archive = state
+                .archives
+                .get(&(name, path.to_owned()))
+                .cloned()
+                .ok_or(DockerError::NotFound)?;
+            archive.tar.truncate(bound.saturating_add(1));
+            Ok(archive)
+        })
+    }
+
+    fn list_images<'a>(
+        &'a self,
+        labels: Labels<'a>,
+    ) -> BoxFuture<'a, Result<Vec<ImageSummary>, DockerError>> {
+        Box::pin(async move {
+            let state = self.reachable()?;
+            let mut listed: Vec<ImageSummary> = Vec::new();
+            for image in state.images.values() {
+                let image_labels = image
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.labels.as_ref());
+                let id = image.id.clone().unwrap_or_default();
+                if !carries(image_labels, labels) || listed.iter().any(|known| known.id == id) {
+                    continue;
+                }
+                listed.push(ImageSummary {
+                    id,
+                    repo_tags: image.repo_tags.clone().unwrap_or_default(),
+                    repo_digests: image.repo_digests.clone().unwrap_or_default(),
+                    labels: image_labels.cloned().unwrap_or_default(),
+                    ..ImageSummary::default()
+                });
+            }
+            listed.sort_by(|left, right| left.id.cmp(&right.id));
+            Ok(listed)
+        })
+    }
+
+    fn remove_image<'a>(&'a self, image: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
+        Box::pin(async move {
+            let mut state = self.reachable()?;
+            let id = state
+                .images
+                .iter()
+                .find(|(reference, found)| {
+                    *reference == image || found.id.as_deref() == Some(image)
+                })
+                .and_then(|(_, found)| found.id.clone())
+                .ok_or(DockerError::NotFound)?;
+            if state
+                .containers
+                .iter()
+                .any(|container| container.image_id.as_deref() == Some(id.as_str()))
+            {
+                return Err(DockerError::Conflict);
+            }
+            state
+                .images
+                .retain(|_, found| found.id.as_deref() != Some(id.as_str()));
+            state.removed_images.push(image.to_owned());
+            Ok(())
+        })
+    }
+
     fn pull_image<'a>(&'a self, reference: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
         Box::pin(async move {
             let mut state = self.reachable()?;
@@ -516,5 +605,61 @@ mod tests {
         );
         docker.set_unavailable(true);
         assert_eq!(docker.info().await.err(), Some(DockerError::Unavailable));
+    }
+
+    #[tokio::test]
+    async fn images_list_by_label_remove_unless_used_and_archives_stop_at_their_bound() {
+        use bollard::models::{ImageConfig, ImageInspect};
+
+        use crate::docker::Archive;
+
+        let docker = FakeDocker::default();
+        let labelled = |id: &str, value: &str| ImageInspect {
+            id: Some(id.to_owned()),
+            config: Some(ImageConfig {
+                labels: Some(HashMap::from([("stage".to_owned(), value.to_owned())])),
+                ..ImageConfig::default()
+            }),
+            ..ImageInspect::default()
+        };
+        docker.add_image("one:tag", labelled("sha256:1", "a"));
+        docker.add_image("two:tag", labelled("sha256:2", "b"));
+        let listed = docker.list_images(&[("stage", "a")]).await.expect("listed");
+        assert_eq!(
+            listed
+                .iter()
+                .map(|image| image.id.as_str())
+                .collect::<Vec<_>>(),
+            ["sha256:1"]
+        );
+        let body = ContainerCreateBody {
+            image: Some("two:tag".to_owned()),
+            ..ContainerCreateBody::default()
+        };
+        docker
+            .create_container("user", body)
+            .await
+            .expect("created");
+        assert_eq!(
+            docker.remove_image("sha256:2").await,
+            Err(DockerError::Conflict)
+        );
+        assert_eq!(docker.remove_image("one:tag").await, Ok(()));
+        assert_eq!(
+            docker.remove_image("one:tag").await,
+            Err(DockerError::NotFound)
+        );
+        assert_eq!(docker.removed_images(), ["one:tag"]);
+        let archive = Archive {
+            metadata: strict_json::Value::Object(Vec::new()),
+            tar: b"0123456789".to_vec(),
+        };
+        docker.add_archive("user", "/file", archive);
+        let read = docker.get_archive("user", "/file", 3).await.expect("read");
+        assert_eq!(read.tar, b"0123");
+        assert_eq!(
+            docker.get_archive("user", "/other", 3).await.err(),
+            Some(DockerError::NotFound)
+        );
     }
 }

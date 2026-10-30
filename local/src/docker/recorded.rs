@@ -6,11 +6,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bollard::models::{
     ContainerCreateBody, ContainerInspectResponse, ContainerStateStatusEnum, ContainerSummary,
-    ImageInspect, Network, NetworkCreateRequest, NetworkInspect, SystemInfo,
+    ImageInspect, ImageSummary, Network, NetworkCreateRequest, NetworkInspect, SystemInfo,
 };
 use team_core::future::BoxFuture;
 
-use super::{DockerEngine, DockerError, Labels};
+use super::{Archive, DockerEngine, DockerError, Labels};
 
 /// One shared, ordered event log.
 #[derive(Clone, Debug, Default)]
@@ -275,6 +275,38 @@ impl<D: DockerEngine> DockerEngine for Recorded<D> {
             "inspect_image",
             "inspect-image".to_owned(),
             self.inner.inspect_image(reference),
+        ))
+    }
+
+    fn get_archive<'a>(
+        &'a self,
+        container: &'a str,
+        path: &'a str,
+        bound: usize,
+    ) -> BoxFuture<'a, Result<Archive, DockerError>> {
+        Box::pin(self.call(
+            "get_archive",
+            format!("archive {path}"),
+            self.inner.get_archive(container, path, bound),
+        ))
+    }
+
+    fn list_images<'a>(
+        &'a self,
+        labels: Labels<'a>,
+    ) -> BoxFuture<'a, Result<Vec<ImageSummary>, DockerError>> {
+        Box::pin(self.call(
+            "list_images",
+            "list-images".to_owned(),
+            self.inner.list_images(labels),
+        ))
+    }
+
+    fn remove_image<'a>(&'a self, image: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
+        Box::pin(self.call(
+            "remove_image",
+            format!("remove-image {}", short(image)),
+            self.inner.remove_image(image),
         ))
     }
 

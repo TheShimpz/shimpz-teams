@@ -6,6 +6,7 @@
 //! inspected against its complete expected envelope before it receives untrusted input (Assistants, preparation
 //! helpers, Browsers), and drift refuses and removes it.
 
+pub mod archive;
 pub mod daemon;
 pub mod exec;
 pub mod helpers;
@@ -15,9 +16,10 @@ pub mod problem;
 pub(crate) mod recorded;
 
 use bollard::models::{
-    ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, Network,
-    NetworkCreateRequest, NetworkInspect, SystemInfo,
+    ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, ImageSummary,
+    Network, NetworkCreateRequest, NetworkInspect, SystemInfo,
 };
+use strict_json::Value;
 use team_core::future::BoxFuture;
 
 /// A closed Docker failure; it never carries the daemon's text.
@@ -46,7 +48,17 @@ impl std::error::Error for DockerError {}
 /// Label filters: every `(name, value)` must be present on the object.
 pub type Labels<'a> = &'a [(&'a str, &'a str)];
 
-/// The Docker operations the controller performs, beyond exec.
+/// One path of a container as the archive endpoint answers it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Archive {
+    /// The path's stat metadata (`name`, `size`, `mode`, `mtime`, `linkTarget`), as Docker reports it.
+    pub metadata: Value,
+    /// The tar stream's first bytes: at most the bound plus one, so a longer stream shows as longer than the bound.
+    pub tar: Vec<u8>,
+}
+
+/// The Docker operations the controller performs, beyond exec. The archive and image-inventory operations answer
+/// [`DockerError::Unavailable`] unless an implementation provides them (a test fake that never reaches them).
 pub trait DockerEngine: Send + Sync {
     /// The daemon's system information (its default seccomp profile, `NCPU`).
     ///
@@ -145,6 +157,41 @@ pub trait DockerEngine: Send + Sync {
         &'a self,
         reference: &'a str,
     ) -> BoxFuture<'a, Result<ImageInspect, DockerError>>;
+
+    /// The path `path` of container `container`: its stat metadata and its tar stream, read no further than `bound`
+    /// bytes (one more byte proves the stream longer than the bound).
+    ///
+    /// # Errors
+    /// [`DockerError::NotFound`] when the container or path does not exist; [`DockerError::Unavailable`] for any
+    /// other failure, including metadata that is not one strict JSON object.
+    fn get_archive<'a>(
+        &'a self,
+        _container: &'a str,
+        _path: &'a str,
+        _bound: usize,
+    ) -> BoxFuture<'a, Result<Archive, DockerError>> {
+        Box::pin(async { Err(DockerError::Unavailable) })
+    }
+
+    /// Every image carrying all of `labels`.
+    ///
+    /// # Errors
+    /// [`DockerError`] when they cannot be listed.
+    fn list_images<'a>(
+        &'a self,
+        _labels: Labels<'a>,
+    ) -> BoxFuture<'a, Result<Vec<ImageSummary>, DockerError>> {
+        Box::pin(async { Err(DockerError::Unavailable) })
+    }
+
+    /// Removes one image by id or exact reference, never forced and without pruning its parents; an image a
+    /// container still uses is [`DockerError::Conflict`].
+    ///
+    /// # Errors
+    /// [`DockerError`] when it was not removed.
+    fn remove_image<'a>(&'a self, _image: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
+        Box::pin(async { Err(DockerError::Unavailable) })
+    }
 
     /// Pulls an exact digest reference (`repository@sha256:…`).
     ///

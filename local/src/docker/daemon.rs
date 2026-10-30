@@ -1,5 +1,6 @@
-//! The Docker daemon over its Unix socket: bollard for every call but exec attach, which [`super::exec`] upgrades on
-//! its own connection. No failure carries the daemon's text: each maps to one closed [`DockerError`].
+//! The Docker daemon over its Unix socket: bollard for every call but exec attach and the archive endpoint, which
+//! [`super::exec`] and [`super::archive`] request on their own connections. No failure carries the daemon's text:
+//! each maps to one closed [`DockerError`].
 
 use std::collections::HashMap;
 use std::future::poll_fn;
@@ -8,17 +9,18 @@ use std::pin::pin;
 
 use bollard::errors::Error as BollardError;
 use bollard::models::{
-    ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, Network,
-    NetworkCreateRequest, NetworkInspect, SystemInfo,
+    ContainerCreateBody, ContainerInspectResponse, ContainerSummary, ImageInspect, ImageSummary,
+    Network, NetworkCreateRequest, NetworkInspect, SystemInfo,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, InspectContainerOptions, ListContainersOptions,
-    ListNetworksOptions, RemoveContainerOptions, RestartContainerOptions,
+    ListImagesOptions, ListNetworksOptions, RemoveContainerOptions, RemoveImageOptions,
+    RestartContainerOptions,
 };
 use futures_core::Stream;
 use team_core::future::BoxFuture;
 
-use super::{DockerEngine, DockerError, Labels};
+use super::{Archive, DockerEngine, DockerError, Labels};
 
 /// The socket the Team container mounts.
 pub const SOCKET: &str = "/var/run/docker.sock";
@@ -239,6 +241,46 @@ impl DockerEngine for Daemon {
             self.api
                 .inspect_image(reference)
                 .await
+                .map_err(|error| closed(&error))
+        })
+    }
+
+    fn get_archive<'a>(
+        &'a self,
+        container: &'a str,
+        path: &'a str,
+        bound: usize,
+    ) -> BoxFuture<'a, Result<Archive, DockerError>> {
+        Box::pin(super::archive::get(&self.socket, container, path, bound))
+    }
+
+    fn list_images<'a>(
+        &'a self,
+        labels: Labels<'a>,
+    ) -> BoxFuture<'a, Result<Vec<ImageSummary>, DockerError>> {
+        Box::pin(async move {
+            let options = ListImagesOptions {
+                filters: Some(label_filter(labels)),
+                ..ListImagesOptions::default()
+            };
+            self.api
+                .list_images(Some(options))
+                .await
+                .map_err(|error| closed(&error))
+        })
+    }
+
+    fn remove_image<'a>(&'a self, image: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
+        Box::pin(async move {
+            let options = RemoveImageOptions {
+                force: false,
+                noprune: true,
+                ..RemoveImageOptions::default()
+            };
+            self.api
+                .remove_image(image, Some(options), None)
+                .await
+                .map(|_| ())
                 .map_err(|error| closed(&error))
         })
     }
