@@ -7,6 +7,7 @@ use super::{
     bind_generation, claim, claimable, generation_for, next_due, require_lease, sweep,
     verification_of,
 };
+use crate::claim::starts::MAX_STARTS;
 use crate::hold::{self, Expected};
 use crate::json::{int, object};
 use crate::plan::{LEASE_MARGIN_SECONDS, active_seconds, long_run};
@@ -16,7 +17,6 @@ use crate::record::{
     mark_scope_changed,
 };
 use crate::runs;
-use crate::starts::MAX_STARTS;
 use crate::testing::{
     ENTROPY, Fixture, KEY, ROUTINE_A, added, at_time, claim_bound, confirmed, epoch, every_hour,
     full_notices, held, json, nine, repeated_plan, routine as fixture, routine_of,

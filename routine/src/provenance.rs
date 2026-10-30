@@ -12,8 +12,8 @@ use team_protocol::routine_proposal::{
     MAX_QUESTION_OPTION_CHARS, MAX_QUESTION_OPTIONS, canonical_question,
 };
 
-use crate::date::Date;
 use crate::dates;
+use crate::dates::date::Date;
 use crate::json::{as_str, at, is_integer, json_text, members, object, text as string};
 use crate::plan::{self, pointer_tokens_of, same};
 use crate::recording::{

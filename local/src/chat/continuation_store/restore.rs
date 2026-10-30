@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use team_storage::private::epoch_seconds;
 
-use super::continuation::decode;
-use super::continuation_store::StoredContinuation;
-use super::pause::continuation_unavailable;
-use super::pending::Requirements;
-use super::service::ChatService;
+use super::StoredContinuation;
+use crate::chat::continuation::decode;
+use crate::chat::pause::continuation_unavailable;
+use crate::chat::pending::Requirements;
+use crate::chat::service::ChatService;
 use crate::http::service::Problem;
 
 impl ChatService {

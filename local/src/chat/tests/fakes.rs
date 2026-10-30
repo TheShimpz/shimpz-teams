@@ -17,7 +17,7 @@ use team_core::secret::Secret;
 use team_core::stop::Stop;
 use team_routine::pin::PinnedAssistant;
 
-use super::ports::{ActiveAssistant, TeamScope, TeamView, Transcripts};
+use crate::chat::ports::{ActiveAssistant, TeamScope, TeamView, Transcripts};
 use crate::http::service::Problem;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

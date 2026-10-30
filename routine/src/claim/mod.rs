@@ -1,5 +1,7 @@
 //! Claiming a Team's due Routine runs, without I/O (ADR-0086, ADR-0092): sweeps, readiness, leases, and generations.
 
+pub mod starts;
+
 use std::collections::BTreeSet;
 
 use subtle::ConstantTimeEq;
@@ -17,7 +19,6 @@ use crate::record::{
     Transition, changed, continuous, live_runs, new_id, new_token, next_after, put_notice_into,
     replace_routine, replace_run,
 };
-use crate::starts;
 
 /// The suffix of the generation a held run's one verification runs in, released by the verification itself.
 pub const VERIFY_SUFFIX: &str = "v1";

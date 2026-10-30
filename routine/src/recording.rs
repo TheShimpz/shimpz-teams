@@ -1,7 +1,7 @@
 //! Team's deterministic recording of a Routine plan from a person's recent chat sends, with no model (ADR-0101).
 //!
 //! This module holds the recording's inputs, questions, and results; [`crate::compose`] builds the plan, while
-//! [`crate::provenance`] classifies each input and [`crate::rerun`] names the work a question asks to run again. The
+//! [`crate::provenance`] classifies each input and [`crate::compose::rerun`] names the work a question asks to run again. The
 //! chat agent runs the recurring work and calls `record`; Team builds the plan from its own memory-only trace of the
 //! recording span: the person's consecutive fresh sends in one Team incarnation, each with its own message, the
 //! person's own words in it, the untruncated earlier sends its conversation window carried, its browser timezone, its

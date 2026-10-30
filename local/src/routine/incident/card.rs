@@ -17,10 +17,10 @@ use team_protocol::routine_run::canonical_card_answer_request;
 use team_routine::hold::{self, Expected};
 use team_routine::record::{self, Routine, Run};
 
-use super::incident::OpenedRecovery;
-use super::service::RoutineService;
+use super::OpenedRecovery;
 use crate::chat::problem;
 use crate::http::service::{Body, Problem};
+use crate::routine::service::RoutineService;
 
 /// A held run's card state as Team finds it now, and its entity tag.
 struct Tagged {
@@ -170,7 +170,7 @@ impl RoutineService {
         let pinned = current.assistants.iter().cloned().collect();
         let parts = &self.parts;
         let locks = &parts.coordination.locks;
-        super::contracts::require_pinned(
+        crate::routine::contracts::require_pinned(
             parts.team.as_ref(),
             locks,
             team_id,

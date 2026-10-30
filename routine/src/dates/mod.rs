@@ -14,6 +14,8 @@
 //! range word ("15 a 21/10/2026") is never guessed, so such a text stays a literal too. The template must write the
 //! recorded text again byte for byte on the recording's date, or it is no template.
 
+pub mod date;
+
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
@@ -24,7 +26,7 @@ use team_protocol::python::regex::{Match, MatchError, Pattern, declared};
 use team_protocol::python::text;
 use team_protocol::routine_context::{MAX_DATE_OFFSET_DAYS, UNSPACED_DATE_FORMS};
 
-use crate::date::Date;
+use crate::dates::date::Date;
 use crate::json::{as_str, at, elements, has_fields, int, object, text as string};
 use crate::pattern::Folded;
 

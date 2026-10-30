@@ -4,8 +4,6 @@
 pub mod answer;
 pub mod continuation;
 pub mod continuation_store;
-#[cfg(test)]
-pub(crate) mod fakes;
 pub mod inference;
 pub mod limit;
 pub mod memory;
@@ -13,7 +11,6 @@ pub mod pause;
 pub mod pending;
 pub mod ports;
 pub mod problem;
-pub mod restore;
 pub mod route;
 mod routine;
 pub mod segment;
@@ -22,7 +19,7 @@ pub mod stop;
 pub mod stored;
 pub mod teardown;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod turn;
 pub mod usage;
 

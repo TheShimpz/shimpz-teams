@@ -10,7 +10,7 @@ use jiff::tz::{Disambiguation, TimeZone};
 use strict_json::Value;
 use team_protocol::routine::{canonical_schedule, canonical_timezone};
 
-use crate::date::Date;
+use crate::dates::date::Date;
 use crate::json::{as_str, at};
 
 /// A schedule or timezone is not in the closed Routine contract.

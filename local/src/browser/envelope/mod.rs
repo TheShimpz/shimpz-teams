@@ -31,7 +31,7 @@ pub const NOFILE: i64 = 4096;
 /// `/dev/shm`.
 pub const SHM: i64 = 256 * 1024 * 1024;
 /// The approved seccomp policy, pinned in Team's binary from the Browser image's source.
-pub const SECCOMP: &str = include_str!("../../../browser/image/seccomp.json");
+pub const SECCOMP: &str = include_str!("../../../../browser/image/seccomp.json");
 const OWNER: &str = "uid=10031,gid=10031,mode=0700";
 
 /// Every writable path of the Browser, none of which executes (ADR-0117 §3.3).

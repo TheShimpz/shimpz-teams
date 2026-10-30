@@ -473,5 +473,6 @@ impl ContinuationStore {
     }
 }
 
+mod restore;
 #[cfg(test)]
 mod tests;

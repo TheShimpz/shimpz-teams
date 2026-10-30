@@ -17,12 +17,12 @@ use team_integrations::store::IntegrationStore;
 use team_storage::files::FileStore;
 
 use crate::chat::continuation_store::ContinuationStore;
-use crate::chat::fakes::{
-    FakeExecutor, FakePreparer, FakeTeam, FakeTranscripts, action, assistant, json,
-};
 use crate::chat::limit::ChatLimitStore;
 use crate::chat::ports::ActiveAssistant;
 use crate::chat::service::{ChatParts, ChatService};
+use crate::chat::tests::fakes::{
+    FakeExecutor, FakePreparer, FakeTeam, FakeTranscripts, action, assistant, json,
+};
 use crate::chat::usage::UsageBook;
 use crate::coordination::Coordination;
 use crate::http::route::{Method, resolve};

@@ -4,7 +4,7 @@ use strict_json::Value;
 use team_inference::config::InferenceConfigStore;
 
 use super::{InferenceService, model_price};
-use crate::chat::fakes::{FakeTeam, json};
+use crate::chat::tests::fakes::{FakeTeam, json};
 use crate::coordination::locks::SpaceLocks;
 use crate::http::route::{Method, resolve};
 use crate::http::service::{Answer, Body, Call, Principal, Problem, Service};

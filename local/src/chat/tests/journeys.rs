@@ -12,7 +12,7 @@ use super::harness::{
     BrainClientScripted, TEAM, chat_body, cloudflare, harness, harness_on, harness_with, reply,
     suspension, turn,
 };
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::coordination::executions::ExecutionKind;
 use crate::http::route::Method;
 
@@ -210,7 +210,10 @@ async fn a_provider_or_identity_change_ends_the_turn_before_its_action() {
         )
         .expect("saved");
     // The Assistant's container is replaced while the Brain plans its Action.
-    let team = Arc::new(crate::chat::fakes::FakeTeam::with(TEAM, vec![cloudflare()]));
+    let team = Arc::new(crate::chat::tests::fakes::FakeTeam::with(
+        TEAM,
+        vec![cloudflare()],
+    ));
     let scripted = Arc::new(ScriptedBrain::default());
     let drifting = Arc::new(Drifting {
         scripted,
@@ -231,7 +234,7 @@ async fn a_provider_or_identity_change_ends_the_turn_before_its_action() {
 /// A Brain that replaces the Team's Assistant container while it answers.
 struct Drifting {
     scripted: Arc<ScriptedBrain>,
-    team: Arc<crate::chat::fakes::FakeTeam>,
+    team: Arc<crate::chat::tests::fakes::FakeTeam>,
 }
 
 impl BrainClient for Drifting {

@@ -4,7 +4,7 @@
 use strict_json::Value;
 
 use super::now;
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::http::service::Body;
 use crate::routine::executor::fakes::Outcome;
 use crate::routine::executor::{FaultClass, WorkloadState};

@@ -1,7 +1,7 @@
 //! A due Routine claimed and replayed with no model: each dispatch sealed before its RPC, its end by its outcome.
 
 use super::now;
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::routine::executor::FaultClass;
 use crate::routine::executor::fakes::Outcome;
 use crate::routine::service::harness::{TEAM, action, harness, routine_of, running};

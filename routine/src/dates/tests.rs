@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use strict_json::Value;
 
 use super::{MAX_PARTS, admitted, dates, render, shown, template};
-use crate::date::Date;
+use crate::dates::date::Date;
 use crate::testing::json;
 
 fn day(year: i32, month: i32, day: i32) -> Date {

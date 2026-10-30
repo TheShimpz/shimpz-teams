@@ -2,7 +2,7 @@
 //! after proven absence, and the pauses a policy fault or spent evidence publishes.
 
 use super::now;
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::routine::executor::FaultClass;
 use crate::routine::executor::fakes::Outcome;
 use crate::routine::service::harness::{

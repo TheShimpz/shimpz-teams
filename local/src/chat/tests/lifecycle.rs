@@ -11,8 +11,8 @@ use team_inference::testing::ScriptedBrain;
 use team_integrations::token::TokenSet;
 
 use super::harness::{TEAM, chat_body, harness, harness_with, reply, suspension, turn};
-use crate::chat::fakes::{connected, human_request, json, password_request, searching};
 use crate::chat::teardown::ContinuationsTeardown;
+use crate::chat::tests::fakes::{connected, human_request, json, password_request, searching};
 use crate::coordination::residue::{TeamRef, TeamTeardown};
 use crate::http::route::Method;
 use crate::http::service::Service;

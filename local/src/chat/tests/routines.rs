@@ -9,7 +9,7 @@ use team_storage::private::epoch_seconds;
 
 use super::harness::{Harness, Streamed, TEAM, harness, reply, suspension, turn};
 use crate::audit::Principal;
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::http::service::Problem;
 use crate::routine::proposal::confirm::Answering;
 use crate::routine::state::load;

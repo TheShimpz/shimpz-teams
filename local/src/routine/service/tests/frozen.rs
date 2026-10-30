@@ -4,7 +4,7 @@ use strict_json::Value;
 use team_chat::progress::Reporter;
 
 use super::now;
-use crate::chat::fakes::{human_request, json};
+use crate::chat::tests::fakes::{human_request, json};
 use crate::http::operation::Operation;
 use crate::http::server::ChallengeBook;
 use crate::http::service::Body;

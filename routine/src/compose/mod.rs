@@ -1,5 +1,7 @@
 //! Composing a confirmable Routine plan from a recording span, without a model (ADR-0101).
 
+pub mod rerun;
+
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
@@ -14,7 +16,6 @@ use crate::recording::{
     Recording, RecordingError, Send, Stop, known_texts, segment_lines, span_calls, stated_outputs,
     stated_schedules,
 };
-use crate::rerun;
 use crate::trace::{Occurrence, Protection};
 
 /// What the person asked a recording to be: the span, its protection, the exact contracts, the send whose work the

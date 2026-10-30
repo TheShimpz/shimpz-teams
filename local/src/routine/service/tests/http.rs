@@ -5,7 +5,7 @@ use strict_json::Value;
 use team_protocol::routine_run::{canonical_claim, canonical_segment_answer};
 
 use super::now;
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::http::route::{Method, resolve};
 use crate::http::service::{Answer, Body, Call, Principal, Problem, Service, StreamRecord};
 use crate::routine::executor::FaultClass;

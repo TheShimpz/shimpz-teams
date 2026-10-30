@@ -14,6 +14,7 @@ use team_protocol::routine::{
     MAX_ROLLUP_RUNS, ROUTINE_ID_RE, canonical_position, canonical_run_usage, valid_revision,
 };
 use team_protocol::routine_notice::{MAX_UNRESOLVED_INCIDENTS, REQUEST_KINDS, canonical_notice};
+use team_routine::claim::starts::{MAX_STARTS, Start};
 use team_routine::definition::definition_bytes;
 use team_routine::plan::{MAX_DEFINITION_BYTES, MAX_STEPS, TEAM_DEFINITION_BYTES};
 use team_routine::record::{
@@ -21,7 +22,6 @@ use team_routine::record::{
     MAX_ROUTINES, MAX_RUNS, MAX_UNDELIVERED_NOTICES, Notice, Routine, Run, RunStatus, TeamRoutines,
     definition_valid,
 };
-use team_routine::starts::{MAX_STARTS, Start};
 
 use super::StoreError;
 

@@ -3,7 +3,7 @@
 use strict_json::Value;
 
 use super::now;
-use crate::chat::fakes::{human_request, json};
+use crate::chat::tests::fakes::{human_request, json};
 use crate::coordination::residue::{TeamRef, TeamTeardown};
 use crate::routine::executor::FaultClass;
 use crate::routine::executor::fakes::Outcome;

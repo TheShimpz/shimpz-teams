@@ -21,6 +21,7 @@ use super::service::RoutineService;
 use crate::chat::problem;
 use crate::http::service::Problem;
 
+pub mod card;
 pub mod hold;
 pub mod settle;
 

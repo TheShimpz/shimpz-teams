@@ -4,7 +4,7 @@ use strict_json::Value;
 use team_inference::brain::BrainError;
 
 use super::harness::{Harness, TEAM, chat_body, harness, reply};
-use crate::chat::fakes::json;
+use crate::chat::tests::fakes::json;
 use crate::prepare::PrepareError;
 
 fn put(harness: &Harness, name: &str) -> String {

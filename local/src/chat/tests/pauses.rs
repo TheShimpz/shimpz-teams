@@ -4,7 +4,7 @@ use strict_json::Value;
 use team_action::executor::InvokeOutcome;
 
 use super::harness::{Harness, TEAM, chat_body, harness, reply, suspension};
-use crate::chat::fakes::{human_request, json};
+use crate::chat::tests::fakes::{human_request, json};
 use crate::http::route::Method;
 
 /// Starts a turn whose one Action asks a person for an approval, and returns the paused challenge.

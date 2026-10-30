@@ -123,8 +123,8 @@ mod tests {
     use team_routine::pin::action_pins;
 
     use super::contracts;
-    use crate::chat::fakes::{action, assistant};
     use crate::chat::ports::ActiveAssistant;
+    use crate::chat::tests::fakes::{action, assistant};
 
     fn changing(id: &str) -> ActionSpec {
         let mut spec = action(id);
