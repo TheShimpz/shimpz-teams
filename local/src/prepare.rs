@@ -19,6 +19,7 @@ pub mod teardown;
 use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
+use team_prepare::message::LimitError;
 
 use crate::coordination::previews::Preview;
 
@@ -49,8 +50,16 @@ pub enum PrepareError {
     Stopped,
     /// The file cannot be rendered (refused by the helper's closed rules).
     Unreadable,
-    /// Docker or the helper is unavailable.
+    /// Docker, the helper, or Team storage is unavailable.
     Unavailable,
+    /// The preparation slot stayed busy beyond a preview's queue or deadline; the caller retries later.
+    Busy,
+    /// The message exceeds a per-message ceiling; [`LimitError::code`] names it (`attachments-too-*`).
+    Limit(LimitError),
+    /// A selected file no longer has the bytes its turn bound.
+    Changed,
+    /// A file is not listed: absent, collected, or idle past its grace.
+    NotFound,
 }
 
 /// Prepares files in the helper.

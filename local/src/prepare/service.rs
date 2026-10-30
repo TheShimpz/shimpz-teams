@@ -15,7 +15,7 @@ use team_prepare::detect::{self, Kind as Detected};
 use team_prepare::limits::{MAX_IMAGE_BYTES, MAX_PDF_BYTES};
 use team_prepare::message::{self, Attachment, LimitError, MAX_SOURCE_BYTES, Plan};
 use team_prepare::request::Kind;
-use team_storage::files::{FileMetadata, StorageError};
+use team_storage::files::{FileMetadata, StorageError, StorageErrorKind};
 
 use super::admission::{Admission, PreviewWait};
 use super::session::{Ended, Helpers, Hooks, Session, SessionError};
@@ -297,6 +297,16 @@ enum Read {
     Store(StorageError),
 }
 
+/// The preparation failure of a storage refusal: an id naming no listed file is not found.
+fn stored(error: &StorageError) -> PrepareError {
+    match error.kind {
+        StorageErrorKind::NotFound | StorageErrorKind::Input => PrepareError::NotFound,
+        StorageErrorKind::Unsafe | StorageErrorKind::Quota | StorageErrorKind::NotWeb => {
+            PrepareError::Unavailable
+        }
+    }
+}
+
 /// A stored size, which the store keeps non-negative.
 fn size(stored: i64) -> u64 {
     u64::try_from(stored).unwrap_or(u64::MAX)
@@ -340,7 +350,7 @@ impl Preparer for LocalPreparer {
                     .store
                     .listed(team_id, file_id)
                     .await
-                    .map_err(|_| PrepareError::Unreadable)?;
+                    .map_err(|error| stored(&error))?;
                 selected.push(item);
             }
             let attachments =
@@ -349,9 +359,9 @@ impl Preparer for LocalPreparer {
                     .map_err(|error| match error {
                         SegmentError::Stopped => PrepareError::Stopped,
                         SegmentError::Unavailable => PrepareError::Unavailable,
-                        SegmentError::Limit(_) | SegmentError::Changed | SegmentError::Store(_) => {
-                            PrepareError::Unreadable
-                        }
+                        SegmentError::Limit(limit) => PrepareError::Limit(limit),
+                        SegmentError::Changed => PrepareError::Changed,
+                        SegmentError::Store(error) => stored(&error),
                     })?;
             Ok(attachments
                 .iter()
@@ -375,14 +385,15 @@ impl Preparer for LocalPreparer {
                 .store
                 .listed(team_id, file_id)
                 .await
-                .map_err(|_| PrepareError::Unreadable)?;
+                .map_err(|error| stored(&error))?;
             let rendered = self
                 .render(team_id, &item, page.map(i64::from), preview)
                 .await
                 .map_err(|error| match error {
                     RenditionError::Ended => PrepareError::Stopped,
-                    RenditionError::Busy | RenditionError::Unavailable => PrepareError::Unavailable,
-                    RenditionError::Store(_) => PrepareError::Unreadable,
+                    RenditionError::Busy => PrepareError::Busy,
+                    RenditionError::Unavailable => PrepareError::Unavailable,
+                    RenditionError::Store(error) => stored(&error),
                 })?;
             rendered.ok_or(PrepareError::Unreadable)
         })

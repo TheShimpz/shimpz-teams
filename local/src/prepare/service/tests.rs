@@ -286,7 +286,17 @@ async fn the_preparer_seam_answers_each_file_s_wire_attachment() {
             .prepare_segment("team_1", &missing, &Stop::new())
             .await
             .map(|_| ()),
-        Err(PrepareError::Unreadable)
+        Err(PrepareError::NotFound)
+    );
+    let notes = fixture.put("notes.txt", b"nine times");
+    let nine: Vec<String> = (0..9).map(|_| notes.id.clone()).collect();
+    assert_eq!(
+        fixture
+            .preparer
+            .prepare_segment("team_1", &nine, &Stop::new())
+            .await
+            .map(|_| ()),
+        Err(PrepareError::Limit(LimitError::TooMany))
     );
 }
 

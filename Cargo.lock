@@ -2278,20 +2278,8 @@ dependencies = [
 name = "team-action"
 version = "0.1.0"
 dependencies = [
- "assistant-protocol",
- "base64 0.23.1",
- "rusqlite",
- "rustix",
- "sha2",
  "strict-json",
- "subtle",
  "team-core",
- "team-integrations",
- "team-protocol",
- "team-storage",
- "tempfile",
- "tokio",
- "zeroize",
 ]
 
 [[package]]
@@ -2390,6 +2378,7 @@ dependencies = [
  "sha2",
  "strict-json",
  "subtle",
+ "team-assistant",
  "team-core",
  "team-protocol",
  "team-storage",
