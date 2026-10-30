@@ -166,7 +166,7 @@ fn action_runner(shared: &Shared, publications: &Publications) -> Result<Actions
         slots: Arc::new(DockerSlots::default()),
         capacity: Capacity::default(),
         transport: Arc::new(Transport::local()),
-        audit: shared.audit.clone(),
+        audit: Arc::new(super::audit::Attributed(shared.audit.clone())),
         workloads: running.clone(),
         entropy: seams.entropy.clone(),
         blocked: Mutex::default(),

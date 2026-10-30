@@ -5,6 +5,7 @@
 //! publication resolution and artifact verification through the same `adapt` closure.
 
 mod actions;
+mod audit;
 mod compose;
 mod host;
 mod integrations;
