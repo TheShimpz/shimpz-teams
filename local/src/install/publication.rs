@@ -34,6 +34,14 @@ pub const fn resolve_problem(error: ResolveError) -> Problem {
     }
 }
 
+/// How an update that did not switch ended: proven back on the previous generation, or not proven to be.
+enum Unswitched {
+    /// The previous generation runs and the successor's residue is gone; the transaction may end.
+    RolledBack(Problem),
+    /// Cleanup or restoration is unproven; the transaction stays for recovery.
+    Unproven(Problem),
+}
+
 fn text(value: &str) -> Value {
     Value::String(value.to_owned())
 }
@@ -299,9 +307,14 @@ impl Assistants {
             after: &after,
             previous,
         };
-        if let Err(problem) = self.switch_generation(&generation, successor, start).await {
-            self.clear_update(update).await;
-            return Err(problem);
+        match self.switch_generation(&generation, successor, start).await {
+            Ok(()) => {}
+            Err(Unswitched::RolledBack(problem)) => {
+                self.clear_update(update).await;
+                return Err(problem);
+            }
+            // Recovery converges on whichever binding the registry holds; it needs the transaction to do so.
+            Err(Unswitched::Unproven(problem)) => return Err(problem),
         }
         self.settle(team_id, &after, previous, &previous_image, update)
             .await?;
@@ -336,13 +349,16 @@ impl Assistants {
         generation: &Generation<'_>,
         successor: &Binding,
         start: Option<&dyn AuthorizeStart>,
-    ) -> Result<(), Problem> {
+    ) -> Result<(), Unswitched> {
         if let Err(problem) = self.replace_generation(generation, start).await {
-            self.restore(generation).await?;
+            self.restore(generation)
+                .await
+                .map_err(Unswitched::Unproven)?;
+            // A successor whose own install could not remove what it created leaves its cleanup unproven.
             return Err(if problem == INSTALL_ROLLBACK_INCOMPLETE {
-                REPLACE_FAILED
+                Unswitched::Unproven(REPLACE_FAILED)
             } else {
-                problem
+                Unswitched::RolledBack(problem)
             });
         }
         let Generation {
@@ -352,11 +368,12 @@ impl Assistants {
             previous,
             ..
         } = *generation;
-        if self
+        // A commit whose outcome is unknown leaves the transaction for recovery to read the registry.
+        let committed = self
             .commit_successor(team_id, previous, successor)
-            .await?
-            .is_err()
-        {
+            .await
+            .map_err(Unswitched::Unproven)?;
+        if committed.is_err() {
             self.containers
                 .uninstall(
                     team_id,
@@ -364,9 +381,12 @@ impl Assistants {
                     &after.assistant_id,
                     Some(&after.container_spec()),
                 )
-                .await?;
-            self.restore(generation).await?;
-            return Err(UPDATE_CONFLICT);
+                .await
+                .map_err(Unswitched::Unproven)?;
+            self.restore(generation)
+                .await
+                .map_err(Unswitched::Unproven)?;
+            return Err(Unswitched::RolledBack(UPDATE_CONFLICT));
         }
         Ok(())
     }

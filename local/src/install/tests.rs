@@ -23,7 +23,8 @@ use team_install::trust::{ArtifactVerifier, Resolution, ResolveError, Resolver, 
 
 use super::admission::ImageAdmission;
 use super::problem::{
-    CHAT_ACTIVE, HUMAN_REQUEST_REQUIRED, NOT_INSTALLABLE, UNTRUSTED, UPDATE_APPROVAL_REQUIRED,
+    CHAT_ACTIVE, HUMAN_REQUEST_REQUIRED, MANIFEST_INVALID, NOT_INSTALLABLE, UNTRUSTED,
+    UPDATE_APPROVAL_REQUIRED, UPDATE_ROLLBACK_INCOMPLETE,
 };
 use super::registry::Registry;
 use super::snapshots::{ASSISTANT_LABEL, SOURCE_LABEL, Stage};
@@ -241,16 +242,33 @@ impl PrivateState for Private {
     }
 }
 
-/// The containers' review of a running image: the manifest's own admission is team-assistant's, proved there.
-struct Reviewed;
+/// The containers' review of a running image: the manifest's own admission is team-assistant's, proved there. A
+/// test may refuse exact images.
+#[derive(Default)]
+struct Reviewed {
+    refused: std::sync::Mutex<Vec<String>>,
+}
+
+impl Reviewed {
+    fn refuse(&self, images: &[String]) {
+        *self.refused.lock().expect("refused") = images.to_vec();
+    }
+}
 
 impl Admission for Reviewed {
     fn manifest<'a>(
         &'a self,
         _: &'a str,
-        _: &'a ContainerSpec,
+        spec: &'a ContainerSpec,
     ) -> BoxFuture<'a, Result<(), Problem>> {
-        Box::pin(async { Ok(()) })
+        let refused = self.refused.lock().expect("refused").contains(&spec.image);
+        Box::pin(async move {
+            if refused {
+                Err(MANIFEST_INVALID)
+            } else {
+                Ok(())
+            }
+        })
     }
 
     fn genesis<'a>(
@@ -286,6 +304,7 @@ struct Harness {
     coordination: Coordination,
     registry: Arc<Registry>,
     admission: Arc<ImageAdmission>,
+    reviewed: Arc<Reviewed>,
     assistants: Arc<Assistants>,
 }
 
@@ -307,6 +326,14 @@ fn release(docker: &FakeDocker, source: char, image: char) {
     docker.add_remote_image(&reference(image), inspection.clone());
     // The daemon also answers the pulled image by its id, as the residue sweep inspects it.
     docker.add_image(&digest(image), inspection);
+}
+
+/// A daemon from which both test publications' images, `b` and `d`, can be pulled.
+fn released() -> Arc<FakeDocker> {
+    let docker = Arc::new(FakeDocker::default());
+    release(&docker, 'a', 'b');
+    release(&docker, 'c', 'd');
+    docker
 }
 
 /// The Assistant containers over `docker`, their egress policies under `directory`.
@@ -360,17 +387,16 @@ async fn reviewing_harness() -> Harness {
 
 async fn build(review_images: bool) -> Harness {
     let directory = tempfile::tempdir().expect("a temporary directory");
-    let docker = Arc::new(FakeDocker::default());
-    release(&docker, 'a', 'b');
-    release(&docker, 'c', 'd');
+    let docker = released();
     let space = Space::new("local-space").expect("a Space");
     let entropy = Arc::new(CountingEntropy::default());
     let registry = registry(directory.path());
     let admission = Arc::new(ImageAdmission::new(docker.clone(), registry.clone()));
+    let reviewed = Arc::new(Reviewed::default());
     let review: Arc<dyn Admission> = if review_images {
         admission.clone()
     } else {
-        Arc::new(Reviewed)
+        reviewed.clone()
     };
     let containers = containers(directory.path(), &docker, &space, &entropy, review);
     let networks = networks(&docker, &space).await;
@@ -404,6 +430,7 @@ async fn build(review_images: bool) -> Harness {
         coordination,
         registry,
         admission,
+        reviewed,
         assistants,
     }
 }
@@ -593,6 +620,38 @@ async fn a_successor_replaces_the_running_generation_and_retires_its_image() {
     assert_eq!(harness.docker.removed_images(), [digest('b')]);
     let transactions = harness.registry.list_updates().await.expect("readable");
     assert_eq!(transactions.len(), 0);
+}
+
+#[tokio::test]
+async fn a_failed_update_keeps_its_transaction_until_its_rollback_is_proven() {
+    let harness = harness().await;
+    harness
+        .install(publication("0.1.0", 'a', 'b'))
+        .await
+        .expect("installed");
+    // The successor is refused and the previous generation restored: the transaction ends with the rollback.
+    harness.reviewed.refuse(&[reference('d')]);
+    assert!(
+        harness
+            .install(publication("0.2.0", 'c', 'd'))
+            .await
+            .is_err()
+    );
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 0);
+    // The previous generation cannot be restored either: the transaction stays for recovery.
+    harness.reviewed.refuse(&[reference('b'), reference('d')]);
+    let failed = harness.install(publication("0.2.0", 'c', 'd')).await;
+    assert_eq!(failed, Err(UPDATE_ROLLBACK_INCOMPLETE));
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 1);
+    assert!(!harness.running());
+    harness.reviewed.refuse(&[]);
+    harness.assistants.recover_updates().await;
+    let transactions = harness.registry.list_updates().await.expect("readable");
+    assert_eq!(transactions.len(), 0);
+    assert_eq!(harness.version().await.as_deref(), Some("0.1.0"));
+    assert!(harness.running());
 }
 
 #[tokio::test]
