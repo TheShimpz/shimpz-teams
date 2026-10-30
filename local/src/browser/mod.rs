@@ -7,6 +7,7 @@
 pub mod audit;
 pub mod channel;
 pub mod credentials;
+pub mod envelope;
 pub mod release;
 pub mod tunnel;
 pub mod view;
