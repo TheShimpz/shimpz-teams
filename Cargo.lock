@@ -2280,6 +2280,7 @@ version = "0.1.0"
 dependencies = [
  "assistant-protocol",
  "base64 0.23.1",
+ "fancy-regex",
  "rusqlite",
  "rustix",
  "sha2",
