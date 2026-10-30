@@ -33,18 +33,24 @@ rustix.workspace = true
 sha2.workspace = true
 strict-json.workspace = true
 subtle.workspace = true
+team-action.workspace = true
+team-assistant.workspace = true
 team-browser.workspace = true
+team-chat.workspace = true
 team-core.workspace = true
 team-egress.workspace = true
 team-inference.workspace = true
 team-install.workspace = true
+team-integrations.workspace = true
 team-prepare.workspace = true
 team-protocol.workspace = true
+team-routine.workspace = true
 team-storage.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
 
 [dev-dependencies]
 team-core = { workspace = true, features = ["testing"] }
+team-inference = { workspace = true, features = ["testing"] }
 team-prepare = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }

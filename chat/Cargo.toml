@@ -7,5 +7,17 @@ license.workspace = true
 publish.workspace = true
 description = "Team chat: the turn engine, its orchestration, and its progress"
 
+[dependencies]
+strict-json.workspace = true
+team-action.workspace = true
+team-core.workspace = true
+team-inference.workspace = true
+team-protocol.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+team-inference = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
 [lints]
 workspace = true

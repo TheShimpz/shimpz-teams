@@ -2324,6 +2324,14 @@ dependencies = [
 [[package]]
 name = "team-chat"
 version = "0.1.0"
+dependencies = [
+ "strict-json",
+ "team-action",
+ "team-core",
+ "team-inference",
+ "team-protocol",
+ "tokio",
+]
 
 [[package]]
 name = "team-core"
@@ -2419,13 +2427,18 @@ dependencies = [
  "sha2",
  "strict-json",
  "subtle",
+ "team-action",
+ "team-assistant",
  "team-browser",
+ "team-chat",
  "team-core",
  "team-egress",
  "team-inference",
  "team-install",
+ "team-integrations",
  "team-prepare",
  "team-protocol",
+ "team-routine",
  "team-storage",
  "tempfile",
  "tokio",
