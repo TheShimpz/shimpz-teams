@@ -1,0 +1,96 @@
+{
+  "epoch": 1800000000,
+  "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "random": "sha256(b'shimpz-r7-golden\\0' + counter.to_bytes(8, 'big')) blocks, counter from 1",
+  "stores": {
+    "action_journal": {
+      "batch": "b54944c8d92cf876b7fa39911479ec82f0597442a7a03871d491a090729c6f91",
+      "path": "var/lib/shimpz-local/action-journal/journal.sqlite3"
+    },
+    "audit": {
+      "path": "var/log/shimpz-local/audit.jsonl",
+      "trace_ids": "generated trace ids come from uuid4 over the fixed random bytes"
+    },
+    "chat_continuations": {
+      "now": 1800000000,
+      "path": "var/lib/shimpz-local/chat-continuations/state/continuations.json"
+    },
+    "controller_token": {
+      "contract": "64 lowercase hex digits, no newline, 0440",
+      "path": "run/shimpz-local/token"
+    },
+    "egress": {
+      "hosts": [
+        "api.cloudflare.com",
+        "dash.cloudflare.com"
+      ],
+      "identity": "space\\0team_1\\0shimpz-cloudflare",
+      "token_file": "66a5603a7084823351d0afb893760170d15a0f08152d017185f7faab9fa5721b.token"
+    },
+    "envelope": {
+      "identified": {
+        "aad_hex": "5b227368696d707a2d74657374222c315d",
+        "plaintext_hex": "6964656e74696669656420736563726574"
+      },
+      "key_id": "28db3b72ac1a7cc409b307ba3aa40960",
+      "plain": {
+        "aad_hex": "706c61696e2d616164",
+        "plaintext_hex": "706c61696e2073656372657420c3a9"
+      }
+    },
+    "inference": {
+      "chat_limit": "chat-limit.json",
+      "config": "7c832b8fdf7414a64a178f34053eca97053f3f6336d5d4efdfe1bd5f7c8c5f8b.json",
+      "knowledge": "7c832b8fdf7414a64a178f34053eca97053f3f6336d5d4efdfe1bd5f7c8c5f8b.knowledge.json",
+      "name": "7c832b8fdf7414a64a178f34053eca97053f3f6336d5d4efdfe1bd5f7c8c5f8b.name.json"
+    },
+    "integrations": {
+      "path": "var/lib/shimpz-local/assistant-integrations/state/integrations.json"
+    },
+    "publications": {
+      "resolution": "protocol/install/v1/vectors.json fixtures.resolve_response.value"
+    },
+    "routines": {
+      "diagnostics": "var/lib/shimpz-local/routines/state/diagnostics",
+      "diagnostics_key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "state": "var/lib/shimpz-local/routines/state/<team dir>/state.json and sealed .continuation .recovery .incident .cursor"
+    },
+    "sign_ins": {
+      "chunks": [
+        "first chunk of a capsule",
+        "second"
+      ],
+      "committed": {
+        "created_at": "2027-01-15T08:00:00Z",
+        "expires_at": "2027-01-22T08:00:00Z",
+        "generation": 1,
+        "last_used_at": "2027-01-15T08:00:00Z",
+        "saved_at": "2027-01-15T08:00:00Z",
+        "sign_in_id": "36e1a9a2e2995b1668cc6404fc8e01fe",
+        "sites": [
+          "linkedin.com"
+        ],
+        "sites_truncated": false,
+        "state": "ready",
+        "team_incarnation": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+      },
+      "incarnation": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "team": "neo",
+      "writer": "image@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "stored_inputs": {
+      "aad": "canonical JSON [\"shimpz-stored-input-v1\", team, assistant, stored_input_id, kind, generation]",
+      "plaintext": "compact JSON {\"origin\",\"value\"} in insertion order, ensure_ascii=False"
+    },
+    "supervisor_pin": {
+      "path": "var/lib/shimpz-local/inference/supervisor.pem",
+      "seed_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+    },
+    "team_files": {
+      "path": "var/lib/shimpz-local/storage/team_1/files.sqlite3",
+      "upload": "317ba4f3d0d9e64fe4257e7205db513c",
+      "web": "c275be41feda7496df028ff92168123e"
+    }
+  },
+  "writer": "the Python Team at teams revision 881bde04"
+}
