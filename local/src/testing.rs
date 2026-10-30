@@ -8,7 +8,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bollard::models::{
     ContainerConfig, ContainerCreateBody, ContainerInspectResponse, ContainerState,
-    ContainerSummary, ImageInspect, Network, NetworkCreateRequest, NetworkInspect, SystemInfo,
+    ContainerStateStatusEnum, ContainerSummary, EndpointSettings, ImageInspect, Network,
+    NetworkCreateRequest, NetworkInspect, NetworkSettings, SystemInfo,
 };
 use team_core::future::BoxFuture;
 
@@ -26,6 +27,7 @@ struct State {
     containers: Vec<Container>,
     networks: Vec<NetworkInspect>,
     images: HashMap<String, ImageInspect>,
+    remote: HashMap<String, ImageInspect>,
     pulled: Vec<String>,
     next: u64,
     unavailable: bool,
@@ -37,6 +39,10 @@ struct Container {
     name: String,
     body: ContainerCreateBody,
     running: bool,
+    // The id of the image the reference resolved to when it was created, as Docker reports it at the top level.
+    image_id: Option<String>,
+    // An inspection a test substituted for the one derived from the creation body.
+    inspection: Option<ContainerInspectResponse>,
 }
 
 fn carries(labels: Option<&HashMap<String, String>>, wanted: Labels<'_>) -> bool {
@@ -76,10 +82,24 @@ impl FakeDocker {
         self.state().images.insert(reference.to_owned(), image);
     }
 
+    /// Makes `image` pullable as `reference`; it is inspectable only once pulled.
+    pub fn add_remote_image(&self, reference: &str, image: ImageInspect) {
+        self.state().remote.insert(reference.to_owned(), image);
+    }
+
     /// Every reference pulled so far.
     #[must_use]
     pub fn pulled(&self) -> Vec<String> {
         self.state().pulled.clone()
+    }
+
+    /// Makes the container named `name` stop running, as when its process exits.
+    ///
+    /// # Panics
+    /// When no container is named `name`.
+    pub fn exit(&self, name: &str) {
+        self.set_running(name, false)
+            .expect("a container of that name");
     }
 
     /// The creation body and running state of the container named `name`.
@@ -91,6 +111,61 @@ impl FakeDocker {
             .iter()
             .find(|container| container.name == name)
             .map(|found| (found.body.clone(), found.running))
+    }
+
+    /// The inspection of the container named `name`, changed by `change`; later inspections answer it.
+    ///
+    /// # Panics
+    /// When no container is named `name`.
+    pub fn tamper(&self, name: &str, change: impl FnOnce(&mut ContainerInspectResponse)) {
+        let mut state = self.state();
+        let container = state
+            .containers
+            .iter_mut()
+            .find(|container| container.name == name)
+            .expect("a container of that name");
+        let mut changed = container
+            .inspection
+            .take()
+            .unwrap_or_else(|| inspection(container));
+        change(&mut changed);
+        container.inspection = Some(changed);
+    }
+
+    /// The network named `name` (or with that id), changed by `change`.
+    ///
+    /// # Panics
+    /// When no network is named `name`.
+    pub fn tamper_network(&self, name: &str, change: impl FnOnce(&mut NetworkInspect)) {
+        let mut state = self.state();
+        let network = state
+            .networks
+            .iter_mut()
+            .find(|network| {
+                network.name.as_deref() == Some(name) || network.id.as_deref() == Some(name)
+            })
+            .expect("a network of that name");
+        change(network);
+    }
+
+    /// Every container's name, in creation order.
+    #[must_use]
+    pub fn container_names(&self) -> Vec<String> {
+        self.state()
+            .containers
+            .iter()
+            .map(|container| container.name.clone())
+            .collect()
+    }
+
+    /// Every network's name, in creation order.
+    #[must_use]
+    pub fn network_names(&self) -> Vec<String> {
+        self.state()
+            .networks
+            .iter()
+            .filter_map(|network| network.name.clone())
+            .collect()
     }
 
     fn find(state: &State, id: &str) -> Result<Container, DockerError> {
@@ -114,15 +189,45 @@ impl FakeDocker {
     }
 }
 
+/// A created container that never ran, or one that runs.
+fn status(running: bool) -> ContainerStateStatusEnum {
+    if running {
+        ContainerStateStatusEnum::RUNNING
+    } else {
+        ContainerStateStatusEnum::CREATED
+    }
+}
+
 fn inspection(container: &Container) -> ContainerInspectResponse {
+    if let Some(substituted) = &container.inspection {
+        let mut substituted = substituted.clone();
+        substituted.state = Some(ContainerState {
+            running: Some(container.running),
+            status: Some(status(container.running)),
+            ..substituted.state.unwrap_or_default()
+        });
+        return substituted;
+    }
     let body = &container.body;
+    // Docker attaches a container to the network its host configuration names, and reports no mount for a tmpfs.
+    let networks = body
+        .host_config
+        .as_ref()
+        .and_then(|host| host.network_mode.clone())
+        .map(|mode| HashMap::from([(mode, EndpointSettings::default())]));
     ContainerInspectResponse {
         id: Some(container.id.clone()),
         name: Some(format!("/{}", container.name)),
-        image: body.image.clone(),
+        image: container.image_id.clone().or_else(|| body.image.clone()),
         state: Some(ContainerState {
             running: Some(container.running),
+            status: Some(status(container.running)),
             ..ContainerState::default()
+        }),
+        mounts: Some(Vec::new()),
+        network_settings: Some(NetworkSettings {
+            networks,
+            ..NetworkSettings::default()
         }),
         host_config: body.host_config.clone(),
         config: Some(ContainerConfig {
@@ -150,6 +255,7 @@ fn listed(network: &NetworkInspect) -> Network {
     Network {
         name: network.name.clone(),
         id: network.id.clone(),
+        created: network.created.clone(),
         driver: network.driver.clone(),
         internal: network.internal,
         attachable: network.attachable,
@@ -204,11 +310,18 @@ impl DockerEngine for FakeDocker {
             }
             state.next += 1;
             let id = format!("{:064x}", state.next);
+            let image_id = body
+                .image
+                .as_ref()
+                .and_then(|reference| state.images.get(reference))
+                .and_then(|image| image.id.clone());
             state.containers.push(Container {
                 id: id.clone(),
                 name: name.to_owned(),
                 body,
                 running: false,
+                image_id,
+                inspection: None,
             });
             Ok(id)
         })
@@ -284,9 +397,16 @@ impl DockerEngine for FakeDocker {
             }
             state.next += 1;
             let id = format!("{:064x}", state.next);
+            // Each network is created one second after the one before.
+            let created = format!(
+                "2026-10-30T00:{:02}:{:02}Z",
+                state.next / 60,
+                state.next % 60
+            );
             state.networks.push(NetworkInspect {
                 name: Some(request.name),
                 id: Some(id.clone()),
+                created: Some(created),
                 driver: request.driver,
                 internal: request.internal,
                 attachable: request.attachable,
@@ -329,7 +449,12 @@ impl DockerEngine for FakeDocker {
         Box::pin(async move {
             let mut state = self.reachable()?;
             if !state.images.contains_key(reference) {
-                return Err(DockerError::NotFound);
+                let image = state
+                    .remote
+                    .get(reference)
+                    .cloned()
+                    .ok_or(DockerError::NotFound)?;
+                state.images.insert(reference.to_owned(), image);
             }
             state.pulled.push(reference.to_owned());
             Ok(())
