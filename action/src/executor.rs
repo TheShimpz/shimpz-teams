@@ -69,6 +69,8 @@ pub enum ActionFailure {
     StateUnavailable,
     /// Docker is unavailable; nothing was dispatched.
     DockerUnavailable,
+    /// An Integration the Action declares is not connected or could not be resolved (428); nothing was dispatched.
+    IntegrationUnavailable,
 }
 
 /// One durable batch of a Brain suspension.

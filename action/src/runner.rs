@@ -345,7 +345,7 @@ impl Runner {
                 &self.oauth,
             )
             .await
-            .map_err(|_| ActionFailure::StateUnavailable)?
+            .map_err(|_| ActionFailure::IntegrationUnavailable)?
         };
         let mut stored_inputs = Vec::new();
         for id in &action.stored_inputs {

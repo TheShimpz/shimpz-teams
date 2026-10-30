@@ -111,7 +111,7 @@ impl Batch {
             .metadata(&self.scope.team_id, &binding.assistant_id, &declared)
             .map_err(|_| ActionFailure::StateUnavailable)?;
         if rows.len() != action.integrations.len() || rows.iter().any(|row| row.generation < 1) {
-            return Err(ActionFailure::ContextChanged);
+            return Err(ActionFailure::IntegrationUnavailable);
         }
         let integrations = rows
             .into_iter()

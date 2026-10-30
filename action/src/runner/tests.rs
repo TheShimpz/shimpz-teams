@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
 use strict_json::Value;
-use team_assistant::manifest::ManifestPresentation;
+use team_assistant::manifest::{IntegrationDeclaration, ManifestPresentation};
 use team_assistant::spec::{ActionSpec, RuntimeContract};
 use team_core::clock::Clock;
 use team_core::exec::ExecExit;
@@ -58,9 +58,19 @@ fn action(id: &str, effect: &str) -> ActionSpec {
 
 fn binding() -> Binding {
     let contract = RuntimeContract {
-        actions: vec![action("lookup", "read_only"), action("publish", "mutating")],
+        actions: vec![
+            action("lookup", "read_only"),
+            action("publish", "mutating"),
+            ActionSpec::of(&json(
+                r#"{"id":"sync","input_schema":{"type":"object"},"integrations":["cloudflare-write"]}"#,
+            )),
+        ],
         allowed_hosts: vec!["api.example.com".to_owned()],
-        integrations: Vec::new(),
+        integrations: vec![IntegrationDeclaration {
+            id: "cloudflare-write".to_owned(),
+            provider: "cloudflare".to_owned(),
+            scopes: vec!["zone.read".to_owned()],
+        }],
         stored_inputs: Vec::new(),
         machine_contract: json(r#"{"messages":[]}"#),
         presentation: ManifestPresentation {
@@ -334,4 +344,17 @@ async fn settled_batch_ends_on_provider_failure_or_stop() {
         Err(ActionFailure::Stopped)
     );
     assert_eq!(stopped.terminate().await, Ok(true));
+}
+
+#[tokio::test]
+async fn an_unavailable_integration_is_refused_before_dispatch() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let sync = request("i-1", "sync");
+    let direct = executor.invoke("team_1", &sync, &Stop::new()).await;
+    assert_eq!(direct, Err(ActionFailure::IntegrationUnavailable));
+    let mut batch = executor.batch(scope(false));
+    let prepared = batch.prepare(std::slice::from_ref(&sync)).await;
+    assert_eq!(prepared, Err(ActionFailure::IntegrationUnavailable));
+    assert_eq!(world.engine.started().len(), 0);
 }
