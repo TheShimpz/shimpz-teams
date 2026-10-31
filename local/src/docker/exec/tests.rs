@@ -327,9 +327,9 @@ async fn sleeping_container(daemon: &crate::docker::daemon::Daemon) -> (String, 
         }),
         ..ContainerCreateBody::default()
     };
+    // Removed even when an assertion fails, the create's own included.
+    let cleanup = Cleanup(name.clone());
     let id = daemon.create_container(&name, body).await.expect("created");
-    // Removed even when an assertion fails.
-    let cleanup = Cleanup(name);
     daemon.start_container(&id).await.expect("started");
     (id, cleanup)
 }

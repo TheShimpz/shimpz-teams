@@ -28,6 +28,10 @@ pub const SOCKET: &str = "/var/run/docker.sock";
 /// How long one Docker call may take before it fails as unavailable.
 const CALL_TIMEOUT_SECONDS: u64 = 60;
 
+/// How long a container create may take: a daemon that waits on the host's disk flush can take minutes to answer
+/// one, and that is a slow daemon, not an unavailable one. Every other call, Stop's included, keeps its own bound.
+const CREATE_TIMEOUT_SECONDS: u64 = 180;
+
 /// The daemon behind one Unix socket.
 #[derive(Debug)]
 pub struct Daemon {
@@ -137,6 +141,8 @@ impl DockerEngine for Daemon {
             };
             let created = self
                 .api
+                .clone()
+                .with_timeout(std::time::Duration::from_secs(CREATE_TIMEOUT_SECONDS))
                 .create_container(Some(options), body)
                 .await
                 .map_err(|error| closed(&error))?;
