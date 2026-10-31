@@ -12,3 +12,7 @@ build/
 .env.*
 !.env.example
 /target/
+# What a fuzz run writes beside its targets: the corpus it grows, crash artifacts, coverage data.
+**/fuzz/corpus/
+**/fuzz/artifacts/
+**/fuzz/coverage/
