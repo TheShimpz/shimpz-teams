@@ -1,4 +1,4 @@
-//! Every case of `vectors.json`, generated from the Python oracle by `vectors.py`, decides as the oracle decided.
+//! Every case of `vectors.json` decides as the vector records.
 
 mod support;
 
@@ -12,7 +12,7 @@ fn text<'a>(case: &'a Value, field: &str) -> &'a str {
 }
 
 #[test]
-fn every_vector_matches_the_python_oracle() {
+fn every_vector_decides_as_recorded() {
     let Ok(Value::Array(cases)) = strict_json::parse(include_bytes!("../vectors.json")) else {
         panic!("vectors.json is a strict JSON array");
     };

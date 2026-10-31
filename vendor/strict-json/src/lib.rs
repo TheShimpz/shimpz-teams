@@ -1,9 +1,8 @@
 //! Strict JSON admission for Shimpz backends.
 //!
-//! [`parse`] admits exactly the documents that the neutral Python oracle `.standards/strict_json.py` admits and
-//! decodes them to the same values: UTF-8 without a byte-order mark, no duplicate object fields, no non-finite
-//! numbers, no unpaired surrogate escapes, no raw control characters in strings, and arrays and objects nested at
-//! most [`MAX_DEPTH`] deep. `vectors.json` and the seeded differential harness prove the equality.
+//! [`parse`] admits only UTF-8 without a byte-order mark, no duplicate object fields, no non-finite numbers, no
+//! unpaired surrogate escapes, no raw control characters in strings, and arrays and objects nested at most
+//! [`MAX_DEPTH`] deep, and decodes what it admits to its values. `vectors.json` pins every rule and boundary.
 //!
 //! ```
 //! use strict_json::{Number, Value};
@@ -33,7 +32,7 @@ const BYTE_ORDER_MARK: &[u8] = b"\xef\xbb\xbf";
 ///
 /// # Errors
 ///
-/// Returns the first [`Error`] that refuses the document; any refusal means the oracle refuses it too.
+/// Returns the first [`Error`] that refuses the document.
 pub fn parse(input: &[u8]) -> Result<Value, Error> {
     if input.starts_with(BYTE_ORDER_MARK) {
         return Err(Error::ByteOrderMark);
