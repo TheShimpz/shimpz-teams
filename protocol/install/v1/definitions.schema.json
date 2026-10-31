@@ -412,13 +412,13 @@
           "const": "10001:10001"
         },
         "interpreter": {
-          "const": "/opt/shimpz/runtime/bin/python3.14"
+          "const": "/opt/shimpz/runtime/bin/python3"
         },
         "entrypoint": {
           "type": "array",
           "prefixItems": [
             {
-              "const": "/opt/shimpz/runtime/bin/python3.14"
+              "const": "/opt/shimpz/runtime/bin/python3"
             },
             {
               "const": "-c"

@@ -92,7 +92,7 @@ fn stage(stage: &Stage<'_>, scratch: &std::path::Path) -> Outcome<String> {
         let _ = writeln!(dockerfile, "LABEL {name}={}", quoted(&value));
     }
     dockerfile.push_str(
-        "USER 10001:10001\nENTRYPOINT [\"/opt/shimpz/runtime/bin/python3.14\", \"-c\", \"import signal; signal.pause()\"]\n",
+        "USER 10001:10001\nENTRYPOINT [\"/opt/shimpz/runtime/bin/python3\", \"-c\", \"import signal; signal.pause()\"]\n",
     );
     std::fs::write(context.join("Dockerfile"), dockerfile)?;
     let reference = reference(stage.assistant_id);

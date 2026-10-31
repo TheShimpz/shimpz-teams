@@ -52,7 +52,7 @@ pub(crate) const SOURCE_PATH: &str = "/opt/shimpz/.shimpz/source.package";
 pub(crate) const ICON_PATH: &str = "/opt/shimpz/icon.png";
 const RUNTIME_USER: &str = "10001:10001";
 const RUNTIME_ENTRYPOINT: [&str; 3] = [
-    "/opt/shimpz/runtime/bin/python3.14",
+    "/opt/shimpz/runtime/bin/python3",
     "-c",
     "import signal; signal.pause()",
 ];
