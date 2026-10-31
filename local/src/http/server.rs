@@ -183,6 +183,11 @@ impl Server {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 continue;
             };
+            // An answer goes out as soon as it is written: with Nagle's algorithm on, a reply written in more than
+            // one piece waited for the peer's delayed acknowledgement, about 40 ms per sequential request.
+            if stream.set_nodelay(true).is_err() {
+                continue;
+            }
             match Arc::clone(&self.0.slots).try_acquire_owned() {
                 Ok(slot) => {
                     tokio::spawn(Arc::clone(&self.0).connection(stream, Arc::new(slot)));
