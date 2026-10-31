@@ -1,50 +1,53 @@
 # Team HTTP protocol v1
 
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin.
-`payload.py` validates Team-facing HTTP values without trusting upstream fields.
-`identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
-sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory changes, the
+This directory holds the protocol's specification and its vectors (`vectors.json`); its one implementation is the Rust
+crate [`team-protocol`](../rust), whose modules carry the names this document uses (`payload.canonical_locale` is
+`team_protocol::payload::canonical_locale`). The Store, Admin, and the Brain each vendor that crate as a generated,
+pinned mirror.
+`payload` validates Team-facing HTTP values without trusting upstream fields.
+`identifiers` owns the closed Team, Assistant, and Action identifier grammars, `purpose` the Action purpose
+sentence rule, and `turn` the chat-turn bounds (the user message, a clarification question, memory changes, the
 reply, the Action requests one suspension carries, capability planning, intent routing, and the attachment content of
 a turn) and the opaque thread, interrupt, and model id grammar Team and the
-Brain exchange (`SAFE_ID_RE`); `payload.py` re-exports all three, and the Brain
-consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
-definition here or in `payload.py`, never to a copied literal.
-`challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
-copy, the one disclosed file, and an authorization's input projection. Only Team and Admin consume it, so `payload.py`
+Brain exchange (`SAFE_ID_RE`); `payload` re-exports all three, and the Brain
+consumes these three modules through its pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
+definition here or in `payload`, never to a copied literal.
+`challenge` owns the presentation a human-required challenge carries beside its canonical request: the rendered
+copy, the one disclosed file, and an authorization's input projection. Only Team and Admin consume it, so `payload`
 never imports it.
-`preview.py` owns the framing of a Team file's preview, the sanitized image rendition of an image or of one PDF page
-Team sends a Supervisor's browser, and `content.py` the framing of a file's verified original Team sends it to
+`preview` owns the framing of a Team file's preview, the sanitized image rendition of an image or of one PDF page
+Team sends a Supervisor's browser, and `content` the framing of a file's verified original Team sends it to
 download; only Team and Admin consume them.
 An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.
-`websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
+`websocket` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
 An Origin (`websocket.canonical_origin`) is printable ASCII without spaces, brackets, `?`, or `#`, and the authority
 of a Browser URL (`browser.canonical_url`) or a sign-in URL (`sign_in.start_site`), after `http://` or `https://` in
 any ASCII case up to the first `/`, `?`, or `#`, is ASCII without brackets (`browser.web_authority`), so no URL is
 read with Unicode case or NFKC rules, stripped of whitespace, or validated as a bracketed IPv6 host. The
 `url_canonicalization` vectors pin all three over a seeded corpus.
-`browser.py` owns the Browser agent's closed step set, the `browser-step` exchange bounds (the task's thread: folded
+`browser` owns the Browser agent's closed step set, the `browser-step` exchange bounds (the task's thread: folded
 step records, fold notes, and unfolded steps, each bounded, with the byte measures both sides bound a request by), the
 completeness check's verdict, and the `browser` field of a chat terminal (ADR-0117); the Brain consumes it as a pinned
 mirror.
-`browser_view.py` owns the Browser screen a Supervisor watches: the opened view's id and the one exact WebSocket
+`browser_view` owns the Browser screen a Supervisor watches: the opened view's id and the one exact WebSocket
 upgrade (version, key, accept, subprotocol) Team carries to the Browser's display; only Team and Admin consume it.
-`progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
+`progress` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
 advisory; only the single terminal record determines the operation outcome. A missing, repeated,
 malformed, oversized, or out-of-order record fails closed at the consumer without widening Team
 authority or exposing execution payloads.
-Team Routine forms are split by responsibility (ADR-0101): `routine.py` owns schedules, timezones, plans, and outputs;
-`routine_notice.py` notices and the views Admin lists; `routine_run.py` recovery cards, claims, segments, diagnostics,
-and run steps; `routine_proposal.py` the confirmation card, Team's questions, refusals, answers, and the output choices;
-and `routine_context.py` the Routine listing and rerun work a recording chat's Brain receives. The Brain mirrors
-`payload.py`, `phrase.py`, `routine.py`, `routine_notice.py`, `routine_proposal.py`, and `routine_context.py` with the
-three files above, and `progress.py` with `strict_json.py`, which a creation notice's steps are validated with.
-`strict_json.py` is an exact copy of the umbrella `.standards/strict_json.py` security source: the frame and stream
-decoders parse through it, so a duplicate field and every non-finite number, including an exponent overflow such as
-`1e999`, fail closed. The modules import one another as a package, and flat when `verify.py` runs them as scripts.
+Team Routine forms are split by responsibility (ADR-0101): `routine` owns schedules, timezones, plans, and outputs;
+`routine_notice` notices and the views Admin lists; `routine_run` recovery cards, claims, segments, diagnostics,
+and run steps; `routine_proposal` the confirmation card, Team's questions, refusals, answers, and the output choices;
+and `routine_context` the Routine listing and rerun work a recording chat's Brain receives. The Brain mirrors
+`payload`, `phrase`, `routine`, `routine_notice`, `routine_proposal`, and `routine_context` with the
+three modules above, and `progress` with strict JSON, which a creation notice's steps are validated with.
+The frame and stream decoders parse through the umbrella strict JSON standard (`.standards/strict-json`), so a duplicate
+field and every non-finite number, including an exponent overflow such as `1e999`, fail closed.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
@@ -221,7 +224,7 @@ the intent's work and the revision its replaced Routine was shown at. A complete
 Routine (ADR-0122) carries `routine_refinement` or `routine_refusal` instead, never a question.
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
-same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
+same words alike (`phrase`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
 `phrase.outputs` the output choices (`show`, `changes`, `none`), and `phrase.zones` the exact IANA zones it
 names. `phrase.team_asks(text, language)` is true when one clarification question or option label asks or states a
 schedule, an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain
@@ -579,7 +582,7 @@ of at most 80 code points each, the names and summaries of exactly the installab
 for the same message considers (names may repeat). Team forwards them only to Brain's intent route, and its answer
 then carries `capability`, `not-needed` only for a confident ordinary task Jev called conversation, else `possible`
 (ADR-0077 amendment); without `installable` the answer has no `capability` field. The intent route and the
-capability plan bodies are bounded at their JSON worst case (`turn.py`), so any admissible chat message is routed
+capability plan bodies are bounded at their JSON worst case (`turn`), so any admissible chat message is routed
 and planned.
 
 Local Admin may emit an exact terminal `assistant-guidance` event with the authenticated socket Team id, one of the
@@ -676,12 +679,6 @@ full nanosecond precision after normalizing the reported offset; only Teams crea
 ascending `team_id`. Each item keeps exactly `{"team_id", "team_name", "status"}`, and creation metadata that is not
 a valid RFC 3339 instant refuses the listing with `503` `team-metadata-invalid`.
 
-`vectors.json` contains positive and negative cases that Team and every consumer mirror execute
-independently. Generated consumer mirrors pin the producing Teams commit, verify
-`contract-files.sha256`, and remain byte-identical to this directory.
-
-Validate the authority from this directory:
-
-```console
-python verify.py
-```
+`vectors.json` contains positive and negative cases that the crate's tests (`../rust/tests/protocol`) execute.
+Generated consumer mirrors of the crate pin the producing Teams commit and its `contract-files.sha256`, and remain
+byte-identical to it.

@@ -1,4 +1,4 @@
-//! The canonical value representation the vectors and the differential harness compare.
+//! The canonical value representation the vectors and the corpus compare.
 //!
 //! Integers are `{"int":"<decimal>"}`, floats `{"float_bits":"<16 hex digits of the f64 bits>"}`, objects
 //! `{"object":[[key,value],...]}` in document order, and strings, arrays, booleans, and null are themselves. The text

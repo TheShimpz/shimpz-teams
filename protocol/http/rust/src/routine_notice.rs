@@ -1,4 +1,4 @@
-//! Canonical Team Routine notices and the views Admin lists (`routine_notice.py`, ADR-0086, ADR-0092, ADR-0101).
+//! Canonical Team Routine notices and the views Admin lists (ADR-0086, ADR-0092, ADR-0101).
 
 use std::collections::HashSet;
 use std::sync::LazyLock;

@@ -1,4 +1,4 @@
-//! The registry every differential and fuzz run calls: unique Python names, each answering every kind of value.
+//! The registry the corpus and the fuzz target call: unique names, each answering every kind of value.
 
 use strict_json::{Number, Value};
 

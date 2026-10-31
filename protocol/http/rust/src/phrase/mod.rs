@@ -1,5 +1,4 @@
-//! The schedule, output, and timezone a person states in their own words, read with no model (`phrase.py`,
-//! ADR-0101).
+//! The schedule, output, and timezone a person states in their own words, read with no model (ADR-0101).
 //!
 //! Each reader reproduces the Python reader over the same tables ([`tables`], in Python `re` syntax through the
 //! crate's pattern translator): the text's digits of three scripts become ASCII, the text is case-folded and split into

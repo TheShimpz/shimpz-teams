@@ -1,4 +1,4 @@
-//! The integration tests of the crate, one test binary: each module checks its Python modules' vector groups.
+//! The integration tests of the crate, one test binary: each module checks its modules' vector groups.
 
 mod constants;
 mod corpus;

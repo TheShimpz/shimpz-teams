@@ -1,4 +1,4 @@
-//! Every `vectors.json` group of `websocket`, `sign_in`, and `browser`, with the bound checks `verify.py` makes, and the
+//! Every `vectors.json` group of `websocket`, `sign_in`, and `browser`, with their bound checks, and the
 //! URL canonicalization vectors, checked with typed equality.
 
 use crate::support::vectors::{admits_group, group, items, same, text};

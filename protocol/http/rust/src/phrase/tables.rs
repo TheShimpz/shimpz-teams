@@ -1,4 +1,4 @@
-//! The phrase tables of `phrase.py`, each pattern in Python `re` syntax as Python declares it, read through the crate's
+//! The phrase tables, each pattern in Python `re` syntax as Python declares it, read through the crate's
 //! Python pattern translator. Every name is the Python name without its leading underscore.
 //!
 //! Two interval patterns, Chinese and Arabic, read their count as `\s*(?:(\d+)\s*)?` where Python writes

@@ -1,5 +1,5 @@
-//! Branches of `payload`, `progress`, and `routine` no registry adapter reaches, each checked against what the Python
-//! module answers for the same input.
+//! Branches of `payload`, `progress`, and `routine` no registry adapter reaches, each checked against what the retired
+//! Python module answered for the same input.
 
 use crate::support::vectors::{group, items};
 use strict_json::Value;

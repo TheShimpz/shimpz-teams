@@ -1,4 +1,4 @@
-//! The Brain's task-bound sentence for why an Action pauses for a person (`purpose.py`, ADR-0090).
+//! The Brain's task-bound sentence for why an Action pauses for a person (ADR-0090).
 
 use strict_json::Value;
 

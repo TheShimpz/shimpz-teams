@@ -2,7 +2,7 @@
 //!
 //! Each function is named after the Python operation it reproduces. Lengths count code points, `strip` and `isspace`
 //! use Python's whitespace (which includes U+001C..U+001F and U+0085), `isprintable` refuses every Other and Separator
-//! character except the ASCII space, `casefold` and `lower` read the tables `tables.py` generated from Python itself,
+//! character except the ASCII space, `casefold` and `lower` read the tables generated from Python itself,
 //! and NFC is `unicode-normalization` 0.1.24, whose Unicode 16 data the tests prove equal to Python's on every code
 //! point.
 

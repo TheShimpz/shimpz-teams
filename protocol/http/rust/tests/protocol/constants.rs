@@ -1,4 +1,4 @@
-//! Every integer constant the crate shares with a Python module has the Python value (read from the module itself
+//! Every integer constant the crate shares with its consumers has its pinned value (read from the retired Python module
 //! when this table was written), so no bound drifts by arithmetic.
 
 use team_protocol::{

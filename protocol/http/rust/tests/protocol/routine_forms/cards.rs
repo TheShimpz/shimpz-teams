@@ -10,7 +10,7 @@ use crate::support::vectors::{call, group, items};
 
 const WIDE: &str = "\u{754c}";
 
-/// `_proposal_case` of `verify.py`: a card at its byte bound, one byte past it, or with a step more than a plan admits.
+/// A card at its byte bound, one byte past it, or with a step more than a plan admits.
 fn proposal_case(name: &str) -> Value {
     let card = first("routine_proposal.valid");
     let steps = items(member(&card, "steps"));

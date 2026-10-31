@@ -1,4 +1,4 @@
-//! Closed Team, Assistant, Action, and Assistant-declared identifiers (`identifiers.py`).
+//! Closed Team, Assistant, Action, and Assistant-declared identifiers.
 //!
 //! Team ids and Action ids are Team's own. An Assistant id and the identifier of an Assistant's Integration, provider,
 //! or Stored Input follow the Developers published-Assistant protocol: one grammar with two bounds.

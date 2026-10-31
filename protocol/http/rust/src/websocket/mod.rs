@@ -1,4 +1,4 @@
-//! The bounded `shimpz.chat.v7` frame primitives and Origin canonicalization (`websocket.py`).
+//! The bounded `shimpz.chat.v7` frame primitives and Origin canonicalization.
 //!
 //! An Origin is printable ASCII without spaces, brackets, `?`, or `#`, read as `urllib.parse.urlparse` reads it; a
 //! frame is one text message of bounded UTF-8 strict JSON whose value is an object; a human response is one exact

@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99.0"
 publish = false
 license = "Apache-2.0"
-description = "The Team HTTP protocol v1 in Rust, equal to the Python modules of teams/protocol/http/v1"
+description = "The Team HTTP protocol v1"
 
 [dependencies]
 fancy-regex = { version = "=0.19.2", default-features = false, features = ["std", "unicode"] }

@@ -1,4 +1,4 @@
-//! Canonical Routine forms a recording chat turn's Brain context carries (`routine_context.py`, ADR-0101, ADR-0122):
+//! Canonical Routine forms a recording chat turn's Brain context carries (ADR-0101, ADR-0122):
 //! the listing, the rerun work, the selected Routine, and the agent's refinement.
 
 use std::sync::LazyLock;

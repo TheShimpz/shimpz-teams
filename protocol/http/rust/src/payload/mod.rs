@@ -1,4 +1,4 @@
-//! Pure Team wire contract shared with its consumers (`payload.py`).
+//! Pure Team wire contract shared with its consumers.
 //!
 //! The identifier grammars, the purpose sentence rule, and the chat-turn bounds live in their own modules and are
 //! re-exported here, as Python re-exports them.

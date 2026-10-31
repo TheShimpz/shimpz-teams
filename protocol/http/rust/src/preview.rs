@@ -1,4 +1,4 @@
-//! A Team file's preview: the framing of the sanitized rendition Team sends a Supervisor's browser (`preview.py`).
+//! A Team file's preview: the framing of the sanitized rendition Team sends a Supervisor's browser.
 //!
 //! The rendition is the bounded image derivative a chat turn sends the model, never the original: a JPEG or PNG of at
 //! most the derivative's bytes, of an image or of one page of a PDF. Team and Admin each admit its exact media type and

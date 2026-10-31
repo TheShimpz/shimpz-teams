@@ -1,5 +1,4 @@
-//! The Browser agent's closed step set and the `browser-step` exchange Team and the Brain share (`browser.py`,
-//! ADR-0117).
+//! The Browser agent's closed step set and the `browser-step` exchange Team and the Brain share (ADR-0117).
 //!
 //! The agent answers one step at a time from the closed set, and both sides admit a step only in its canonical form;
 //! the model answers through the flat [`step_schema`], every field present and the unused ones null, which

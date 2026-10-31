@@ -1,4 +1,4 @@
-//! Closed Team chat progress and streamed-terminal framing (`progress.py`).
+//! Closed Team chat progress and streamed-terminal framing.
 //!
 //! An Action occurrence carries only its canonical Assistant and Action identifiers, never arguments, results, prompts,
 //! or model output. Only the single terminal record determines a turn's outcome.

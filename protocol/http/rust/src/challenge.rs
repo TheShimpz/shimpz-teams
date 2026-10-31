@@ -1,4 +1,4 @@
-//! The presentation a Team human-required challenge carries beside its canonical request (`challenge.py`).
+//! The presentation a Team human-required challenge carries beside its canonical request.
 //!
 //! The rendered copy of the request's catalog references, the one file an authorization discloses, and an
 //! authorization's projection of the validated Action input: display values a client shows and validates, never part

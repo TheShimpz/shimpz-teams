@@ -1,4 +1,4 @@
-//! Bounds of a chat turn that Team, the Brain, and Admin enforce (`turn.py`).
+//! Bounds of a chat turn that Team, the Brain, and Admin enforce.
 //!
 //! A turn carries one user message; the Brain may end it with one clarification question or propose memory changes,
 //! and Team admits each only within these bounds. The reply, capability planning, intent routing, and the attachment

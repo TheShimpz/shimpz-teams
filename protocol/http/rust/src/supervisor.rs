@@ -1,4 +1,4 @@
-//! The Local Supervisor assertion contract shared by Team and Admin (`supervisor.py`).
+//! The Local Supervisor assertion contract shared by Team and Admin.
 //!
 //! Admin signs one closed claim set per request, encoded as canonical JSON v1; Team admits only that exact set. A
 //! Routine run is started by a separate machine identity whose claims bind the run lease instead of a human session.

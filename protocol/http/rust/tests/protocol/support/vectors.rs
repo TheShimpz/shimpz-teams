@@ -1,4 +1,4 @@
-//! `vectors.json` of the Python protocol, read once, and the typed equality `verify.py` checks with.
+//! `vectors.json` of the protocol, read once, and the typed equality the vectors are checked with.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -7,7 +7,7 @@ use strict_json::{Number, Value};
 
 use super::registry::{Outcome, find};
 
-/// The Python protocol directory, `../v1` beside this crate; a copy of the crate (such as a mutation scratch tree)
+/// The protocol's vector directory, `../v1` beside this crate; a copy of the crate (such as a mutation scratch tree)
 /// holds it at the same relative path.
 #[must_use]
 pub fn v1() -> PathBuf {
@@ -65,7 +65,7 @@ pub fn text(value: &Value) -> &str {
     }
 }
 
-/// `same` of `verify.py`: equal values of the same JSON type; object members in any order.
+/// Equal values of the same JSON type; object members in any order.
 #[must_use]
 pub fn same(left: &Value, right: &Value) -> bool {
     match (left, right) {

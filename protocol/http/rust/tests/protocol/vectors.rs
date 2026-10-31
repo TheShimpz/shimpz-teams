@@ -1,5 +1,5 @@
 //! Every `vectors.json` group of `identifiers`, `purpose`, `payload`, `progress`, and `routine`, and the canonical JSON
-//! v1 vectors, checked as `verify.py` checks them, with typed equality.
+//! v1 vectors, checked with typed equality.
 
 use crate::support::registry::Outcome;
 use crate::support::vectors::{admits, admits_group, call, group, items, same, text};
@@ -61,7 +61,7 @@ fn payload_vectors() {
     }
 }
 
-/// `_conversation_case` of `verify.py`: a generated window at or past its bounds.
+/// A generated window at or past its bounds.
 fn conversation_case(case: &Value) -> Value {
     let entry = |text: String| {
         object(vec![

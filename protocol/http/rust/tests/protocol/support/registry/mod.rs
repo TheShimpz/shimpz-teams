@@ -1,10 +1,9 @@
-//! Every validator and encoder of the crate by its Python name (`module.function`), taking one JSON value, so the
-//! vector tests, the differential `decide` example, and the fuzz target call each one alike.
+//! Every validator and encoder of the crate by its module path (`module.function`), taking one JSON value, so the
+//! vector tests, the corpus replay, and the fuzz target call each one alike.
 //!
 //! A function of several Python arguments takes an object of them by their Python names. An adapter that needs a
 //! canonical input (such as `routine.daily_cap`, which Python calls only on an admitted schedule) refuses any other.
-//! `differential.py` holds the same names over the Python modules. Each module's entries live in their own file; add a
-//! module's file and its line in [`all`].
+//! Each module's entries live in their own file; add a module's file and its line in [`all`].
 
 mod browser;
 mod payload;
@@ -28,7 +27,7 @@ pub enum Outcome {
     Value(Value),
     /// `None`.
     Refuse,
-    /// A closed error, by the name `differential.py` gives its Python exception.
+    /// A closed error, by the name of the Python exception the corpus recorded.
     Error(&'static str),
 }
 
@@ -64,7 +63,7 @@ pub fn find(name: &str) -> Option<fn(&Value) -> Outcome> {
         .map(|(_, call)| call)
 }
 
-/// One line of the differential output: the canonical representation, `refuse`, or `error:<name>`.
+/// One recorded line: the canonical representation, `refuse`, or `error:<name>`.
 #[must_use]
 pub fn line(outcome: &Outcome) -> String {
     match outcome {

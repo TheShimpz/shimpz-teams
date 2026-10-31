@@ -1,5 +1,5 @@
-//! The vector groups of `content`, `preview`, `browser_view`, `challenge`, and `supervisor`, checked as `verify.py`
-//! checks them with typed equality, and the edges of each validator the vectors leave open.
+//! The vector groups of `content`, `preview`, `browser_view`, `challenge`, and `supervisor`, checked with typed
+//! equality, and the edges of each validator the vectors leave open.
 
 use crate::support::registry::Outcome;
 use crate::support::vectors::{admits, admits_group, call, group, items, same, text};

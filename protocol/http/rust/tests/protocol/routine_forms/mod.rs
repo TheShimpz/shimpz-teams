@@ -1,5 +1,5 @@
-//! Every `vectors.json` group of `routine_notice`, `routine_run`, and `routine_proposal`, checked as `verify.py` checks
-//! them, with typed equality, and the edges of each validator the vectors leave open.
+//! Every `vectors.json` group of `routine_notice`, `routine_run`, and `routine_proposal`, checked with typed equality,
+//! and the edges of each validator the vectors leave open.
 
 mod cards;
 mod views;

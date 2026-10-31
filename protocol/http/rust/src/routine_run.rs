@@ -1,4 +1,4 @@
-//! Canonical Team Routine run forms (`routine_run.py`, ADR-0092, ADR-0101): recovery cards, claims, diagnostics, and
+//! Canonical Team Routine run forms (ADR-0092, ADR-0101): recovery cards, claims, diagnostics, and
 //! run steps.
 
 use std::collections::HashSet;

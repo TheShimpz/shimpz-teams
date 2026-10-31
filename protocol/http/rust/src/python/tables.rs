@@ -1,4 +1,4 @@
-//! The Unicode tables `tables.py` generates from Python 3.14.
+//! The Unicode tables generated from Python 3.14.
 
 mod case;
 mod category;

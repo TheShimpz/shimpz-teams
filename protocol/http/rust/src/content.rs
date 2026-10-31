@@ -1,4 +1,4 @@
-//! A Team file's original: the framing of the bytes Team sends a Supervisor's browser to download (`content.py`).
+//! A Team file's original: the framing of the bytes Team sends a Supervisor's browser to download.
 //!
 //! Team sends a listed file's stored bytes only after they matched their stored digest, as an octet stream of exactly
 //! `length` bytes whose SHA-256 is `sha256`; Admin verifies both before it sends a byte on.

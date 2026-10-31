@@ -1,4 +1,4 @@
-//! Canonical recorded-Routine card forms (`routine_proposal.py`, ADR-0101): the card, Team's questions, refusals, and
+//! Canonical recorded-Routine card forms (ADR-0101): the card, Team's questions, refusals, and
 //! answers.
 
 use std::collections::HashSet;

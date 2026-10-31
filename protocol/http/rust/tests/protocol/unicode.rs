@@ -1,5 +1,5 @@
 //! The pinned `unicode-normalization` agrees with Python 3.14 (Unicode 16.0.0) on every code point:
-//! `tests/fixtures/unicode.txt`, which `tables.py` generates from Python, lists every non-zero canonical combining class
+//! `tests/fixtures/unicode.txt`, generated from Python 3.14, lists every non-zero canonical combining class
 //! and every code point NFC or NFD changes, and every other code point is unchanged by both with class zero.
 
 use std::collections::HashMap;

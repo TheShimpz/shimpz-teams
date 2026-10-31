@@ -1,5 +1,4 @@
-//! Every `vectors.json` group of `phrase` and `routine_context`, checked as `verify.py` checks them, with typed
-//! equality.
+//! Every `vectors.json` group of `phrase` and `routine_context`, checked with typed equality.
 
 use strict_json::Value;
 use team_protocol::python::json::{Options, encoded_len};
@@ -188,7 +187,7 @@ fn date_word_and_number_token_vectors() {
     }
 }
 
-/// `_listing` of `verify.py`: a listed Routine of `steps` steps, each with every input name at its widest.
+/// A listed Routine of `steps` steps, each with every input name at its widest.
 fn listing(index: usize, steps: usize) -> Value {
     let names: Vec<String> = (0..routine::MAX_STEP_INPUTS)
         .map(|name| format!("{name:03}{}", "a".repeat(routine::MAX_MEMBER_CHARS - 3)))

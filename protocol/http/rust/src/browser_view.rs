@@ -1,4 +1,4 @@
-//! The Browser screen a Supervisor watches while a chat turn's Browser task runs (`browser_view.py`).
+//! The Browser screen a Supervisor watches while a chat turn's Browser task runs.
 //!
 //! Opening a view answers the running task's random `view_id`. A stream request names that id in its path and upgrades
 //! to one WebSocket that Team carries to the Browser's display, only while the very task it opened the view for still

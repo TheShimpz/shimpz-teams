@@ -1,7 +1,7 @@
 //! A chat turn's Brain operations as Team admits them: the turn context the Brain receives, the closed turn answer,
 //! one Action request's purpose, and a thread's deletion.
 //!
-//! The context and every answer are Team's HTTP protocol (`teams/protocol/http/v1/turn.py`): the bounds here are the
+//! The context and every answer are Team's HTTP protocol (the `turn` module of `teams/protocol/http/rust`): the bounds here are the
 //! protocol's own, which the Brain and Admin read too. Every answer is admitted whole or refused as
 //! [`BrainError::Protocol`]; its reported usage is recorded first, even when the rest is refused.
 

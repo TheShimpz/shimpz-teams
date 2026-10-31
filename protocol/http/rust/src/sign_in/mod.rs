@@ -1,4 +1,4 @@
-//! A Team's Sign-in over the Team HTTP protocol (`sign_in.py`, ADR-0117).
+//! A Team's Sign-in over the Team HTTP protocol (ADR-0117).
 //!
 //! Each Team has at most one Sign-in, shown by its state, the sites found in its saved cookies, and its times, never its
 //! capsule. Every body and answer has one exact form.

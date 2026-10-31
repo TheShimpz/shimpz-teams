@@ -1,10 +1,8 @@
 //! The Team HTTP protocol v1 in Rust.
 //!
-//! Each module reproduces the Python module of the same name in `teams/protocol/http/v1`, which stays the authority
-//! while Team is Python: the same public constants by name, and validators that take a strict JSON value and return
-//! exactly the value Python returns (members in Python's order) or refuse it. `vectors.json` and a seeded
-//! differential harness against the Python modules prove the equality; [`python`] holds the Python semantics they
-//! share.
+//! Each module owns one part of the protocol: public constants by name, and validators that take a strict JSON value
+//! and return its canonical value (members in order) or refuse it. `teams/protocol/http/v1/vectors.json` pins them;
+//! [`python`] holds the Python semantics the protocol was first written with, which it keeps exactly.
 
 pub mod browser;
 pub mod browser_view;

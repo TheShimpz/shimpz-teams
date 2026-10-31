@@ -38,7 +38,7 @@ pub fn dumps(value: &Value, options: Options) -> String {
     out
 }
 
-/// The Shimpz canonical JSON v1 bytes of `value` (`teams/core/canonical_json.py` `encode`).
+/// The Shimpz canonical JSON v1 bytes of `value`.
 #[must_use]
 pub fn canonical(value: &Value) -> Vec<u8> {
     dumps(value, CANONICAL).into_bytes()

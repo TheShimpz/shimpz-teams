@@ -1,5 +1,5 @@
-//! The seeded differential corpus (`differential.py --corpus`): per module, each entry's seeds and the drawn cases that
-//! executed a new line arc of the Python module, with the line Python wrote, replayed against the crate.
+//! The recorded corpus: per module, each entry's seeds and the drawn cases that executed a new line arc of the retired
+//! Python module, with the line it wrote, replayed against the crate.
 
 use std::path::Path;
 

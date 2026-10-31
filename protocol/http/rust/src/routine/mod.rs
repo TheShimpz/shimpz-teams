@@ -1,4 +1,4 @@
-//! Canonical Team Routine wire forms (`routine.py`, ADR-0086, ADR-0101): schedules, timezones, bounds, plans, and
+//! Canonical Team Routine wire forms (ADR-0086, ADR-0101): schedules, timezones, bounds, plans, and
 //! outputs.
 
 mod output;
