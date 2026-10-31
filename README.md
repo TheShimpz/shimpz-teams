@@ -15,7 +15,8 @@ The repository is consumed by the Shimpz umbrella at the root `teams/` checkout.
   the HTTP server and authority, Docker and isolation, lifecycle coordination, audit, and each service group used by
   the Local Space applied by the release-bound CLI.
 - `install/` owns publication verification and binding.
-- `protocol/http/` is Team's HTTP authority; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
+- `protocol/http/` is Team's HTTP authority: the Rust crate `rust/` implements it, and `v1/` holds its specification
+  and vectors; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
   used for independent admission and installation conformance.
 - `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.
 - The repository root contains governance and the workspace's dependency metadata only; every crate belongs to a
