@@ -288,11 +288,10 @@ struct StoppingAudit(Stop, team_core::testing::MemoryAudit);
 
 impl AuditSink for StoppingAudit {
     fn record(&self, event: AuditEvent) -> BoxFuture<'_, Result<(), AuditUnavailable>> {
-        if event
-            .fields()
-            .iter()
-            .any(|(name, value)| name == "phase" && *value == Value::String("dispatch".to_owned()))
-        {
+        if event.fields().iter().any(|(name, value)| {
+            name == "detail"
+                && matches!(value, Value::String(detail) if detail.contains(r#""phase":"dispatch""#))
+        }) {
             self.0.stop();
         }
         self.1.record(event)

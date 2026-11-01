@@ -170,17 +170,33 @@ pub(crate) fn refused(code: &str) -> Value {
     json(&format!(r#"{{"error":"{code}"}}"#))
 }
 
+/// Each record's phase and reason, read from its `detail`: `<action>:<operation id>:<call metadata JSON>`, the only
+/// shape the Local log admits.
 pub(crate) fn phases(audit: &MemoryAudit) -> Vec<(String, Option<String>)> {
-    let text = |value: Option<&(String, Value)>| match value {
-        Some((_, Value::String(text))) => Some(text.clone()),
-        _ => None,
-    };
+    let prefix = "list-campaigns:6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6:";
     audit
         .events()
         .iter()
         .map(|event| {
-            let field = |name: &str| text(event.fields().iter().find(|(key, _)| key == name));
-            (field("phase").unwrap_or_default(), field("reason"))
+            let names: Vec<&str> = event
+                .fields()
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect();
+            assert_eq!(
+                names,
+                ["operation", "result", "team_id", "assistant", "detail"]
+            );
+            let Some((_, Value::String(detail))) = event.fields().last() else {
+                panic!("a detail");
+            };
+            let metadata = detail.strip_prefix(prefix).expect("the attempt prefix");
+            let metadata = strict_json::parse(metadata.as_bytes()).expect("call metadata JSON");
+            let text = |name: &str| match metadata.get(name) {
+                Some(Value::String(text)) => Some(text.clone()),
+                _ => None,
+            };
+            (text("phase").unwrap_or_default(), text("reason"))
         })
         .collect()
 }

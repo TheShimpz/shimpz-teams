@@ -52,6 +52,11 @@ const REPLY_JSON: Options = Options {
     sort_keys: false,
     compact: true,
 };
+const DETAIL_JSON: Options = Options {
+    ensure_ascii: true,
+    sort_keys: true,
+    compact: true,
+};
 
 /// Team did not send, or did not complete, the call: `code` is the closed error the Action receives, `reason` the
 /// audit's.
@@ -185,6 +190,8 @@ impl Broker {
         }
     }
 
+    /// One call record in the audit's closed event shape: the call's metadata travels in `detail` as
+    /// `<action>:<operation id>:<compact sorted JSON>`, so a sink admitting only its closed fields still records it.
     async fn audit(&self, ordinal: usize, fields: Vec<(&str, Value)>) -> Result<(), Unaudited> {
         let attempt = &self.scope.attempt;
         let text = |value: &str| Value::String(value.to_owned());
@@ -198,20 +205,27 @@ impl Broker {
             (_, true) => "error",
             _ => "ok",
         };
-        let mut event = AuditEvent::new()
+        let mut metadata = vec![(
+            "call".to_owned(),
+            Value::Number(Number::Int(i64::try_from(ordinal).unwrap_or(i64::MAX))),
+        )];
+        metadata.extend(
+            fields
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value)),
+        );
+        let detail = format!(
+            "{}:{}:{}",
+            attempt.action_id,
+            attempt.operation_id,
+            json::dumps(&Value::Object(metadata), DETAIL_JSON)
+        );
+        let event = AuditEvent::new()
             .with("operation", text("assistant-provider-call"))
             .with("result", text(result))
             .with("team_id", text(&attempt.team_id))
             .with("assistant", text(&attempt.assistant_id))
-            .with("action", text(&attempt.action_id))
-            .with("operation_id", text(&attempt.operation_id))
-            .with(
-                "call",
-                Value::Number(Number::Int(i64::try_from(ordinal).unwrap_or(i64::MAX))),
-            );
-        for (name, value) in fields {
-            event = event.with(name, value);
-        }
+            .with("detail", Value::String(detail));
         self.scope.audit.record(event).await.map_err(|_| Unaudited)
     }
 
