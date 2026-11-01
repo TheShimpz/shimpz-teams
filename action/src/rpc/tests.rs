@@ -364,3 +364,138 @@ async fn a_stopped_workload_that_cannot_be_proven_stopped_is_blocked() {
         ))
     );
 }
+
+/// Where a delayed engine stalls: starting the exec, or reading its exit status.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stall {
+    Start,
+    Inspect,
+}
+
+/// The fake engine, stalled past any deadline at one step.
+struct Stalled(FakeExec, Stall);
+
+impl team_core::exec::ExecEngine for Stalled {
+    fn start_exec<'a>(
+        &'a self,
+        spec: &'a team_core::exec::ExecSpec,
+    ) -> team_core::future::BoxFuture<
+        'a,
+        Result<team_core::exec::ExecSession, team_core::exec::ExecError>,
+    > {
+        Box::pin(async move {
+            if self.1 == Stall::Start {
+                std::future::pending::<()>().await;
+            }
+            self.0.start_exec(spec).await
+        })
+    }
+
+    fn inspect_exec<'a>(
+        &'a self,
+        id: &'a team_core::exec::ExecId,
+    ) -> team_core::future::BoxFuture<'a, Result<ExecExit, team_core::exec::ExecError>> {
+        Box::pin(async move {
+            if self.1 == Stall::Inspect {
+                std::future::pending::<()>().await;
+            }
+            self.0.inspect_exec(id).await
+        })
+    }
+
+    fn fail_stop<'a>(
+        &'a self,
+        container: &'a str,
+    ) -> team_core::future::BoxFuture<
+        'a,
+        Result<team_core::exec::FailStop, team_core::exec::ExecError>,
+    > {
+        self.0.fail_stop(container)
+    }
+}
+
+/// Each deadline names its phase: starting the exec, and reading its exit status, whether the read itself or its
+/// wait for a Docker call slot runs out. The Routine condition each keeps is the one it always kept.
+#[tokio::test]
+async fn a_deadline_names_the_phase_it_passed_in() {
+    let late =
+        |phase| Cause::new(Condition::DeadlinePassed, phase).with_cleanup(Cleanup::WorkloadStopped);
+    let short = || Instant::now() + Duration::from_millis(100);
+    let starting = Stalled(FakeExec::default(), Stall::Start);
+    let outcome = run_on(&starting, &DockerSlots::default(), short()).await;
+    assert_eq!(
+        outcome,
+        Err(RpcError::Failed {
+            kind: RpcFailure::Timeout,
+            cause: late(Phase::ExecStart)
+        })
+    );
+    assert_eq!(routine_condition(&late(Phase::ExecStart)), "timeout");
+    let inspecting = Stalled(FakeExec::default(), Stall::Inspect);
+    scripted(&inspecting.0, frame(1, b"{}"), Some(0));
+    let outcome = run_on(&inspecting, &DockerSlots::default(), short()).await;
+    assert_eq!(
+        outcome,
+        Err(RpcError::Failed {
+            kind: RpcFailure::Timeout,
+            cause: late(Phase::ExitInspection)
+        })
+    );
+    assert_eq!(
+        routine_condition(&late(Phase::ExitInspection)),
+        "exit-unavailable"
+    );
+    assert_eq!(inspecting.0.stopped(), ["container"]);
+}
+
+/// A Docker call slot that never frees for the exit read ends the call in exit inspection, never as a dispatch
+/// refusal: the workload already ran.
+#[tokio::test]
+async fn an_exit_read_that_never_gets_a_slot_is_a_late_exit_inspection() {
+    let engine = FakeExec::default();
+    let slots = DockerSlots::with(1);
+    let (ours, mut workload) = duplex(64 * 1024);
+    engine.push(ScriptedExec {
+        stream: ours,
+        exit: ExecExit {
+            running: false,
+            exit_code: Some(0),
+        },
+    });
+    let exchanged = async {
+        let mut request = Vec::new();
+        let _ = workload.read_to_end(&mut request).await;
+        // The dispatch's slot is free once the exec started; another call takes it before the exit read.
+        let held = slots.0.acquire().await.expect("a slot");
+        let _ = workload.write_all(&frame(1, b"{}")).await;
+        let _ = workload.shutdown().await;
+        held
+    };
+    let deadline = Instant::now() + Duration::from_millis(200);
+    let (outcome, _held) = tokio::join!(run_on(&engine, &slots, deadline), exchanged);
+    assert_eq!(
+        outcome,
+        Err(RpcError::Failed {
+            kind: RpcFailure::Timeout,
+            cause: Cause::new(Condition::DeadlinePassed, Phase::ExitInspection)
+                .with_cleanup(Cleanup::WorkloadStopped),
+        })
+    );
+}
+
+async fn run_on(
+    engine: &dyn team_core::exec::ExecEngine,
+    slots: &DockerSlots,
+    deadline: Instant,
+) -> Result<Value, RpcError> {
+    let stop = Stop::new();
+    let call = RpcCall {
+        container: "container",
+        action: "lookup",
+        encoded: b"{}",
+        deadline,
+        stop: &stop,
+        broker: None,
+    };
+    exchange(engine, slots, call).await
+}
