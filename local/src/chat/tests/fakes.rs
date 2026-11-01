@@ -295,6 +295,8 @@ pub struct FakeExecutor {
     pub injected: Arc<Mutex<Vec<String>>>,
     /// Set, a batch's delivery never returns: the Team process dies there.
     pub dies_delivering: Arc<std::sync::atomic::AtomicBool>,
+    /// Set, a batch's ending fails: the journal could not record it.
+    pub terminate_fails: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for FakeExecutor {
@@ -305,6 +307,7 @@ impl Default for FakeExecutor {
             scopes: Arc::new(Mutex::new(Vec::new())),
             injected: Arc::new(Mutex::new(Vec::new())),
             dies_delivering: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            terminate_fails: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
@@ -349,6 +352,7 @@ struct FakeBatch {
     answers: Arc<Mutex<VecDeque<Answer>>>,
     injected: Arc<Mutex<Vec<String>>>,
     dies_delivering: Arc<std::sync::atomic::AtomicBool>,
+    terminate_fails: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ActionBatch for FakeBatch {
@@ -407,6 +411,16 @@ impl ActionBatch for FakeBatch {
 
     fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         lock(&self.events).push("terminate".to_owned());
+        if self
+            .terminate_fails
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            let journal = ActionError::at(
+                ActionFailure::StateUnavailable,
+                team_protocol::cause::Phase::Journal,
+            );
+            return Box::pin(async move { Err(journal) });
+        }
         Box::pin(async { Ok(true) })
     }
 
@@ -426,6 +440,7 @@ impl ActionExecutor for FakeExecutor {
             answers: Arc::clone(&self.answers),
             injected: Arc::clone(&self.injected),
             dies_delivering: Arc::clone(&self.dies_delivering),
+            terminate_fails: Arc::clone(&self.terminate_fails),
         })
     }
 

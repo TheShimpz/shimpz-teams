@@ -12,7 +12,7 @@ use team_core::audit::AuditUnavailable;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Condition, Phase};
+use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
 
 use crate::human::ActionTranscript;
 
@@ -148,6 +148,16 @@ impl ActionError {
             }
         };
         Self::new(failure, Cause::new(condition, phase))
+    }
+}
+
+/// `cause` whose journal could not record the attempt's end: the journal's failure becomes its cleanup, unless the
+/// workload's stop is already unconfirmed, which a person must learn first.
+#[must_use]
+pub const fn journal_cleanup(cause: Cause) -> Cause {
+    match cause.cleanup() {
+        Some(Cleanup::WorkloadStopUnconfirmed) => cause,
+        _ => cause.with_cleanup(Cleanup::JournalUnavailable),
     }
 }
 

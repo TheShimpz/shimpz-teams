@@ -202,6 +202,30 @@ pub fn routine_thread_id(
     ))
 }
 
+/// A failed turn's problem once its batch is ended; a batch the journal could not end answers that, with the turn's
+/// own cause kept.
+async fn failed_turn(batch: &mut Tracked, error: team_chat::orchestrator::ChatError) -> Problem {
+    match batch.terminate().await {
+        Err(journal) => problem::action_state_unavailable().with_cause(unended(&error, journal)),
+        Ok(_) => chat_problem(error),
+    }
+}
+
+/// The cause of a turn whose batch could not end after it failed: the turn's own failure stays the cause, the
+/// journal's failure what became of its cleanup; without one, the journal's own cause.
+fn unended(
+    error: &team_chat::orchestrator::ChatError,
+    journal: ActionError,
+) -> Option<team_protocol::cause::Cause> {
+    let initiating = match error {
+        team_chat::orchestrator::ChatError::Action(failed) => failed.cause,
+        _ => None,
+    };
+    initiating.map_or(journal.cause, |cause| {
+        Some(team_action::executor::journal_cleanup(cause))
+    })
+}
+
 fn prepare_problem(error: PrepareError) -> Problem {
     match error {
         PrepareError::Stopped => problem::chat_stopped(),
@@ -834,14 +858,7 @@ impl ChatService {
             .await
         {
             Ok(outcome) => outcome,
-            Err(error) => {
-                let ended = batch.terminate().await;
-                return Err(if ended.is_err() {
-                    problem::action_state_unavailable()
-                } else {
-                    chat_problem(error)
-                });
-            }
+            Err(error) => return Err(failed_turn(&mut batch, error).await),
         };
         let human = match &outcome {
             Outcome::Human(paused) => Some(

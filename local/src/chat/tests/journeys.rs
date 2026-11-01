@@ -116,6 +116,33 @@ async fn an_unselected_or_absent_assistant_is_refused_before_the_brain() {
     assert_eq!(harness.executor.invoked().len(), 0);
 }
 
+/// A failed turn whose batch the journal could not end keeps the turn's own cause, and says the journal's failure is
+/// what became of its cleanup; the code stays the journal's.
+#[tokio::test]
+async fn a_batch_that_cannot_end_keeps_the_failures_own_cause() {
+    let harness = harness();
+    harness.brain.answer(Ok(suspension("interrupt-1")));
+    harness
+        .executor
+        .terminate_fails
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let exited = Cause::exit_status(1).with_cleanup(Cleanup::WorkloadStopped);
+    harness.executor.answer(Box::new(move |_, _| {
+        Err(ActionError::new(ActionFailure::Uncertain, exited))
+    }));
+    let failed = harness
+        .chat(chat_body("List", &["shimpz-cloudflare"], None))
+        .await;
+    assert_eq!(
+        (failed.status, failed.code()),
+        (503, Some("action-state-unavailable"))
+    );
+    assert_eq!(
+        failed.body.get("cause").and_then(Cause::from_value),
+        Some(Cause::exit_status(1).with_cleanup(Cleanup::JournalUnavailable))
+    );
+}
+
 #[tokio::test]
 async fn a_failed_batch_ends_its_journal_state_and_frees_the_team() {
     let harness = harness();

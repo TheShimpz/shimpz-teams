@@ -1018,3 +1018,16 @@ async fn a_refusal_before_dispatch_is_recorded_with_its_cause() {
         )]
     );
 }
+
+/// A journal that cannot record an attempt's end becomes the cause's cleanup, except over an unconfirmed stop.
+#[test]
+fn a_journal_cleanup_never_hides_an_unconfirmed_stop() {
+    let unconfirmed = Cause::exit_status(1).with_cleanup(Cleanup::WorkloadStopUnconfirmed);
+    assert_eq!(crate::executor::journal_cleanup(unconfirmed), unconfirmed);
+    assert_eq!(
+        crate::executor::journal_cleanup(
+            Cause::exit_status(1).with_cleanup(Cleanup::WorkloadStopped)
+        ),
+        Cause::exit_status(1).with_cleanup(Cleanup::JournalUnavailable)
+    );
+}

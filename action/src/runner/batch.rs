@@ -14,12 +14,12 @@ use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
+use team_protocol::cause::{Cause, Condition, Phase};
 
 use super::{Binding, Delivery, Failed, Outcome, Runner, Watch};
 use crate::executor::{
     ActionBatch, ActionError, ActionFailure, ActionRequest, BatchScope, DispatchObserver,
-    InvokeOutcome,
+    InvokeOutcome, journal_cleanup,
 };
 use crate::files;
 use crate::human::ActionTranscript;
@@ -98,9 +98,7 @@ async fn begin(
 /// what became of its cleanup.
 fn unsettled(answer: Result<InvokeOutcome, ActionError>, error: ActionError) -> ActionError {
     let initiating = answer.err().and_then(|failed| failed.cause);
-    let cause = initiating.map_or(error.cause, |cause| {
-        Some(cause.with_cleanup(Cleanup::JournalUnavailable))
-    });
+    let cause = initiating.map_or(error.cause, |cause| Some(journal_cleanup(cause)));
     ActionError {
         failure: error.failure,
         cause,

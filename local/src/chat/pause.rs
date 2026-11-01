@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use strict_json::Value;
 use team_action::challenges::{HumanRequirement, challenge_payload};
-use team_action::executor::BatchScope;
+use team_action::executor::{ActionError, BatchScope};
 use team_chat::orchestrator::{ChatHumanSuspension, ChatSuspension, executor_request};
 use team_integrations::challenge::{ChallengeError, Pending};
 use team_integrations::flow;
@@ -114,14 +114,10 @@ impl ChatService {
             .iter()
             .map(|request| executor_request(request, &[]))
             .collect();
-        batch
-            .prepare(&requests)
-            .await
-            .map_err(|_| problem::action_state_unavailable())?;
-        batch
-            .terminate()
-            .await
-            .map_err(|_| problem::action_state_unavailable())?;
+        let unavailable =
+            |error: ActionError| problem::action_state_unavailable().with_cause(error.cause);
+        batch.prepare(&requests).await.map_err(unavailable)?;
+        batch.terminate().await.map_err(unavailable)?;
         Ok(())
     }
 
