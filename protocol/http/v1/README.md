@@ -42,7 +42,8 @@ malformed, oversized, or out-of-order record fails closed at the consumer withou
 authority or exposing execution payloads.
 `cause` owns the closed cause of a failed Team Action (`cause.canonical_cause`). A failed answer of an Action route,
 and a failed chat terminal's body, carries it beside its stable `code` as `cause`; Team's audit records it too. A cause
-is exactly `{kind, condition, phase}` and the parameters its condition admits, in that order: `exit_code` (a 32-bit
+holds exactly `kind`, `condition`, and `phase` and the parameters its condition admits (canonically in this order;
+Team's canonical JSON writes them sorted, and a consumer reads them in any order): `exit_code` (a 32-bit
 integer, only for `exit-status`, which requires it), `http_status` (100 to 599, only for `handled-failure`), `bytes`
 (only for `output-too-large`, which requires it), `stderr_bytes` (at least 1, only for an `assistant-exit` condition;
 `stderr-output` requires it), then `cleanup` (`workload-stopped`, `workload-stop-unconfirmed`, or

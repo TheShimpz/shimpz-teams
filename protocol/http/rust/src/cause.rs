@@ -113,6 +113,8 @@ closed! {
         ContextChanged = "context-changed",
         /// The invocation is beyond its bound.
         InvocationTooLarge = "invocation-too-large",
+        /// An earlier attempt of the operation may have taken effect, so it never runs again.
+        AttemptUncertain = "attempt-uncertain",
         /// The Action needs a person, which the direct route cannot ask.
         HumanRequestRequired = "human-request-required",
         /// The audit log refused the record as inadmissible.
@@ -262,7 +264,8 @@ impl Condition {
             Self::ActionNotDeclared
             | Self::InputInvalid
             | Self::ContextChanged
-            | Self::InvocationTooLarge => Kind::ActionAdmission,
+            | Self::InvocationTooLarge
+            | Self::AttemptUncertain => Kind::ActionAdmission,
             Self::HumanRequestRequired => Kind::AssistantRequest,
             Self::RecordRefused | Self::WriteFailed | Self::JournalClosed => Kind::TeamAudit,
             Self::JournalUnavailable
@@ -552,7 +555,8 @@ impl Cause {
     }
 }
 
-/// `canonical_cause`: the canonical object of exactly one closed cause within [`MAX_CAUSE_BYTES`], or `None`.
+/// `canonical_cause`: the canonical object (members in [`CAUSE_MEMBERS`] order) of exactly one closed cause within
+/// [`MAX_CAUSE_BYTES`], read in any member order, or `None`.
 #[must_use]
 pub fn canonical_cause(value: &Value) -> Option<Value> {
     const COMPACT: Options = Options {

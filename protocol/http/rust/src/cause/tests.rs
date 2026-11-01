@@ -134,3 +134,13 @@ fn every_other_object_is_refused() {
         assert_eq!(canonical_cause(&json(invalid)), None, "{invalid}");
     }
 }
+
+#[test]
+fn a_cause_written_with_sorted_members_reads_as_its_canonical_object() {
+    let sorted = json(
+        r#"{"cleanup":"workload-stopped","condition":"record-refused","kind":"team-audit","phase":"provider-call"}"#,
+    );
+    let cause = Cause::new(Condition::RecordRefused, Phase::ProviderCall)
+        .with_cleanup(Cleanup::WorkloadStopped);
+    assert_eq!(canonical_cause(&sorted), Some(cause.to_value()));
+}
