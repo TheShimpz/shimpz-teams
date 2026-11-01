@@ -588,7 +588,10 @@ fn file<'a>(files: &'a Files, path: &str) -> Result<&'a [u8], SnapshotError> {
 }
 
 /// Every check a preview makes on extracted bytes: the declaration, the icon, the pages, and the labels' agreement.
-fn checked_preview(candidate: &Candidate, files: &Files) -> Result<Preview, SnapshotError> {
+///
+/// # Errors
+/// [`SnapshotError::Invalid`] for any refusal.
+pub fn checked_preview(candidate: &Candidate, files: &Files) -> Result<Preview, SnapshotError> {
     let manifest = file(files, MANIFEST_PATH)?;
     let identity = parse_manifest_identity(manifest).map_err(invalid)?;
     let creators: Vec<String> = parse_manifest_creators(manifest)
@@ -679,13 +682,16 @@ pub fn copy(declaration: &team_assistant::manifest::StoredInputDeclaration) -> S
     }
 }
 
-/// The validated preview of an exact staged candidate, read without starting it.
+/// The validated preview of an exact staged candidate, read without starting it, with the files it was built from.
 ///
 /// # Errors
 /// As [`extract`], and the preview's refusals.
-pub async fn preview(stage: &Stage, candidate: &Candidate) -> Result<Preview, SnapshotError> {
+pub async fn preview(
+    stage: &Stage,
+    candidate: &Candidate,
+) -> Result<(Preview, Files), SnapshotError> {
     let files = extract(stage, &candidate.image_id, &PREVIEW_FILES).await?;
-    checked_preview(candidate, &files)
+    Ok((checked_preview(candidate, &files)?, files))
 }
 
 /// One exact staged candidate, its identity validated again.
@@ -710,15 +716,19 @@ pub async fn require_candidate(
 /// [`SnapshotError`] for any refusal or Docker failure.
 pub async fn admit(stage: &Stage, image_id: &str) -> Result<Admitted, SnapshotError> {
     let candidate = require_candidate(stage.docker.as_ref(), image_id).await?;
-    admit_candidate(stage, &candidate).await
+    Ok(admit_candidate(stage, &candidate).await?.0)
 }
 
-async fn admit_candidate(stage: &Stage, candidate: &Candidate) -> Result<Admitted, SnapshotError> {
+/// The admitted snapshot and the preview files it was admitted with.
+async fn admit_candidate(
+    stage: &Stage,
+    candidate: &Candidate,
+) -> Result<(Admitted, Files), SnapshotError> {
     let image_id = candidate.image_id.as_str();
     let image = exact_image(stage.docker.as_ref(), image_id).await?;
     let mut paths = vec![SOURCE_FILE];
     paths.extend(PREVIEW_FILES);
-    let files = extract(stage, image_id, &paths).await?;
+    let mut files = extract(stage, image_id, &paths).await?;
     let package = source_package::admit(file(&files, SOURCE_PATH)?).map_err(invalid)?;
     let source_label = labels(&image).and_then(|labels| labels.get(SOURCE_LABEL));
     if source_label != Some(&package.digest) {
@@ -738,22 +748,27 @@ async fn admit_candidate(stage: &Stage, candidate: &Candidate) -> Result<Admitte
     if !record_valid(&record) {
         return Err(invalid(()));
     }
-    Ok(Admitted {
-        record,
-        icon: package.icon,
-    })
+    files.remove(SOURCE_PATH);
+    Ok((
+        Admitted {
+            record,
+            icon: package.icon,
+        },
+        files,
+    ))
 }
 
-/// The one verdict for a listed staged image: full install admission, which includes every preview check.
-pub async fn verdict(stage: &Stage, image_id: &str) -> Verdict {
+/// The one verdict for a listed staged image: full install admission, which includes every preview check. An
+/// admissible image also yields the preview files it was admitted with.
+pub async fn verdict(stage: &Stage, image_id: &str) -> (Verdict, Option<Files>) {
     // An image that no longer carries the identity it was listed with says nothing about its content.
     let Ok(candidate) = require_candidate(stage.docker.as_ref(), image_id).await else {
-        return Verdict::Unavailable;
+        return (Verdict::Unavailable, None);
     };
     match admit_candidate(stage, &candidate).await {
-        Ok(_) => Verdict::Admissible,
-        Err(SnapshotError::Invalid(reason)) => Verdict::Inadmissible(reason),
-        Err(SnapshotError::Unavailable | SnapshotError::Absent) => Verdict::Unavailable,
+        Ok((_, files)) => (Verdict::Admissible, Some(files)),
+        Err(SnapshotError::Invalid(reason)) => (Verdict::Inadmissible(reason), None),
+        Err(SnapshotError::Unavailable | SnapshotError::Absent) => (Verdict::Unavailable, None),
     }
 }
 
@@ -776,6 +791,7 @@ impl std::fmt::Debug for Stage {
     }
 }
 
+pub mod previews;
 mod record;
 #[cfg(test)]
 pub(crate) mod tests;

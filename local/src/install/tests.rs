@@ -42,6 +42,7 @@ pub(super) const TEAM: &str = "team_1";
 const ASSISTANT: &str = "hello-world";
 const ICON: &[u8] = b"icon bytes";
 
+mod previews;
 mod readers;
 mod staged;
 
@@ -426,6 +427,7 @@ async fn build(review_images: bool) -> Harness {
         executor: executor.clone(),
         private: private.clone(),
         stage: stage(&docker, space, entropy),
+        previews: directory.path().join("publications/previews"),
         audit: Arc::new(MemoryAudit::default()),
     }));
     Harness {

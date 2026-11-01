@@ -36,7 +36,7 @@ pub struct StateLayout {
     pub sign_ins: Sealed,
     /// The Assistant egress policy directory the egress proxy reads.
     pub assistant_egress: PathBuf,
-    /// Publication bindings, updates, residues, and icons.
+    /// Publication bindings, updates, residues, icons, and staged snapshots' preview files (`previews/`).
     pub publications: PathBuf,
     /// cosign's TUF cache (`TUF_ROOT`).
     pub cosign: PathBuf,

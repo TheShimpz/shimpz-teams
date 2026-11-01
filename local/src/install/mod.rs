@@ -18,6 +18,7 @@ pub mod source_package;
 pub mod spec;
 pub mod teardown;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -107,6 +108,8 @@ pub struct Parts {
     pub private: Arc<dyn PrivateState>,
     /// The daemon and Space staged snapshots are read from.
     pub stage: Stage,
+    /// The private directory that keeps staged snapshots' validated preview files.
+    pub previews: PathBuf,
     /// The audit log.
     pub audit: Arc<dyn AuditSink>,
 }
@@ -224,7 +227,11 @@ impl Assistants {
     /// The group from its collaborators.
     #[must_use]
     pub fn new(parts: Parts) -> Self {
-        let local = LocalSnapshots::new(parts.stage.clone(), Arc::clone(&parts.audit));
+        let local = LocalSnapshots::new(
+            parts.stage.clone(),
+            Arc::clone(&parts.audit),
+            parts.previews,
+        );
         Self {
             coordination: parts.coordination,
             networks: parts.networks,

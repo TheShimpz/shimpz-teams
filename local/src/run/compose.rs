@@ -396,6 +396,7 @@ fn assistants(
             entropy: seams.entropy.clone(),
             run,
         },
+        previews: shared.layout.publications.join("previews"),
         audit: shared.audit.clone(),
     })))
 }

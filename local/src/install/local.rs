@@ -1,6 +1,8 @@
 //! Staged Local snapshots: the inventory with each one's admission verdict, the preview (icon and localized pages),
 //! and installing an exact snapshot (`local/install/service.py`, `admission.py`, `preview.py`).
 
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,9 +18,10 @@ use super::problem::{
     SNAPSHOT_INVALID, SNAPSHOT_UNAVAILABLE, SNAPSHOTS_INVALID, SNAPSHOTS_UNAVAILABLE,
 };
 use super::registry::{Registry, binding_problem};
+use super::snapshots::previews::PreviewStore;
 use super::snapshots::{
-    self, Candidate, LABELS_INVALID, MAX_CANDIDATES, Preview, Refused, SnapshotError, Stage,
-    Verdict,
+    self, Candidate, Files, LABELS_INVALID, Listing, MAX_CANDIDATES, Preview, Refused,
+    SnapshotError, Stage, Verdict,
 };
 use super::{Assistants, object};
 use crate::audit::Outcome;
@@ -29,12 +32,14 @@ use crate::http::service::Problem;
 const MAX_PREVIEW_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CONCURRENT_EXTRACTIONS: usize = 2;
 
-/// The staged snapshot inventory and its bounded caches.
+/// The staged snapshot inventory and its bounded caches: verdicts and previews in memory, and the validated preview
+/// files on disk, so a restart reads no image again.
 pub struct LocalSnapshots {
     stage: Stage,
     audit: Arc<dyn AuditSink>,
     verdicts: ReadCache<Verdict, ()>,
     previews: ReadCache<Preview, Problem>,
+    stored: Arc<PreviewStore>,
     slots: Arc<Semaphore>,
     sightings: Mutex<Vec<Refused>>,
 }
@@ -59,14 +64,15 @@ fn preview_problem(error: SnapshotError) -> Problem {
 }
 
 impl LocalSnapshots {
-    /// The inventory of `stage`, auditing refusals to `audit`.
+    /// The inventory of `stage`, auditing refusals to `audit` and keeping preview files below `previews`.
     #[must_use]
-    pub fn new(stage: Stage, audit: Arc<dyn AuditSink>) -> Self {
+    pub fn new(stage: Stage, audit: Arc<dyn AuditSink>, previews: PathBuf) -> Self {
         Self {
             stage,
             audit,
             verdicts: ReadCache::new(2 * MAX_CANDIDATES, None),
             previews: ReadCache::new(MAX_CANDIDATES, Some(MAX_PREVIEW_BYTES)),
+            stored: Arc::new(PreviewStore::new(previews)),
             slots: Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS)),
             sightings: Mutex::new(Vec::new()),
         }
@@ -107,11 +113,17 @@ impl LocalSnapshots {
                         .await
                         .map_err(|_| ())?;
                     fresh.store(true, Ordering::Relaxed);
-                    let (stage, image_id) = (self.stage.clone(), candidate.image_id.clone());
+                    let (stage, store) = (self.stage.clone(), Arc::clone(&self.stored));
+                    let image_id = candidate.image_id.clone();
                     // The judgment holds its slot to its end, even when this listing is abandoned.
                     let judged = tokio::spawn(async move {
                         let _slot = slot;
-                        snapshots::verdict(&stage, &image_id).await
+                        let (verdict, files) = snapshots::verdict(&stage, &image_id).await;
+                        // The admission's own validated files are the preview's: its first open reads no image.
+                        if let Some(files) = files {
+                            keep(store, image_id, files);
+                        }
+                        verdict
                     });
                     match judged.await.unwrap_or(Verdict::Unavailable) {
                         Verdict::Unavailable => Err(()),
@@ -136,6 +148,7 @@ impl LocalSnapshots {
                     SnapshotError::Invalid(_) => SNAPSHOTS_INVALID,
                     _ => SNAPSHOTS_UNAVAILABLE,
                 })?;
+        self.forget_unstaged(&listing);
         let mut entries = Vec::new();
         for candidate in &listing.candidates {
             entries.push(self.judged_entry(candidate, actor).await?);
@@ -246,23 +259,56 @@ impl LocalSnapshots {
         Ok(preview)
     }
 
-    /// The preview of an exact staged image, read from the image.
+    /// The preview of an exact staged image: from its stored files, validated again, or read from the image.
     async fn fetch(&self, image_id: &str) -> Result<Preview, Problem> {
         let candidate = snapshots::require_candidate(self.stage.docker.as_ref(), image_id)
             .await
             .map_err(preview_problem)?;
+        // Stored files that fail validation are read from the image again, and the new read replaces them.
+        if let Some(files) = self.stored(image_id).await
+            && let Ok(preview) = snapshots::checked_preview(&candidate, &files)
+        {
+            return Ok(preview);
+        }
         let slot = Arc::clone(&self.slots)
             .try_acquire_owned()
             .map_err(|_| PREVIEW_BUSY)?;
-        let stage = self.stage.clone();
-        // The read holds its slot to its end, even when this request is abandoned.
+        let (stage, store) = (self.stage.clone(), Arc::clone(&self.stored));
+        // The read holds its slot to its end, and keeps its files, even when this request is abandoned.
         let read = tokio::spawn(async move {
             let _slot = slot;
-            snapshots::preview(&stage, &candidate).await
+            let (preview, files) = snapshots::preview(&stage, &candidate).await?;
+            keep(store, candidate.image_id, files);
+            Ok(preview)
         });
         read.await
             .unwrap_or(Err(SnapshotError::Unavailable))
             .map_err(preview_problem)
+    }
+
+    async fn stored(&self, image_id: &str) -> Option<Files> {
+        let (store, image_id) = (Arc::clone(&self.stored), image_id.to_owned());
+        tokio::task::spawn_blocking(move || store.load(&image_id))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Drops the stored preview files of every image no longer staged, in the background.
+    fn forget_unstaged(&self, listing: &Listing) {
+        let staged: HashSet<String> = listing
+            .candidates
+            .iter()
+            .map(|candidate| candidate.image_id.clone())
+            .chain(
+                listing
+                    .refused
+                    .iter()
+                    .map(|refused| refused.image_id.clone()),
+            )
+            .collect();
+        let store = Arc::clone(&self.stored);
+        drop(tokio::task::spawn_blocking(move || store.retain(&staged)));
     }
 
     /// Removes the readers a previous controller process abandoned in the middle of a read.
@@ -303,6 +349,13 @@ impl LocalSnapshots {
             .cloned()
             .ok_or(PREVIEW_INVALID)
     }
+}
+
+/// Stores validated preview files in the background; a request never waits for the disk.
+fn keep(store: Arc<PreviewStore>, image_id: String, files: Files) {
+    drop(tokio::task::spawn_blocking(move || {
+        store.save(&image_id, &files);
+    }));
 }
 
 fn entry(candidate: &Candidate, verdict: Verdict) -> Value {
