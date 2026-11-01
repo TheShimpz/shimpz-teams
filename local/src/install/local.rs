@@ -35,7 +35,7 @@ pub struct LocalSnapshots {
     audit: Arc<dyn AuditSink>,
     verdicts: ReadCache<Verdict, ()>,
     previews: ReadCache<Preview, Problem>,
-    slots: Semaphore,
+    slots: Arc<Semaphore>,
     sightings: Mutex<Vec<Refused>>,
 }
 
@@ -67,7 +67,7 @@ impl LocalSnapshots {
             audit,
             verdicts: ReadCache::new(2 * MAX_CANDIDATES, None),
             previews: ReadCache::new(MAX_CANDIDATES, Some(MAX_PREVIEW_BYTES)),
-            slots: Semaphore::new(MAX_CONCURRENT_EXTRACTIONS),
+            slots: Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS)),
             sightings: Mutex::new(Vec::new()),
         }
     }
@@ -102,16 +102,18 @@ impl LocalSnapshots {
                 &key,
                 |_| 1,
                 || async {
-                    let _slot = self.slots.acquire().await;
+                    let slot = Arc::clone(&self.slots)
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| ())?;
                     fresh.store(true, Ordering::Relaxed);
-                    match snapshots::verdict(
-                        self.stage.docker.as_ref(),
-                        &self.stage.space,
-                        self.stage.entropy.as_ref(),
-                        &candidate.image_id,
-                    )
-                    .await
-                    {
+                    let (stage, image_id) = (self.stage.clone(), candidate.image_id.clone());
+                    // The judgment holds its slot to its end, even when this listing is abandoned.
+                    let judged = tokio::spawn(async move {
+                        let _slot = slot;
+                        snapshots::verdict(&stage, &image_id).await
+                    });
+                    match judged.await.unwrap_or(Verdict::Unavailable) {
                         Verdict::Unavailable => Err(()),
                         verdict => Ok(verdict),
                     }
@@ -223,23 +225,15 @@ impl LocalSnapshots {
 
     /// One staged image's validated preview; a cached one is kept only while the exact staged image remains.
     async fn preview(&self, image_id: &str) -> Result<Preview, Problem> {
-        let extracted = AtomicBool::new(false);
+        let fetched = AtomicBool::new(false);
         let preview = self
             .previews
             .get(image_id, Preview::size, || async {
-                let _slot = self.slots.try_acquire().map_err(|_| PREVIEW_BUSY)?;
-                extracted.store(true, Ordering::Relaxed);
-                snapshots::preview(
-                    self.stage.docker.as_ref(),
-                    &self.stage.space,
-                    self.stage.entropy.as_ref(),
-                    image_id,
-                )
-                .await
-                .map_err(preview_problem)
+                fetched.store(true, Ordering::Relaxed);
+                self.fetch(image_id).await
             })
             .await?;
-        if !extracted.load(Ordering::Relaxed) {
+        if !fetched.load(Ordering::Relaxed) {
             match snapshots::require_candidate(self.stage.docker.as_ref(), image_id).await {
                 Ok(_) => {}
                 Err(SnapshotError::Absent) => {
@@ -250,6 +244,30 @@ impl LocalSnapshots {
             }
         }
         Ok(preview)
+    }
+
+    /// The preview of an exact staged image, read from the image.
+    async fn fetch(&self, image_id: &str) -> Result<Preview, Problem> {
+        let candidate = snapshots::require_candidate(self.stage.docker.as_ref(), image_id)
+            .await
+            .map_err(preview_problem)?;
+        let slot = Arc::clone(&self.slots)
+            .try_acquire_owned()
+            .map_err(|_| PREVIEW_BUSY)?;
+        let stage = self.stage.clone();
+        // The read holds its slot to its end, even when this request is abandoned.
+        let read = tokio::spawn(async move {
+            let _slot = slot;
+            snapshots::preview(&stage, &candidate).await
+        });
+        read.await
+            .unwrap_or(Err(SnapshotError::Unavailable))
+            .map_err(preview_problem)
+    }
+
+    /// Removes the readers a previous controller process abandoned in the middle of a read.
+    pub async fn remove_abandoned_readers(&self) {
+        snapshots::remove_abandoned_readers(&self.stage).await;
     }
 
     /// The staged image's icon.
@@ -346,17 +364,13 @@ impl Assistants {
         image_id: &str,
         fresh_only: bool,
     ) -> Result<Value, Problem> {
-        let admitted = snapshots::admit(
-            self.stage.docker.as_ref(),
-            &self.stage.space,
-            self.stage.entropy.as_ref(),
-            image_id,
-        )
-        .await
-        .map_err(|error| match error {
-            SnapshotError::Invalid(_) => SNAPSHOT_INVALID,
-            SnapshotError::Unavailable | SnapshotError::Absent => SNAPSHOT_UNAVAILABLE,
-        })?;
+        let admitted =
+            snapshots::admit(&self.stage, image_id)
+                .await
+                .map_err(|error| match error {
+                    SnapshotError::Invalid(_) => SNAPSHOT_INVALID,
+                    SnapshotError::Unavailable | SnapshotError::Absent => SNAPSHOT_UNAVAILABLE,
+                })?;
         let assistant_id = record_id(&admitted.record);
         let existing = self.registry.binding(team_id, &assistant_id).await?;
         let identity = IconIdentity::local(&admitted.record).map_err(|_| ICON_UNAVAILABLE)?;

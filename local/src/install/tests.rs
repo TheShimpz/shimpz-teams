@@ -42,6 +42,7 @@ pub(super) const TEAM: &str = "team_1";
 const ASSISTANT: &str = "hello-world";
 const ICON: &[u8] = b"icon bytes";
 
+mod readers;
 mod staged;
 
 pub(super) fn digest(digit: char) -> String {
@@ -386,6 +387,16 @@ async fn reviewing_harness() -> Harness {
     build(true).await
 }
 
+/// The staged snapshots' daemon and Space, read by a controller process of a fixed run token.
+fn stage(docker: &Arc<FakeDocker>, space: Space, entropy: Arc<CountingEntropy>) -> Stage {
+    Stage {
+        docker: docker.clone(),
+        space,
+        entropy,
+        run: "0000feed".to_owned(),
+    }
+}
+
 async fn build(review_images: bool) -> Harness {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let docker = released();
@@ -414,11 +425,7 @@ async fn build(review_images: bool) -> Harness {
         verifier: trust.clone(),
         executor: executor.clone(),
         private: private.clone(),
-        stage: Stage {
-            docker: docker.clone(),
-            space,
-            entropy,
-        },
+        stage: stage(&docker, space, entropy),
         audit: Arc::new(MemoryAudit::default()),
     }));
     Harness {

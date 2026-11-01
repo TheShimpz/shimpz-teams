@@ -23,10 +23,11 @@ use crate::install::source_package::tests::{canonical, icon};
 use crate::install::spec::AssistantSpec;
 
 const ASSISTANT: &str = "shimpz-cloudflare";
-const IMAGE: &str = "sha256:5555555555555555555555555555555555555555555555555555555555555555";
+pub(super) const IMAGE: &str =
+    "sha256:5555555555555555555555555555555555555555555555555555555555555555";
 const SUCCESSOR: &str = "sha256:6666666666666666666666666666666666666666666666666666666666666666";
 
-fn reference(name: &str) -> Vec<u8> {
+pub(super) fn reference(name: &str) -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../assistant/tests/fixtures/reference")
         .join(name);
@@ -34,7 +35,7 @@ fn reference(name: &str) -> Vec<u8> {
 }
 
 /// One read-only regular file `name` as Docker's archive endpoint answers it: its stat and a one-member tar.
-fn archive(name: &str, contents: &[u8]) -> Archive {
+pub(super) fn archive(name: &str, contents: &[u8]) -> Archive {
     let mut header = [0_u8; 512];
     header[..name.len()].copy_from_slice(name.as_bytes());
     header[100..108].copy_from_slice(b"0000444\0");
@@ -87,7 +88,7 @@ fn labels(source: &str) -> HashMap<String, String> {
 }
 
 /// Stages the reference Assistant as the exact image [`IMAGE`] carrying `manifest`.
-fn stage(harness: &Harness, manifest: &[u8]) {
+pub(super) fn stage(harness: &Harness, manifest: &[u8]) {
     stage_as(harness, manifest, IMAGE);
 }
 

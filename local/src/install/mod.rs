@@ -240,6 +240,11 @@ impl Assistants {
         }
     }
 
+    /// Removes the staged snapshot readers a previous controller process abandoned in the middle of a read.
+    pub async fn remove_abandoned_readers(&self) {
+        self.local.remove_abandoned_readers().await;
+    }
+
     /// Holds `team_id` for a lifecycle change.
     ///
     /// # Errors

@@ -32,6 +32,7 @@ struct State {
     removed_images: Vec<String>,
     archives: HashMap<(String, String), Archive>,
     image_files: HashMap<(String, String), Archive>,
+    archive_reads: usize,
     next: u64,
     unavailable: bool,
 }
@@ -103,6 +104,12 @@ impl FakeDocker {
         self.state()
             .image_files
             .insert((image_id.to_owned(), path.to_owned()), archive);
+    }
+
+    /// How many archive reads were asked so far.
+    #[must_use]
+    pub fn archive_reads(&self) -> usize {
+        self.state().archive_reads
     }
 
     /// Every image removed so far, as named.
@@ -477,7 +484,8 @@ impl DockerEngine for FakeDocker {
         bound: usize,
     ) -> BoxFuture<'a, Result<Archive, DockerError>> {
         Box::pin(async move {
-            let state = self.reachable()?;
+            let mut state = self.reachable()?;
+            state.archive_reads += 1;
             let found = Self::find(&state, container)?;
             let own = state.archives.get(&(found.name, path.to_owned()));
             let from_image = found

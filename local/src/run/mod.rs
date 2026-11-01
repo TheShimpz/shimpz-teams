@@ -206,6 +206,7 @@ async fn run_controller(controller: Composed) -> Result<(), Startup> {
             stop.clone(),
         );
         tokio::spawn(async move {
+            assistants.remove_abandoned_readers().await;
             assistants.recover_updates().await;
             assistants.resume().await;
             updates.run(&stop).await;

@@ -9,6 +9,7 @@ use team_action::provider::{Capacity, Transport};
 use team_action::rpc::DockerSlots;
 use team_action::runner::{Executor, Runner};
 use team_core::audit::AuditSink;
+use team_core::entropy::token_hex;
 use team_core::secret::Secret;
 use team_egress::policy::PolicyStore;
 use team_integrations::broker::{BrokerClient, FixedTransport};
@@ -368,9 +369,13 @@ fn assistants(
     shared: &Shared,
     (publications, actions): (&Publications, &Actions),
     turns: &Turns,
-) -> Arc<Assistants> {
+) -> Result<Arc<Assistants>, Startup> {
     let (seams, stores) = (&shared.seams, &shared.stores);
-    Arc::new(Assistants::new(install_group::Parts {
+    let run = step(
+        token_hex(seams.entropy.as_ref(), 4),
+        "the snapshot reader token",
+    )?;
+    Ok(Arc::new(Assistants::new(install_group::Parts {
         coordination: shared.coordination.clone(),
         networks: publications.networks.clone(),
         containers: publications.containers.clone(),
@@ -389,9 +394,10 @@ fn assistants(
             docker: seams.docker.clone(),
             space: shared.space.clone(),
             entropy: seams.entropy.clone(),
+            run,
         },
         audit: shared.audit.clone(),
-    }))
+    })))
 }
 
 /// The services' participants: the publications' egress policies and bindings, chat, the Browser, and Routines.
@@ -574,7 +580,7 @@ async fn built(shared: &Shared) -> Result<Built, Startup> {
         (&publications, &actions),
         (preparer.clone(), browser.clone()),
     )?;
-    let assistants = assistants(shared, (&publications, &actions), &turns);
+    let assistants = assistants(shared, (&publications, &actions), &turns)?;
     Ok(Built {
         publications,
         actions,

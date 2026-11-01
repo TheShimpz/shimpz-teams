@@ -24,9 +24,10 @@ use team_core::entropy::{Entropy, token_hex};
 use team_protocol::payload::{
     CHAT_LOCALES, SOURCE_DIGEST_RE, canonical_created_at, canonical_identifier,
 };
+use tokio::task::JoinSet;
 
 use super::source_package;
-use crate::docker::labels::{Space, label_map};
+use crate::docker::labels::{Space, filter, label_map};
 use crate::docker::{DockerEngine, DockerError};
 
 /// The stage label every staged snapshot carries.
@@ -48,6 +49,8 @@ pub(crate) const INTEGRATIONS_LABEL: &str = "org.shimpz.assistant.integrations";
 /// Each Assistant's current snapshot carries exactly `shimpz-local/<assistant>:staged`.
 pub const LOCAL_REPOSITORY: &str = "shimpz-local";
 const LOCAL_TAG: &str = "staged";
+/// The ownership kind of a reader container.
+const READER_KIND: &str = "snapshot-reader";
 pub(crate) const SOURCE_PATH: &str = "/opt/shimpz/.shimpz/source.package";
 pub(crate) const ICON_PATH: &str = "/opt/shimpz/icon.png";
 const RUNTIME_USER: &str = "10001:10001";
@@ -152,6 +155,9 @@ pub struct Listing {
     /// The refused images, sorted.
     pub refused: Vec<Refused>,
 }
+
+/// The bytes of each file read from an image, by its path in the image.
+pub type Files = HashMap<String, Vec<u8>>;
 
 /// A staged image's validated icon and its Assistant page in every interface language.
 #[derive(Clone, Debug, PartialEq)]
@@ -439,7 +445,7 @@ async fn staged_images(docker: &dyn DockerEngine) -> Result<Vec<String>, Snapsho
 }
 
 /// The files a preview reads, and the source package installing reads first.
-const PREVIEW_FILES: [(&str, &str, usize); 4] = [
+pub const PREVIEW_FILES: [(&str, &str, usize); 4] = [
     (MANIFEST_PATH, "shimpz.toml", MAX_MANIFEST_BYTES),
     (CONTRACT_PATH, "shimpz.contract.json", MAX_CONTRACT_BYTES),
     (
@@ -451,26 +457,25 @@ const PREVIEW_FILES: [(&str, &str, usize); 4] = [
 ];
 const SOURCE_FILE: (&str, &str, usize) = (SOURCE_PATH, "source.package", 32 * 1024 * 1024);
 
-/// The files read from a never-started, network-less container of the exact image, which is always removed.
+/// The files read from a never-started, network-less container of the exact image, which is always removed. The
+/// files are read concurrently, each within its own bound.
 ///
 /// # Errors
 /// [`SnapshotError::Unavailable`] when Docker fails or the container cannot be removed; [`IMAGE_INCONSISTENT`] for a
 /// missing or malformed file.
 pub async fn extract(
-    docker: &dyn DockerEngine,
-    space: &Space,
-    entropy: &dyn Entropy,
+    stage: &Stage,
     image_id: &str,
-    paths: &[(&str, &str, usize)],
-) -> Result<HashMap<String, Vec<u8>>, SnapshotError> {
+    paths: &[(&'static str, &'static str, usize)],
+) -> Result<Files, SnapshotError> {
     let name = format!(
-        "shimpz-local-{}-snapshot-{}",
-        space.prefix(),
-        token_hex(entropy, 8).map_err(|_| SnapshotError::Unavailable)?
+        "{}{}",
+        reader_prefix(stage),
+        token_hex(stage.entropy.as_ref(), 8).map_err(|_| SnapshotError::Unavailable)?
     );
     let body = ContainerCreateBody {
         image: Some(image_id.to_owned()),
-        labels: Some(label_map(&space.labels("snapshot-reader", None))),
+        labels: Some(label_map(&stage.space.labels(READER_KIND, None))),
         network_disabled: Some(true),
         host_config: Some(HostConfig {
             network_mode: Some("none".to_owned()),
@@ -478,28 +483,87 @@ pub async fn extract(
         }),
         ..ContainerCreateBody::default()
     };
-    let container = docker
-        .create_container(&name, body)
+    let (docker, paths) = (Arc::clone(&stage.docker), paths.to_vec());
+    // The reader lives on its own task: a request abandoned at any point still has its reader removed.
+    tokio::spawn(async move { read_reader(docker, name, body, paths).await })
         .await
-        .map_err(|_| SnapshotError::Unavailable)?;
-    let mut files = HashMap::new();
-    let mut failure = None;
-    for (path, file, maximum) in paths {
-        match read_file(docker, &container, path, file, *maximum).await {
-            Ok(bytes) => {
-                files.insert((*path).to_owned(), bytes);
+        .unwrap_or(Err(SnapshotError::Unavailable))
+}
+
+/// The name every reader this controller process creates begins with: the Space's prefix and the process's run token.
+fn reader_prefix(stage: &Stage) -> String {
+    format!(
+        "shimpz-local-{}-snapshot-{}-",
+        stage.space.prefix(),
+        stage.run
+    )
+}
+
+/// Creates the reader `name`, reads `paths` from it, and removes it by name, also after a failed create, which may
+/// still have made it.
+async fn read_reader(
+    docker: Arc<dyn DockerEngine>,
+    name: String,
+    body: ContainerCreateBody,
+    paths: Vec<(&'static str, &'static str, usize)>,
+) -> Result<Files, SnapshotError> {
+    let files = match docker.create_container(&name, body).await {
+        Ok(container) => read_files(&docker, &container, &paths).await,
+        Err(_) => Err(SnapshotError::Unavailable),
+    };
+    match docker.remove_container(&name).await {
+        Ok(()) | Err(DockerError::NotFound) => files,
+        Err(_) => Err(SnapshotError::Unavailable),
+    }
+}
+
+/// Every one of `paths`, read concurrently; Docker failing on any read outranks a refused file.
+async fn read_files(
+    docker: &Arc<dyn DockerEngine>,
+    container: &str,
+    paths: &[(&'static str, &'static str, usize)],
+) -> Result<Files, SnapshotError> {
+    let mut reads = JoinSet::new();
+    for &(path, name, maximum) in paths {
+        let (docker, container) = (Arc::clone(docker), container.to_owned());
+        reads.spawn(async move {
+            let read = read_file(docker.as_ref(), &container, path, name, maximum).await;
+            (path, read)
+        });
+    }
+    let (mut files, mut refusal) = (Files::new(), None);
+    while let Some(joined) = reads.join_next().await {
+        match joined {
+            Ok((path, Ok(bytes))) => {
+                files.insert(path.to_owned(), bytes);
             }
-            Err(error) => {
-                failure = Some(error);
-                break;
+            Ok((_, Err(SnapshotError::Invalid(reason)))) => {
+                refusal = Some(SnapshotError::Invalid(reason));
             }
+            Ok((_, Err(_))) | Err(_) => return Err(SnapshotError::Unavailable),
         }
     }
-    match docker.remove_container(&container).await {
-        Ok(()) | Err(DockerError::NotFound) => {}
-        Err(_) => return Err(SnapshotError::Unavailable),
+    refusal.map_or(Ok(files), Err)
+}
+
+/// Removes the Space's readers another controller process created, which a restart abandoned in the middle of a
+/// read. This process's own readers, which may be reading now, carry its run token and are kept.
+pub async fn remove_abandoned_readers(stage: &Stage) {
+    let labels = stage.space.labels(READER_KIND, None);
+    let Ok(readers) = stage.docker.list_containers(&filter(&labels)).await else {
+        return;
+    };
+    let current = format!("/{}", reader_prefix(stage));
+    for reader in readers {
+        let own = reader
+            .names
+            .iter()
+            .flatten()
+            .any(|name| name.starts_with(&current));
+        if let (false, Some(id)) = (own, reader.id) {
+            let _ = stage.docker.remove_container(&id).await;
+        }
     }
-    failure.map_or(Ok(files), Err)
 }
 
 async fn read_file(
@@ -519,15 +583,12 @@ async fn read_file(
     container_file(&archive.metadata, &archive.tar, name, maximum).map_err(|_| inconsistent())
 }
 
-fn file<'a>(files: &'a HashMap<String, Vec<u8>>, path: &str) -> Result<&'a [u8], SnapshotError> {
+fn file<'a>(files: &'a Files, path: &str) -> Result<&'a [u8], SnapshotError> {
     files.get(path).map(Vec::as_slice).ok_or_else(inconsistent)
 }
 
 /// Every check a preview makes on extracted bytes: the declaration, the icon, the pages, and the labels' agreement.
-fn checked_preview(
-    candidate: &Candidate,
-    files: &HashMap<String, Vec<u8>>,
-) -> Result<Preview, SnapshotError> {
+fn checked_preview(candidate: &Candidate, files: &Files) -> Result<Preview, SnapshotError> {
     let manifest = file(files, MANIFEST_PATH)?;
     let identity = parse_manifest_identity(manifest).map_err(invalid)?;
     let creators: Vec<String> = parse_manifest_creators(manifest)
@@ -557,7 +618,7 @@ fn pages(
     identity: &team_assistant::manifest::ManifestIdentity,
     creators: &[String],
     manifest: &[u8],
-    files: &HashMap<String, Vec<u8>>,
+    files: &Files,
 ) -> Result<Vec<(String, Value)>, SnapshotError> {
     let presentation = parse_manifest_presentation(manifest).map_err(invalid)?;
     let contract = parse_manifest_contract(manifest).map_err(invalid)?;
@@ -618,19 +679,13 @@ pub fn copy(declaration: &team_assistant::manifest::StoredInputDeclaration) -> S
     }
 }
 
-/// The validated preview of an exact staged image, read without starting it.
+/// The validated preview of an exact staged candidate, read without starting it.
 ///
 /// # Errors
 /// As [`extract`], and the preview's refusals.
-pub async fn preview(
-    docker: &dyn DockerEngine,
-    space: &Space,
-    entropy: &dyn Entropy,
-    image_id: &str,
-) -> Result<Preview, SnapshotError> {
-    let candidate = require_candidate(docker, image_id).await?;
-    let files = extract(docker, space, entropy, image_id, &PREVIEW_FILES).await?;
-    checked_preview(&candidate, &files)
+pub async fn preview(stage: &Stage, candidate: &Candidate) -> Result<Preview, SnapshotError> {
+    let files = extract(stage, &candidate.image_id, &PREVIEW_FILES).await?;
+    checked_preview(candidate, &files)
 }
 
 /// One exact staged candidate, its identity validated again.
@@ -653,27 +708,17 @@ pub async fn require_candidate(
 ///
 /// # Errors
 /// [`SnapshotError`] for any refusal or Docker failure.
-pub async fn admit(
-    docker: &dyn DockerEngine,
-    space: &Space,
-    entropy: &dyn Entropy,
-    image_id: &str,
-) -> Result<Admitted, SnapshotError> {
-    let candidate = require_candidate(docker, image_id).await?;
-    admit_candidate(docker, space, entropy, &candidate).await
+pub async fn admit(stage: &Stage, image_id: &str) -> Result<Admitted, SnapshotError> {
+    let candidate = require_candidate(stage.docker.as_ref(), image_id).await?;
+    admit_candidate(stage, &candidate).await
 }
 
-async fn admit_candidate(
-    docker: &dyn DockerEngine,
-    space: &Space,
-    entropy: &dyn Entropy,
-    candidate: &Candidate,
-) -> Result<Admitted, SnapshotError> {
+async fn admit_candidate(stage: &Stage, candidate: &Candidate) -> Result<Admitted, SnapshotError> {
     let image_id = candidate.image_id.as_str();
-    let image = exact_image(docker, image_id).await?;
+    let image = exact_image(stage.docker.as_ref(), image_id).await?;
     let mut paths = vec![SOURCE_FILE];
     paths.extend(PREVIEW_FILES);
-    let files = extract(docker, space, entropy, image_id, &paths).await?;
+    let files = extract(stage, image_id, &paths).await?;
     let package = source_package::admit(file(&files, SOURCE_PATH)?).map_err(invalid)?;
     let source_label = labels(&image).and_then(|labels| labels.get(SOURCE_LABEL));
     if source_label != Some(&package.digest) {
@@ -700,17 +745,12 @@ async fn admit_candidate(
 }
 
 /// The one verdict for a listed staged image: full install admission, which includes every preview check.
-pub async fn verdict(
-    docker: &dyn DockerEngine,
-    space: &Space,
-    entropy: &dyn Entropy,
-    image_id: &str,
-) -> Verdict {
+pub async fn verdict(stage: &Stage, image_id: &str) -> Verdict {
     // An image that no longer carries the identity it was listed with says nothing about its content.
-    let Ok(candidate) = require_candidate(docker, image_id).await else {
+    let Ok(candidate) = require_candidate(stage.docker.as_ref(), image_id).await else {
         return Verdict::Unavailable;
     };
-    match admit_candidate(docker, space, entropy, &candidate).await {
+    match admit_candidate(stage, &candidate).await {
         Ok(_) => Verdict::Admissible,
         Err(SnapshotError::Invalid(reason)) => Verdict::Inadmissible(reason),
         Err(SnapshotError::Unavailable | SnapshotError::Absent) => Verdict::Unavailable,
@@ -726,6 +766,8 @@ pub struct Stage {
     pub space: Space,
     /// Fresh reader container names.
     pub entropy: Arc<dyn Entropy>,
+    /// This controller process's run token, which names every reader it creates.
+    pub run: String,
 }
 
 impl std::fmt::Debug for Stage {
