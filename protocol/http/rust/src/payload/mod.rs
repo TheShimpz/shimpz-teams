@@ -3,6 +3,7 @@
 //! The identifier grammars, the purpose sentence rule, and the chat-turn bounds live in their own modules and are
 //! re-exported here, as Python re-exports them.
 
+pub mod cause;
 mod chat;
 mod clarification;
 mod details;

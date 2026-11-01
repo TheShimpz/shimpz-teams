@@ -10,7 +10,7 @@
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
-use team_protocol::cause::{Cause, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Condition, Phase};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::Instant;
 

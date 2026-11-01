@@ -417,7 +417,7 @@ impl ActionBatch for FakeBatch {
         {
             let journal = ActionError::at(
                 ActionFailure::StateUnavailable,
-                team_protocol::cause::Phase::Journal,
+                team_protocol::payload::cause::Phase::Journal,
             );
             return Box::pin(async move { Err(journal) });
         }

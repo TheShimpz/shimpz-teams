@@ -14,7 +14,7 @@ use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Condition, Phase};
 
 use super::{Binding, Delivery, Failed, Outcome, Runner, Watch};
 use crate::executor::{

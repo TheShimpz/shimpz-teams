@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use strict_json::Value;
 use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
-use team_protocol::cause::Cause;
+use team_protocol::payload::cause::Cause;
 
 use super::usage::{ModelUsageSink, model_usage};
 

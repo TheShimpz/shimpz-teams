@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
-use team_protocol::cause::{Cause, Condition, MAX_CAUSE_COUNT, Phase};
+use team_protocol::payload::cause::{Cause, Condition, MAX_CAUSE_COUNT, Phase};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use tokio::time::Instant;
 

@@ -7,7 +7,7 @@ use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_inference::brain::ModelCredential;
-use team_protocol::cause::Cause;
+use team_protocol::payload::cause::Cause;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 

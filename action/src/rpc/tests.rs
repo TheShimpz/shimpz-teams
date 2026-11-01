@@ -4,7 +4,7 @@ use strict_json::Value;
 use team_core::exec::ExecExit;
 use team_core::stop::Stop;
 use team_core::testing::{FakeExec, ScriptedExec};
-use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Cleanup, Condition, Phase};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 use tokio::time::Instant;
 

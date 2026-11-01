@@ -197,6 +197,9 @@ pub const ENTRIES: &[Entry] = &[
     ("payload.canonical_assistant_details", |v| {
         borrowed(payload::canonical_assistant_details(v))
     }),
+    ("payload.cause.canonical_cause", |v| {
+        value(payload::cause::canonical_cause(v))
+    }),
     ("payload.canonical_turn_usage", |v| {
         value(payload::canonical_turn_usage(v))
     }),

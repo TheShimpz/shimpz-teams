@@ -12,7 +12,7 @@ use team_core::audit::AuditUnavailable;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Cleanup, Condition, Phase};
 
 use crate::human::ActionTranscript;
 

@@ -1,4 +1,4 @@
-//! Every `vectors.json` group of `identifiers`, `purpose`, `payload`, `cause`, `progress`, and `routine`, and the
+//! Every `vectors.json` group of `identifiers`, `purpose`, `payload`, `payload.cause`, `progress`, and `routine`, and the
 //! canonical JSON v1 vectors, checked with typed equality.
 
 use crate::support::registry::Outcome;
@@ -51,7 +51,7 @@ fn payload_vectors() {
         ("assistant_details", "payload.canonical_assistant_details"),
         ("creator_links", "payload.canonical_creator_links"),
         ("turn_usage", "payload.canonical_turn_usage"),
-        ("failure_cause", "cause.canonical_cause"),
+        ("failure_cause", "payload.cause.canonical_cause"),
         ("routine_run_usage", "routine.canonical_run_usage"),
         ("routine_timezone", "routine.canonical_timezone"),
         ("routine_views.output", "routine.canonical_output"),

@@ -334,9 +334,9 @@ async fn no_dispatch_when_audit_fails() {
         )
         .await;
     // The attempt ends naming the unwritten dispatch record, never a generic transport failure.
-    let unwritten = team_protocol::cause::Cause::new(
-        team_protocol::cause::Condition::WriteFailed,
-        team_protocol::cause::Phase::ProviderCall,
+    let unwritten = team_protocol::payload::cause::Cause::new(
+        team_protocol::payload::cause::Condition::WriteFailed,
+        team_protocol::payload::cause::Phase::ProviderCall,
     );
     assert_eq!(
         answered,

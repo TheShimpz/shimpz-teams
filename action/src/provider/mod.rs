@@ -16,7 +16,7 @@ use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Phase};
+use team_protocol::payload::cause::{Cause, Phase};
 use team_protocol::python::json::{self, Options};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;

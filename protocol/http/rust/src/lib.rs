@@ -6,7 +6,6 @@
 
 pub mod browser;
 pub mod browser_view;
-pub mod cause;
 pub mod challenge;
 pub mod content;
 pub mod identifiers;

@@ -3,13 +3,13 @@
 //!
 //! The Local writer admits each event with [`admit`]: `operation`, `result`, `principal_id`, and `principal_class`
 //! always; `trace_id` and `credential_state` from the principal; `team_id`, `assistant`, `detail`, `model_usage`, and a
-//! failed Action's closed `cause` (`team_protocol::cause`) for an ordinary event; `team_id` and `activity` for an
+//! failed Action's closed `cause` (`team_protocol::payload::cause`) for an ordinary event; `team_id` and `activity` for an
 //! activity event (ADR-0120). Anything else refuses the event, so no caller can put a body or a credential into the
 //! log. The in-memory audit of the tests admits through this same function, so a record the Local log would refuse
 //! fails there too.
 
 use strict_json::{Number, Value};
-use team_protocol::cause::canonical_cause;
+use team_protocol::payload::cause::canonical_cause;
 use team_protocol::websocket::canonical_origin;
 
 use super::AuditEvent;

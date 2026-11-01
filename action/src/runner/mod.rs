@@ -20,7 +20,7 @@ use team_integrations::flow::{self, ActionView, AssistantView};
 use team_integrations::providers;
 use team_integrations::service::OAuthService;
 use team_integrations::store::{Declaration, IntegrationStore};
-use team_protocol::cause::{Cause, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Condition, Phase};
 use tokio::time::Instant;
 
 use crate::executor::{
@@ -404,7 +404,7 @@ impl Runner {
         let error = failed.error();
         let unaudited = error
             .cause
-            .is_some_and(|cause| cause.kind() == team_protocol::cause::Kind::TeamAudit);
+            .is_some_and(|cause| cause.kind() == team_protocol::payload::cause::Kind::TeamAudit);
         if unaudited && matches!(failed, Failed::NotDispatched(_)) {
             return;
         }

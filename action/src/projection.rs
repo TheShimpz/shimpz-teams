@@ -7,7 +7,7 @@
 
 use strict_json::Value;
 use team_core::secret::Secret;
-use team_protocol::cause::Condition;
+use team_protocol::payload::cause::Condition;
 
 use crate::failure::{self, ActionFailure};
 use crate::human::{self, HumanRequest};
@@ -170,7 +170,7 @@ mod tests {
     use strict_json::Value;
     use team_core::secret::Secret;
 
-    use team_protocol::cause::Condition;
+    use team_protocol::payload::cause::Condition;
 
     use super::{Projected, Refused, ResultPolicy, contains_secret, project};
 

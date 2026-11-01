@@ -13,7 +13,7 @@ use assistant_protocol::input_file::{
 use strict_json::Value;
 use team_core::exec::{ExecEngine, ExecSpec, FailStop};
 use team_core::stop::Stop;
-use team_protocol::cause::{Cause, Cleanup, Condition, Kind, Phase};
+use team_protocol::payload::cause::{Cause, Cleanup, Condition, Kind, Phase};
 use team_protocol::python::json::{self, Options};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::Instant;

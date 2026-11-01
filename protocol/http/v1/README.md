@@ -40,20 +40,20 @@ identifiers; it never carries arguments, results, prompts, model output, or free
 advisory; only the single terminal record determines the operation outcome. A missing, repeated,
 malformed, oversized, or out-of-order record fails closed at the consumer without widening Team
 authority or exposing execution payloads.
-`cause` owns the closed cause of a failed Team Action (`cause.canonical_cause`). A failed answer of an Action route,
-and a failed chat terminal's body, carries it beside its stable `code` as `cause`; Team's audit records it too. A cause
-holds exactly `kind`, `condition`, and `phase` and the parameters its condition admits (canonically in this order;
-Team's canonical JSON writes them sorted, and a consumer reads them in any order): `exit_code` (a 32-bit
+`payload.cause` owns the closed cause of a failed Team Action (`payload.cause.canonical_cause`). A failed answer of an
+Action route, and a failed chat terminal's body, carries it beside its stable `code` as `cause`; Team's audit records
+it too. A cause holds exactly `kind`, `condition`, and `phase` and the parameters its condition admits (canonically in
+this order; Team's canonical JSON writes them sorted, and a consumer reads them in any order): `exit_code` (a 32-bit
 integer, only for `exit-status`, which requires it), `http_status` (100 to 599, only for `handled-failure`), `bytes`
 (only for `output-too-large`, which requires it), `stderr_bytes` (at least 1, only for an `assistant-exit` condition;
 `stderr-output` requires it), then `cleanup` (`workload-stopped`, `workload-stop-unconfirmed`, or
 `journal-unavailable`), the outcome of the cleanup the failure caused, kept apart from the initiating failure. Each
 condition belongs to exactly one kind, and every word is closed, so a cause carries no credential, prompt, input,
 result, file name, header, body, URL, provider text, exception, child output, stderr content, or attacker-chosen
-member name; a validation cause names only the failed rule. It is at most 1 KiB serialized and renders as
-`kind · condition · phase` followed by each parameter and the cleanup, within 512 characters; a consumer shows an
-absent cause as `cause unknown`. A cause never changes an outcome's uncertainty, never authorizes a retry, and never
-claims that a provider call had no effect. Team states one only to an authorized caller.
+member name; a validation cause names only the failed rule. It is at most 1 KiB serialized and renders as `kind ·
+condition · phase` followed by each parameter and the cleanup, within 512 characters; a consumer shows an absent cause
+as `cause unknown`. A cause never changes an outcome's uncertainty, never authorizes a retry, and never claims that a
+provider call had no effect. Team states one only to an authorized caller.
 Team Routine forms are split by responsibility (ADR-0101): `routine` owns schedules, timezones, plans, and outputs;
 `routine_notice` notices and the views Admin lists; `routine_run` recovery cards, claims, segments, diagnostics,
 and run steps; `routine_proposal` the confirmation card, Team's questions, refusals, answers, and the output choices;

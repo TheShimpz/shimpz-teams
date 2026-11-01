@@ -8,7 +8,7 @@ use team_action::executor::{ActionError, ActionFailure};
 use team_core::future::BoxFuture;
 use team_inference::brain::{BrainClient, BrainError, BrainOperation, BrainRequest};
 use team_inference::testing::ScriptedBrain;
-use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
+use team_protocol::payload::cause::{Cause, Cleanup, Condition, Phase};
 
 use super::harness::{
     BrainClientScripted, TEAM, chat_body, cloudflare, harness, harness_on, harness_with, reply,

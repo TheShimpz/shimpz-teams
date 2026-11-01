@@ -374,7 +374,12 @@ mod tests {
     /// Each written line's operation, result, detail, and cause (its members written sorted, read in any order).
     fn failures(
         path: &std::path::Path,
-    ) -> Vec<(String, String, String, Option<team_protocol::cause::Cause>)> {
+    ) -> Vec<(
+        String,
+        String,
+        String,
+        Option<team_protocol::payload::cause::Cause>,
+    )> {
         let content = std::fs::read(path).expect("the log");
         content
             .split_inclusive(|byte| *byte == b'\n')
@@ -389,7 +394,7 @@ mod tests {
                     text("result"),
                     text("detail"),
                     event.get("cause").map(|cause| {
-                        team_protocol::cause::Cause::from_value(cause).expect("a cause")
+                        team_protocol::payload::cause::Cause::from_value(cause).expect("a cause")
                     }),
                 )
             })
@@ -427,7 +432,7 @@ mod tests {
     #[tokio::test]
     async fn the_local_log_records_a_failed_action_with_its_exact_cause() {
         use team_action::executor::{ActionError, ActionExecutor, ActionFailure, ActionRequest};
-        use team_protocol::cause::{Cause, Cleanup};
+        use team_protocol::payload::cause::{Cause, Cleanup};
 
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("audit.jsonl");

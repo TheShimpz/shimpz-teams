@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use team_core::future::BoxFuture;
-use team_protocol::cause::Cause;
+use team_protocol::payload::cause::Cause;
 use team_protocol::python::value::{int, object_of, text};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -100,7 +100,7 @@ async fn a_problem_is_projected_without_upstream_text() {
 
 /// The provider-call failure Team once answered: its dispatch record refused while a provider call was answered.
 fn refused_provider_call() -> Cause {
-    use team_protocol::cause::{Cleanup, Condition, Phase};
+    use team_protocol::payload::cause::{Cleanup, Condition, Phase};
     Cause::new(Condition::RecordRefused, Phase::ProviderCall).with_cleanup(Cleanup::WorkloadStopped)
 }
 

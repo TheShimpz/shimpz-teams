@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use hyper::body::{Bytes, Frame};
 use strict_json::Value;
-use team_protocol::cause::Cause;
+use team_protocol::payload::cause::Cause;
 use team_protocol::progress::encode_record;
 use team_protocol::python::value::int;
 use tokio::sync::{OwnedSemaphorePermit, mpsc};
