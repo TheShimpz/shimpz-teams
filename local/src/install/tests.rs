@@ -180,7 +180,7 @@ impl ArtifactVerifier for Trust {
 /// Answers every direct invocation with `{"done": true}`, or the failure set.
 #[derive(Default)]
 struct Executor {
-    failure: Mutex<Option<ActionFailure>>,
+    failure: Mutex<Option<ActionError>>,
 }
 
 impl ActionExecutor for Executor {
@@ -198,7 +198,7 @@ impl ActionExecutor for Executor {
         Box::pin(async move {
             failure.map_or_else(
                 || Ok(Value::Object(vec![("done".to_owned(), Value::Bool(true))])),
-                |failure| Err(failure.into()),
+                Err,
             )
         })
     }
@@ -723,14 +723,72 @@ async fn direct_invocation_answers_the_result_and_refuses_a_human_request() {
         member(&answered, "result"),
         &Value::Object(vec![("done".to_owned(), Value::Bool(true))])
     );
-    *harness.executor.failure.lock().expect("usable") = Some(ActionFailure::HumanRequestRequired);
-    assert_eq!(
-        harness
-            .assistants
-            .invoke(TEAM, ASSISTANT, "hello", input)
-            .await,
-        Err(HUMAN_REQUEST_REQUIRED)
+    // As the runner answers it: the refusal with its closed cause, which the problem states beside the unchanged
+    // status, message, and code (the candidate boot reads exactly this answer).
+    let refused = ActionError::at(
+        ActionFailure::HumanRequestRequired,
+        team_protocol::payload::cause::Phase::ResultValidation,
     );
+    *harness.executor.failure.lock().expect("usable") = Some(refused);
+    let problem = harness
+        .assistants
+        .invoke(TEAM, ASSISTANT, "hello", input)
+        .await
+        .expect_err("refused");
+    assert_eq!(
+        (problem.status, problem.message.as_ref(), problem.code),
+        (
+            HUMAN_REQUEST_REQUIRED.status,
+            HUMAN_REQUEST_REQUIRED.message.as_ref(),
+            HUMAN_REQUEST_REQUIRED.code
+        )
+    );
+    assert_eq!(
+        problem.cause.map(|cause| cause.render()),
+        Some("assistant-request · human-request-required · result-validation".to_owned())
+    );
+}
+
+/// A cause only describes: every Action failure answers the same status, message, and code with or without one.
+#[test]
+fn a_cause_never_changes_an_action_failures_problem() {
+    use team_protocol::payload::cause::{Cause, Condition, Phase};
+    for failure in [
+        ActionFailure::NotDeclared,
+        ActionFailure::InvalidInput,
+        ActionFailure::ContextChanged,
+        ActionFailure::Blocked,
+        ActionFailure::HumanRequestRequired,
+        ActionFailure::Stopped,
+        ActionFailure::Uncertain,
+        ActionFailure::Failed,
+        ActionFailure::StateUnavailable,
+        ActionFailure::DockerUnavailable,
+        ActionFailure::IntegrationUnavailable,
+        ActionFailure::FileUnavailable,
+        ActionFailure::FileBusy,
+    ] {
+        let plain = super::action_problem(failure.into());
+        let caused = super::action_problem(ActionError::new(
+            failure,
+            Cause::new(Condition::RecordRefused, Phase::DispatchRecord),
+        ));
+        assert_eq!(
+            (
+                caused.status,
+                caused.message,
+                caused.code,
+                caused.retry_after_ms
+            ),
+            (
+                plain.status,
+                plain.message,
+                plain.code,
+                plain.retry_after_ms
+            )
+        );
+        assert_eq!(plain.cause, None);
+    }
 }
 
 #[tokio::test]
