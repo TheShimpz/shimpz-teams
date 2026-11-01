@@ -63,7 +63,7 @@ fn context(principal: Option<&str>) -> Option<RequestContext> {
         trace_id: "0".repeat(32),
         principal_id: Some(principal.to_owned()),
         principal_class: "human",
-        credential_state: "valid",
+        credential_state: "assertion_present",
         supervisor_key: None,
     })
 }

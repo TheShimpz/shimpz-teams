@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use strict_json::Value;
-use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
+use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable, Inadmissible, admit};
 use team_core::clock::Clock;
 use team_core::entropy::{Entropy, token_hex};
 use team_core::future::BoxFuture;
@@ -32,10 +32,8 @@ use team_storage::custody::{self, FileCustody, Mode, current_uid};
 use team_storage::durable;
 use team_storage::private::timestamp;
 
-pub use self::event::{
-    ACTIVITY_OPERATIONS, CREDENTIAL_STATES, Inadmissible, MAX_ACTIVITY_ORIGIN_CHARS, Outcome,
-    Principal, PrincipalClass,
-};
+pub use self::event::{Outcome, Principal, PrincipalClass};
+pub use team_core::audit::{ACTIVITY_OPERATIONS, CREDENTIAL_STATES, MAX_ACTIVITY_ORIGIN_CHARS};
 
 /// The `prev_sha256` of the first line ever written.
 pub const GENESIS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -227,7 +225,7 @@ impl AuditLog {
     /// # Errors
     /// [`AuditError`] when the event is not admissible, the line could not be written, or the log is closed.
     pub fn record_blocking(&self, event: &AuditEvent) -> Result<String, AuditError> {
-        let mut fields = event::admit(event).map_err(|Inadmissible| AuditError::Inadmissible)?;
+        let mut fields = admit(event).map_err(|Inadmissible| AuditError::Inadmissible)?;
         let given = fields.iter().find_map(|(name, value)| match value {
             Value::String(trace_id) if name == "trace_id" => Some(trace_id.clone()),
             _ => None,
@@ -443,7 +441,9 @@ impl AuditSink for AuditLog {
         Box::pin(async move {
             match tokio::task::spawn_blocking(move || log.record_blocking(&event)).await {
                 Ok(Ok(_trace_id)) => Ok(()),
-                _ => Err(AuditUnavailable),
+                Ok(Err(AuditError::Inadmissible)) => Err(AuditUnavailable::Refused),
+                Ok(Err(AuditError::Closed)) => Err(AuditUnavailable::Closed),
+                Ok(Err(AuditError::Unwritten)) | Err(_) => Err(AuditUnavailable::Unwritten),
             }
         })
     }

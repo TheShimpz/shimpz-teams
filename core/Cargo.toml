@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Team invariants several responsibilities share: time, entropy, Stop, secrets, the audit sink, workload exec"
+description = "Team invariants several responsibilities share: time, entropy, Stop, secrets, the audit sink and its admission, workload exec"
 
 [features]
 # In-memory fakes of every seam this crate defines, for the tests of the crates that consume them.
@@ -14,6 +14,7 @@ testing = ["tokio/io-util"]
 [dependencies]
 getrandom.workspace = true
 strict-json.workspace = true
+team-protocol.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 zeroize.workspace = true
 

@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use tokio::io::DuplexStream;
 
-use crate::audit::{AuditEvent, AuditSink, AuditUnavailable};
+use crate::audit::{AuditEvent, AuditSink, AuditUnavailable, admit};
 use crate::clock::Clock;
 use crate::entropy::{Entropy, EntropyUnavailable};
 use crate::exec::{ExecEngine, ExecError, ExecExit, ExecId, ExecSession, ExecSpec, FailStop};
@@ -55,7 +55,9 @@ impl Entropy for CountingEntropy {
     }
 }
 
-/// An audit sink that keeps every event in memory and can be made to fail.
+/// An audit sink that keeps every event in memory and can be made to fail. It admits each event exactly as the Local
+/// log does ([`admit`]), attributing one that names no principal to Team as the Local executor's sink does, so a record
+/// the Local log would refuse is refused here too ([`AuditUnavailable::Refused`]).
 #[derive(Debug, Default)]
 pub struct MemoryAudit {
     events: Mutex<Vec<AuditEvent>>,
@@ -85,15 +87,37 @@ impl AuditSink for MemoryAudit {
     fn record(&self, event: AuditEvent) -> BoxFuture<'_, Result<(), AuditUnavailable>> {
         Box::pin(async move {
             if self.failing.load(Ordering::SeqCst) {
-                return Err(AuditUnavailable);
+                return Err(AuditUnavailable::Unwritten);
             }
+            admit(&attributed(&event)).map_err(|_| AuditUnavailable::Refused)?;
             self.events
                 .lock()
-                .map_err(|_| AuditUnavailable)?
+                .map_err(|_| AuditUnavailable::Unwritten)?
                 .push(event);
             Ok(())
         })
     }
+}
+
+/// `event` as the Local executor's sink attributes one that names no principal: to Team's own machine principal.
+fn attributed(event: &AuditEvent) -> AuditEvent {
+    if event
+        .fields()
+        .iter()
+        .any(|(name, _)| name == "principal_class")
+    {
+        return event.clone();
+    }
+    event
+        .clone()
+        .with(
+            "principal_id",
+            strict_json::Value::String("team-local".to_owned()),
+        )
+        .with(
+            "principal_class",
+            strict_json::Value::String("machine".to_owned()),
+        )
 }
 
 /// One exec a test scripted: the stream Team receives and the state Team then reads.
@@ -239,14 +263,38 @@ mod tests {
         assert_ne!(token_hex(&entropy, 16), token_hex(&entropy, 16));
     }
 
+    fn action_event() -> AuditEvent {
+        let text = |value: &str| strict_json::Value::String(value.to_owned());
+        AuditEvent::new()
+            .with("operation", text("assistant-action"))
+            .with("result", text("ok"))
+            .with("team_id", text("neo"))
+    }
+
     #[tokio::test]
     async fn a_failing_audit_records_nothing() {
         let audit = MemoryAudit::default();
         audit.fail(true);
-        assert_eq!(audit.record(AuditEvent::new()).await, Err(AuditUnavailable));
+        assert_eq!(
+            audit.record(action_event()).await,
+            Err(AuditUnavailable::Unwritten)
+        );
         audit.fail(false);
-        assert_eq!(audit.record(AuditEvent::new()).await, Ok(()));
+        assert_eq!(audit.record(action_event()).await, Ok(()));
         assert_eq!(audit.events().len(), 1);
+    }
+
+    /// The in-memory audit refuses what the Local log refuses: a field outside the closed shape, or no operation.
+    #[tokio::test]
+    async fn the_memory_audit_refuses_what_the_local_log_refuses() {
+        let audit = MemoryAudit::default();
+        let call = action_event().with("call", strict_json::Value::Bool(true));
+        assert_eq!(audit.record(call).await, Err(AuditUnavailable::Refused));
+        assert_eq!(
+            audit.record(AuditEvent::new()).await,
+            Err(AuditUnavailable::Refused)
+        );
+        assert_eq!(audit.events(), Vec::<AuditEvent>::new());
     }
 
     #[tokio::test]

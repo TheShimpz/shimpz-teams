@@ -5,9 +5,15 @@
 //! line is durably committed; a failure means it was not recorded, and the caller refuses the operation it was about to
 //! perform (for example, no provider call is dispatched without its dispatch record).
 
+mod admission;
+
 use strict_json::Value;
 
 use crate::future::BoxFuture;
+
+pub use self::admission::{
+    ACTIVITY_OPERATIONS, CREDENTIAL_STATES, Inadmissible, MAX_ACTIVITY_ORIGIN_CHARS, admit,
+};
 
 /// One metadata-only audit event: its fields, never a body, a secret, or provider data.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -37,13 +43,24 @@ impl AuditEvent {
     }
 }
 
-/// The event was not recorded; the operation that needed it must not proceed.
+/// The event was not recorded, and why; the operation that needed it must not proceed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AuditUnavailable;
+pub enum AuditUnavailable {
+    /// The log refused the event as inadmissible.
+    Refused,
+    /// The log could not write it.
+    Unwritten,
+    /// The log is closed after an earlier failed sync.
+    Closed,
+}
 
 impl std::fmt::Display for AuditUnavailable {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("the audit log is unavailable")
+        formatter.write_str(match self {
+            Self::Refused => "the audit log refused the event",
+            Self::Unwritten => "the audit log could not write the event",
+            Self::Closed => "the audit log is closed",
+        })
     }
 }
 

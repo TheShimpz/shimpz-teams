@@ -619,7 +619,7 @@ async fn the_sink_records_or_answers_unavailable() {
                 .with("body", text("x"))
         )
         .await,
-        Err(AuditUnavailable)
+        Err(AuditUnavailable::Refused)
     );
     log.close().expect("closed");
     assert_eq!(
