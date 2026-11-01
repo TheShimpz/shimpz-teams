@@ -6345,6 +6345,35 @@
       {"duration_ms": 6200, "models": [{"provider": "openai", "model": "m00", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m01", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m02", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m03", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m04", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m05", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m06", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m07", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m08", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m09", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m10", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m11", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m12", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m13", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m14", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m15", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m16", "input_tokens": 1, "output_tokens": 1}]}
     ]
   },
+  "failure_cause": {
+    "valid": [
+      {"kind": "assistant-timeout", "condition": "deadline-passed", "phase": "exchange", "cleanup": "workload-stopped"},
+      {"kind": "assistant-exit", "condition": "exit-status", "phase": "exit-inspection", "exit_code": 1, "stderr_bytes": 312, "cleanup": "workload-stopped"},
+      {"kind": "assistant-exit", "condition": "stderr-output", "phase": "exit-inspection", "stderr_bytes": 1},
+      {"kind": "assistant-output-invalid", "condition": "output-too-large", "phase": "exchange", "bytes": 524289, "cleanup": "workload-stop-unconfirmed"},
+      {"kind": "assistant-output-invalid", "condition": "result-schema-mismatch", "phase": "result-validation"},
+      {"kind": "assistant-answer", "condition": "handled-failure", "phase": "result-validation", "http_status": 429},
+      {"kind": "team-audit", "condition": "record-refused", "phase": "provider-call", "cleanup": "workload-stopped"},
+      {"kind": "team-audit", "condition": "write-failed", "phase": "dispatch-record"},
+      {"kind": "assistant-secret-echo", "condition": "injected-value-echoed", "phase": "result-validation"}
+    ],
+    "invalid": [
+      null,
+      [],
+      {},
+      "deadline-passed",
+      {"kind": "assistant-timeout", "condition": "deadline-passed"},
+      {"kind": "assistant-exit", "condition": "deadline-passed", "phase": "exchange"},
+      {"kind": "assistant-timeout", "condition": "deadline-passed", "phase": "exchange", "stderr": "Traceback (most recent call last)"},
+      {"kind": "assistant-exit", "condition": "exit-status", "phase": "exit-inspection"},
+      {"kind": "assistant-exit", "condition": "exit-status", "phase": "exit-inspection", "exit_code": true},
+      {"kind": "assistant-exit", "condition": "stderr-output", "phase": "exit-inspection", "stderr_bytes": 0},
+      {"kind": "assistant-output-invalid", "condition": "line-not-json", "phase": "exchange", "bytes": 10},
+      {"kind": "assistant-answer", "condition": "handled-failure", "phase": "result-validation", "http_status": 600},
+      {"kind": "assistant-output-invalid", "condition": "result-schema-mismatch", "phase": "result-validation", "member": "api_key"},
+      {"kind": "team-audit", "condition": "record-refused", "phase": "provider-call", "cleanup": "retried"}
+    ]
+  },
   "chat_conversation": {
     "valid": [
       [],

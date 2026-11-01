@@ -1,5 +1,5 @@
-//! Every `vectors.json` group of `identifiers`, `purpose`, `payload`, `progress`, and `routine`, and the canonical JSON
-//! v1 vectors, checked with typed equality.
+//! Every `vectors.json` group of `identifiers`, `purpose`, `payload`, `cause`, `progress`, and `routine`, and the
+//! canonical JSON v1 vectors, checked with typed equality.
 
 use crate::support::registry::Outcome;
 use crate::support::vectors::{admits, admits_group, call, group, items, same, text};
@@ -51,6 +51,7 @@ fn payload_vectors() {
         ("assistant_details", "payload.canonical_assistant_details"),
         ("creator_links", "payload.canonical_creator_links"),
         ("turn_usage", "payload.canonical_turn_usage"),
+        ("failure_cause", "cause.canonical_cause"),
         ("routine_run_usage", "routine.canonical_run_usage"),
         ("routine_timezone", "routine.canonical_timezone"),
         ("routine_views.output", "routine.canonical_output"),

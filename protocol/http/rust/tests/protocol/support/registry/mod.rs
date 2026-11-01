@@ -6,6 +6,7 @@
 //! Each module's entries live in their own file; add a module's file and its line in [`all`].
 
 mod browser;
+mod cause;
 mod payload;
 mod phrase;
 mod presentation;
@@ -48,6 +49,7 @@ pub fn all() -> Vec<Entry> {
         routine_proposal::ENTRIES,
         routine_run::ENTRIES,
         browser::ENTRIES,
+        cause::ENTRIES,
         sign_in::ENTRIES,
         websocket::ENTRIES,
     ]
