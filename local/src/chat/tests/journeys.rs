@@ -4,9 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use strict_json::Value;
+use team_action::executor::{ActionError, ActionFailure};
 use team_core::future::BoxFuture;
 use team_inference::brain::{BrainClient, BrainError, BrainOperation, BrainRequest};
 use team_inference::testing::ScriptedBrain;
+use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
 
 use super::harness::{
     BrainClientScripted, TEAM, chat_body, cloudflare, harness, harness_on, harness_with, reply,
@@ -118,8 +120,11 @@ async fn an_unselected_or_absent_assistant_is_refused_before_the_brain() {
 async fn a_failed_batch_ends_its_journal_state_and_frees_the_team() {
     let harness = harness();
     harness.brain.answer(Ok(suspension("interrupt-1")));
-    harness.executor.answer(Box::new(|_, _| {
-        Err(team_action::executor::ActionFailure::Uncertain)
+    // The provider-call failure Team once collapsed into a transport failure: the cause names the refused record.
+    let cause = Cause::new(Condition::RecordRefused, Phase::ProviderCall)
+        .with_cleanup(Cleanup::WorkloadStopped);
+    harness.executor.answer(Box::new(move |_, _| {
+        Err(ActionError::new(ActionFailure::Uncertain, cause))
     }));
     let failed = harness
         .chat(chat_body("List", &["shimpz-cloudflare"], None))
@@ -127,6 +132,10 @@ async fn a_failed_batch_ends_its_journal_state_and_frees_the_team() {
     assert_eq!(
         (failed.status, failed.code()),
         (502, Some("assistant-rpc-failed"))
+    );
+    assert_eq!(
+        failed.body.get("cause").and_then(Cause::from_value),
+        Some(cause)
     );
     assert_eq!(
         harness.executor.events().last().map(String::as_str),

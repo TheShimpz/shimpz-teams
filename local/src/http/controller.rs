@@ -93,6 +93,7 @@ impl Controller {
             message: "internal error".into(),
             code: None,
             retry_after_ms: None,
+            cause: None,
         })?;
         Ok(ok(rotated))
     }

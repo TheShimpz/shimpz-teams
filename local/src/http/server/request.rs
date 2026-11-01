@@ -37,6 +37,7 @@ fn problem(status: u16, message: impl Into<Cow<'static, str>>, code: &'static st
         message: message.into(),
         code: Some(code),
         retry_after_ms: None,
+        cause: None,
     }
 }
 

@@ -10,6 +10,7 @@
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
+use team_protocol::cause::{Cause, Condition, Phase};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::Instant;
 
@@ -23,10 +24,20 @@ const CHUNK_BYTES: usize = 64 * 1024;
 pub enum FrameError {
     /// The deadline passed.
     Timeout,
-    /// The output broke the frame or line protocol (`frame-invalid`).
-    Invalid,
-    /// The stream failed, or a provider reply could not be written or produced (`transport-failed`).
-    Transport,
+    /// The output broke the frame or line protocol, exactly as its cause states.
+    Invalid(Cause),
+    /// The stream failed, or a provider reply could not be written or produced, exactly as its cause states.
+    Transport(Cause),
+}
+
+/// An output protocol violation of the exchange.
+const fn invalid(condition: Condition) -> FrameError {
+    FrameError::Invalid(Cause::new(condition, Phase::Exchange))
+}
+
+/// A failed exchange stream.
+const fn transport(condition: Condition) -> FrameError {
+    FrameError::Transport(Cause::new(condition, Phase::Exchange))
 }
 
 /// Team's answer to an Action's provider calls on the exec channel.
@@ -35,7 +46,7 @@ pub trait CallBroker: Send {
     ///
     /// # Errors
     /// [`FrameError::Transport`] when Team cannot answer at all (for example, its dispatch record could not be
-    /// written); the attempt then ends uncertain, never silently.
+    /// written, which its cause names); the attempt then ends uncertain, never silently.
     fn answer(
         &mut self,
         frame: Value,
@@ -77,6 +88,8 @@ impl FrameReader {
     /// # Errors
     /// [`FrameError::Invalid`] for an unknown stream, a frame announcing more than the bound, or output beyond it.
     pub fn feed(&mut self, data: &[u8]) -> Result<(), FrameError> {
+        let too_large =
+            |bytes: usize| FrameError::Invalid(Cause::output_too_large(bytes, Phase::Exchange));
         self.pending.extend_from_slice(data);
         while self.pending.len() >= FRAME_HEADER_BYTES {
             let stream = self.pending[0];
@@ -86,9 +99,12 @@ impl FrameReader {
                 self.pending[6],
                 self.pending[7],
             ]);
-            let length = usize::try_from(length).map_err(|_| FrameError::Invalid)?;
-            if !matches!(stream, 1 | 2) || length > self.maximum + 1 {
-                return Err(FrameError::Invalid);
+            let length = usize::try_from(length).map_err(|_| too_large(usize::MAX))?;
+            if !matches!(stream, 1 | 2) {
+                return Err(invalid(Condition::StreamUnknown));
+            }
+            if length > self.maximum + 1 {
+                return Err(too_large(length));
             }
             let end = FRAME_HEADER_BYTES + length;
             if self.pending.len() < end {
@@ -101,8 +117,9 @@ impl FrameReader {
             };
             target.extend_from_slice(&self.pending[FRAME_HEADER_BYTES..end]);
             self.pending.drain(..end);
-            if self.stdout.len() + self.stderr.len() > self.maximum {
-                return Err(FrameError::Invalid);
+            let held = self.stdout.len() + self.stderr.len();
+            if held > self.maximum {
+                return Err(too_large(held));
             }
         }
         Ok(())
@@ -117,7 +134,8 @@ impl FrameReader {
         if self.terminal.is_none()
             && let Some(end) = self.stdout.iter().position(|byte| *byte == b'\n')
         {
-            let line = strict_json::parse(&self.stdout[..end]).map_err(|_| FrameError::Invalid)?;
+            let line = strict_json::parse(&self.stdout[..end])
+                .map_err(|_| invalid(Condition::LineNotJson))?;
             if matches!(line, Value::Object(_))
                 && line.get("type") == Some(&Value::String("fetch".to_owned()))
             {
@@ -131,7 +149,7 @@ impl FrameReader {
             .terminal
             .is_some_and(|terminal| self.stdout.len() > terminal)
         {
-            return Err(FrameError::Invalid);
+            return Err(invalid(Condition::OutputAfterTerminal));
         }
         Ok(frame)
     }
@@ -144,7 +162,7 @@ impl FrameReader {
         if self.pending.is_empty() {
             Ok((self.stdout, self.stderr))
         } else {
-            Err(FrameError::Invalid)
+            Err(invalid(Condition::FrameTruncated))
         }
     }
 }
@@ -204,7 +222,7 @@ async fn run<'b>(
                 }
             }
             read = reader.read(&mut buffer) => {
-                let read = read.map_err(|_| FrameError::Transport)?;
+                let read = read.map_err(|_| transport(Condition::StreamFailed))?;
                 if read == 0 {
                     return frames.finish();
                 }
@@ -230,7 +248,7 @@ fn settle(
         Ok(written) => {
             pending.drain(..*written);
         }
-        Err(_) if replies => return Err(FrameError::Transport),
+        Err(_) if replies => return Err(transport(Condition::ReplyWriteFailed)),
         Err(_) => pending.clear(),
     }
     Ok(())

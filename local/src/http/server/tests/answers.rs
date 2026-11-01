@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use team_core::future::BoxFuture;
+use team_protocol::cause::Cause;
 use team_protocol::python::value::{int, object_of, text};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -69,6 +70,7 @@ async fn a_problem_is_projected_without_upstream_text() {
             message: "file preview capacity is busy".into(),
             code: Some("file-preview-busy"),
             retry_after_ms: Some(250),
+            cause: None,
         }),
         Operation::Activity => panic!("upstream detail sk-test-secret"),
         _ => Err(Problem::new(
@@ -94,6 +96,83 @@ async fn a_problem_is_projected_without_upstream_text() {
         r#""detail":"internal-error""#
     ]));
     assert!(!harness.journaled(&["sk-test"]));
+}
+
+/// The provider-call failure Team once answered: its dispatch record refused while a provider call was answered.
+fn refused_provider_call() -> Cause {
+    use team_protocol::cause::{Cleanup, Condition, Phase};
+    Cause::new(Condition::RecordRefused, Phase::ProviderCall).with_cleanup(Cleanup::WorkloadStopped)
+}
+
+const RECORDED_CAUSE: &str = r#""cause":{"cleanup":"workload-stopped","condition":"record-refused","kind":"team-audit","phase":"provider-call"}"#;
+
+/// A failed Action's closed cause travels beside its stable code to the authorized caller, and the request's audit
+/// record states it too, admitted by the Local log's own admission.
+#[tokio::test]
+async fn a_failed_action_states_its_closed_cause_in_the_answer_and_the_audit() {
+    let harness = harness(answering(|_| {
+        Err(Problem::new(
+            502,
+            "the Assistant Action did not complete",
+            "assistant-rpc-failed",
+        )
+        .with_cause(Some(refused_provider_call())))
+    }));
+    let path = "/v1/teams/alpha/assistants/demo/actions/search-web";
+    let reply = harness
+        .as_supervisor("POST", path, &[], b"{}", unedited)
+        .await;
+    assert_eq!(reply.status, 502);
+    assert_eq!(
+        reply.json().get("code"),
+        Some(&text("assistant-rpc-failed"))
+    );
+    // The answer is canonical JSON, so the cause's members arrive sorted; its meaning is exactly the one stated.
+    let cause = reply.json().get("cause").and_then(Cause::from_value);
+    assert_eq!(cause, Some(refused_provider_call()));
+    assert!(harness.journaled(&[
+        r#""result":"error""#,
+        r#""detail":"assistant-rpc-failed""#,
+        RECORDED_CAUSE
+    ]));
+}
+
+/// A streamed failure's terminal body carries the cause, and the recorded terminal states it; a cause outside the
+/// closed vocabulary is never recorded.
+#[tokio::test]
+async fn a_streamed_failure_records_only_a_closed_cause() {
+    let body = |cause: strict_json::Value| {
+        object_of(vec![
+            ("error", text("the Assistant Action did not complete")),
+            ("code", text("assistant-rpc-failed")),
+            ("cause", cause),
+        ])
+    };
+    let (harness, reply) = segment(vec![StreamRecord::Terminal {
+        status: 502,
+        body: body(refused_provider_call().to_value()),
+    }])
+    .await;
+    let (chunks, _) = reply.chunks();
+    let terminal = strict_json::parse(&chunks[0]).expect("terminal");
+    let cause = terminal.get("body").and_then(|body| body.get("cause"));
+    assert_eq!(
+        cause.and_then(Cause::from_value),
+        Some(refused_provider_call())
+    );
+    assert!(harness.journaled(&[r#""operation":"routine-run""#, RECORDED_CAUSE]));
+    let forged = object_of(vec![
+        ("kind", text("sk-live-forged")),
+        ("detail", text("x")),
+    ]);
+    let (harness, _) = segment(vec![StreamRecord::Terminal {
+        status: 502,
+        body: body(forged),
+    }])
+    .await;
+    assert!(harness.journaled(&[r#""operation":"routine-run""#, r#""result":"error""#]));
+    assert!(!harness.journaled(&["sk-live-forged"]));
+    assert!(!harness.journaled(&[r#""cause""#]));
 }
 
 #[tokio::test]

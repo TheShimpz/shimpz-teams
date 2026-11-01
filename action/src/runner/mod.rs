@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use strict_json::Value;
 use team_assistant::spec::{ActionSpec, Direction, RuntimeContract};
-use team_core::audit::{AuditEvent, AuditSink};
+use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
 use team_core::entropy::Entropy;
 use team_core::exec::ExecEngine;
 use team_core::future::BoxFuture;
@@ -20,11 +20,12 @@ use team_integrations::flow::{self, ActionView, AssistantView};
 use team_integrations::providers;
 use team_integrations::service::OAuthService;
 use team_integrations::store::{Declaration, IntegrationStore};
+use team_protocol::cause::{Cause, Condition, Phase};
 use tokio::time::Instant;
 
 use crate::executor::{
-    ActionBatch, ActionExecutor, ActionFailure, ActionFile, ActionRequest, BatchScope,
-    DispatchObserver, Fault,
+    ActionBatch, ActionError, ActionExecutor, ActionFailure, ActionFile, ActionRequest, BatchScope,
+    DispatchObserver, Fault, audit_condition,
 };
 use crate::files::{self, Admitted, FileSlot, FileSource};
 use crate::human::{ActionTranscript, HumanRequest};
@@ -159,7 +160,12 @@ impl Watch<'_> {
         let workload = &target.binding.container;
         observer
             .dispatching(request, target.operation_id, workload, &self.injected)
-            .map_err(|_| Failed::NotDispatched(ActionFailure::StateUnavailable))
+            .map_err(|_| {
+                Failed::NotDispatched(ActionError::new(
+                    ActionFailure::StateUnavailable,
+                    Cause::new(Condition::DispatchSealRefused, Phase::DispatchRecord),
+                ))
+            })
     }
 
     fn returned(&self) {
@@ -182,15 +188,25 @@ pub(crate) struct Sent<'a> {
     withheld: bool,
 }
 
-/// How one attempt failed, with what the journal may conclude.
+/// How one attempt failed, with what the journal may conclude and the exact cause.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Failed {
     /// Nothing was dispatched.
-    NotDispatched(ActionFailure),
+    NotDispatched(ActionError),
     /// A handled failure the Action answered after it ran.
-    Handled,
+    Handled(Cause),
     /// It may have had an effect.
-    Uncertain(ActionFailure),
+    Uncertain(ActionError),
+}
+
+impl Failed {
+    /// The failure a caller outside the journal receives.
+    pub(crate) const fn error(self) -> ActionError {
+        match self {
+            Self::NotDispatched(error) | Self::Uncertain(error) => error,
+            Self::Handled(cause) => ActionError::new(ActionFailure::Failed, cause),
+        }
+    }
 }
 
 /// The egress route of one Assistant, read through the controller.
@@ -343,9 +359,10 @@ impl Runner {
         target: &Target<'_>,
         result: &str,
         detail: &str,
-    ) -> Result<(), ActionFailure> {
+        cause: Option<&Cause>,
+    ) -> Result<(), AuditUnavailable> {
         let detail = format!("{detail}:{}", target.action.id);
-        self.record_detail(target, result, &detail).await
+        self.record_detail(target, result, &detail, cause).await
     }
 
     /// Records a delivered file by its opaque id and size only, never its name or content (ADR-0093).
@@ -357,30 +374,52 @@ impl Runner {
         sent: &(String, i64),
     ) {
         let detail = format!("{kind}:{}:{}:{}", target.action.id, sent.0, sent.1);
-        let _ = self.record_detail(target, result, &detail).await;
+        let _ = self.record_detail(target, result, &detail, None).await;
     }
 
+    /// One `assistant-action` record; a failure's carries its closed cause, never anything of the call.
     async fn record_detail(
         &self,
         target: &Target<'_>,
         result: &str,
         detail: &str,
-    ) -> Result<(), ActionFailure> {
+        cause: Option<&Cause>,
+    ) -> Result<(), AuditUnavailable> {
         let text = |value: &str| Value::String(value.to_owned());
-        let event = AuditEvent::new()
+        let mut event = AuditEvent::new()
             .with("operation", text("assistant-action"))
             .with("result", text(result))
             .with("team_id", text(target.team))
             .with("assistant", text(&target.binding.assistant_id))
             .with("detail", text(detail));
-        self.audit
-            .record(event)
-            .await
-            .map_err(|_| ActionFailure::StateUnavailable)
+        if let Some(cause) = cause {
+            event = event.with("cause", cause.to_value());
+        }
+        self.audit.record(event).await
+    }
+
+    /// Records a failed attempt with its cause before it is returned; a failure the audit itself caused is not
+    /// recorded again, and a record that fails never changes the failure.
+    async fn record_failure(&self, target: &Target<'_>, detail: &str, failed: &Failed) {
+        let error = failed.error();
+        let unaudited = error
+            .cause
+            .is_some_and(|cause| cause.kind() == team_protocol::cause::Kind::TeamAudit);
+        if unaudited && matches!(failed, Failed::NotDispatched(_)) {
+            return;
+        }
+        let result = if matches!(failed, Failed::NotDispatched(_)) {
+            "denied"
+        } else {
+            "error"
+        };
+        let _ = self
+            .record(target, result, detail, error.cause.as_ref())
+            .await;
     }
 
     /// Exactly the private values the Action declares.
-    pub(crate) async fn private(&self, target: &Target<'_>) -> Result<Private, ActionFailure> {
+    pub(crate) async fn private(&self, target: &Target<'_>) -> Result<Private, ActionError> {
         let (team, binding, action) = (target.team, target.binding, target.action);
         let integrations = if action.integrations.is_empty() {
             Vec::new()
@@ -393,7 +432,9 @@ impl Runner {
                 &self.oauth,
             )
             .await
-            .map_err(|_| ActionFailure::IntegrationUnavailable)?
+            .map_err(|_| {
+                ActionError::at(ActionFailure::IntegrationUnavailable, Phase::Preparation)
+            })?
         };
         let mut stored_inputs = Vec::new();
         for id in &action.stored_inputs {
@@ -403,7 +444,12 @@ impl Runner {
             {
                 Ok(value) => stored_inputs.push((id.clone(), value.value)),
                 Err(StoredInputError::Missing) => {}
-                Err(_) => return Err(ActionFailure::StateUnavailable),
+                Err(_) => {
+                    return Err(ActionError::new(
+                        ActionFailure::StateUnavailable,
+                        Cause::new(Condition::StoredInputUnavailable, Phase::Preparation),
+                    ));
+                }
             }
         }
         Ok(Private {
@@ -466,14 +512,15 @@ impl Runner {
         input: &Value,
         transcript: &ActionTranscript,
         delivery: &Delivery<'_>,
-    ) -> Result<Value, ActionFailure> {
+    ) -> Result<Value, ActionError> {
+        let unavailable = || ActionError::at(ActionFailure::FileUnavailable, Phase::Preparation);
         let granted = match (delivery.file, &delivery.admitted) {
             (Some(file), Some(_)) => {
                 let source = Arc::clone(&self.files);
                 let (team, id) = (target.team.to_owned(), file.id.clone());
                 let read = tokio::task::spawn_blocking(move || source.read(&team, &id)).await;
-                let read = read.map_err(|_| ActionFailure::FileUnavailable)?;
-                Some(read.map_err(|_| ActionFailure::FileUnavailable)?)
+                let read = read.map_err(|_| unavailable())?;
+                Some(read.map_err(|_| unavailable())?)
             }
             _ => None,
         };
@@ -484,7 +531,7 @@ impl Runner {
             input,
             granted.as_ref(),
         )
-        .map_err(|_| ActionFailure::FileUnavailable)
+        .map_err(|_| unavailable())
     }
 
     /// Runs one attempt of `target`'s Action with `input`; a delivery's slot is released when it ends.
@@ -496,33 +543,16 @@ impl Runner {
         delivery: Delivery<'_>,
         (stop, watch): (&Stop, &mut Watch<'_>),
     ) -> Result<Outcome, Failed> {
-        let binding = target.binding;
-        if self.is_blocked(&binding.container) {
-            return Err(Failed::NotDispatched(ActionFailure::Blocked));
-        }
-        let private = self.private(target).await.map_err(Failed::NotDispatched)?;
-        watch.injected = private
-            .injected()
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        let names = private.held();
-        let files = self
-            .invocation_files(target, input, transcript, &delivery)
-            .await
-            .map_err(Failed::NotDispatched)?;
-        let encoded = rpc::encode_invocation(
-            input,
-            &names,
-            &files,
-            target.operation_id,
-            &transcript.payloads(),
-        )
-        .map_err(|_| Failed::NotDispatched(ActionFailure::InvalidInput))?;
-        watch.dispatching(target)?;
-        self.record(target, "ok", "started")
-            .await
-            .map_err(Failed::NotDispatched)?;
+        let refused = self
+            .prepared(target, input, transcript, &delivery, watch)
+            .await;
+        let (private, encoded, files) = match refused {
+            Ok(prepared) => prepared,
+            Err(failed) => {
+                self.record_failure(target, "not-dispatched", &failed).await;
+                return Err(failed);
+            }
+        };
         let withheld =
             delivery.file.is_some() && !transcript.authorized(&target.action.human_requests);
         let sent = Sent {
@@ -538,6 +568,60 @@ impl Runner {
             (stop, watch),
         )
         .await
+    }
+
+    /// Everything before the dispatch: the private values, the files, the encoded invocation, the observer's seal,
+    /// and the dispatch record, which an attempt never runs without.
+    async fn prepared(
+        &self,
+        target: &Target<'_>,
+        input: &Value,
+        transcript: &ActionTranscript,
+        delivery: &Delivery<'_>,
+        watch: &mut Watch<'_>,
+    ) -> Result<(Private, Vec<u8>, Value), Failed> {
+        let binding = target.binding;
+        if self.is_blocked(&binding.container) {
+            return Err(Failed::NotDispatched(ActionError::at(
+                ActionFailure::Blocked,
+                Phase::Admission,
+            )));
+        }
+        let private = self.private(target).await.map_err(Failed::NotDispatched)?;
+        watch.injected = private
+            .injected()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
+        let names = private.held();
+        let files = self
+            .invocation_files(target, input, transcript, delivery)
+            .await
+            .map_err(Failed::NotDispatched)?;
+        let encoded = rpc::encode_invocation(
+            input,
+            &names,
+            &files,
+            target.operation_id,
+            &transcript.payloads(),
+        )
+        .map_err(|_| {
+            Failed::NotDispatched(ActionError::new(
+                ActionFailure::InvalidInput,
+                Cause::new(Condition::InvocationTooLarge, Phase::Preparation),
+            ))
+        })?;
+        watch.dispatching(target)?;
+        self.record(target, "ok", "started", None)
+            .await
+            .map_err(|reason| {
+                // Team never sends what it could not record, and says exactly why it did not.
+                Failed::NotDispatched(ActionError::new(
+                    ActionFailure::StateUnavailable,
+                    Cause::new(audit_condition(reason), Phase::DispatchRecord),
+                ))
+            })?;
+        Ok((private, encoded, files))
     }
 
     /// Sends the encoded invocation through the provider broker and settles what came back.
@@ -567,12 +651,13 @@ impl Runner {
             watch.returned();
         }
         let context = (private, transcript, sent.withheld);
-        self.exchanged(target, exchanged, sent.delivered.as_ref(), context, stop)
-            .await
-            .map_err(|(failed, fault)| {
-                watch.failed(target, fault);
-                failed
-            })
+        let outcome = self
+            .exchanged(target, exchanged, sent.delivered.as_ref(), context, stop)
+            .await;
+        outcome.map_err(|(failed, fault)| {
+            watch.failed(target, fault);
+            failed
+        })
     }
 
     async fn exchanged(
@@ -608,32 +693,42 @@ impl Runner {
         error: RpcError,
         stop: &Stop,
     ) -> (Failed, Fault) {
-        let _ = self.record(target, "error", "failed").await;
-        match error {
-            RpcError::NotDispatched if stop.is_stopped() => {
-                (Failed::NotDispatched(ActionFailure::Stopped), Fault::Other)
-            }
-            RpcError::NotDispatched => (
-                Failed::NotDispatched(ActionFailure::DockerUnavailable),
+        let (failed, fault) = match error {
+            RpcError::NotDispatched(cause) if stop.is_stopped() => (
+                Failed::NotDispatched(ActionError::new(ActionFailure::Stopped, cause)),
                 Fault::Other,
             ),
-            RpcError::Blocked => {
+            RpcError::NotDispatched(cause) => (
+                Failed::NotDispatched(ActionError::new(ActionFailure::DockerUnavailable, cause)),
+                Fault::Other,
+            ),
+            RpcError::Blocked(cause) => {
                 if let Ok(mut blocked) = self.blocked.lock() {
                     blocked.insert(target.binding.container.clone());
                 }
-                (Failed::Uncertain(ActionFailure::Blocked), Fault::Unquiesced)
+                (
+                    Failed::Uncertain(ActionError::new(ActionFailure::Blocked, cause)),
+                    Fault::Unquiesced,
+                )
             }
-            RpcError::Failed { kind, condition } => {
+            RpcError::Failed { kind, cause } => {
                 // An invalid frame or result is Team-detected policy; every other fault fail-stopped its workload.
+                let condition = rpc::routine_condition(&cause);
                 let fault =
                     if kind == rpc::RpcFailure::InvalidResult || condition == "frame-invalid" {
                         Fault::Policy(Some(condition))
                     } else {
                         Fault::Transport(condition)
                     };
-                (Failed::Uncertain(ActionFailure::Uncertain), fault)
+                (
+                    Failed::Uncertain(ActionError::new(ActionFailure::Uncertain, cause)),
+                    fault,
+                )
             }
-        }
+        };
+        let cause = failed.error().cause;
+        let _ = self.record(target, "error", "failed", cause.as_ref()).await;
+        (failed, fault)
     }
 
     async fn projected(
@@ -665,7 +760,9 @@ impl Runner {
             file_withheld,
         };
         let projected = projection::project(raw, &policy, |result| {
-            action.validate(Direction::Output, result).is_ok()
+            action
+                .validate(Direction::Output, result)
+                .map_err(schema_condition)
         });
         self.settle_projection(target, projected).await
     }
@@ -675,31 +772,60 @@ impl Runner {
         target: &Target<'_>,
         projected: Result<Projected, Refused>,
     ) -> Result<Outcome, (Failed, Fault)> {
-        match projected {
+        let validation = |condition| Cause::new(condition, Phase::ResultValidation);
+        let (failed, fault, detail) = match projected {
             Ok(Projected::Result(result)) => {
-                let _ = self.record(target, "ok", "completed").await;
-                Ok(Outcome::Completed(result))
+                let _ = self.record(target, "ok", "completed", None).await;
+                return Ok(Outcome::Completed(result));
             }
-            Ok(Projected::Request(request)) => Ok(Outcome::Request(request)),
+            Ok(Projected::Request(request)) => return Ok(Outcome::Request(request)),
             Err(Refused::StoredInputRejected(id)) => {
-                let _ = self.record(target, "error", "stored-input-rejected").await;
                 let _ = self
                     .stored_inputs
                     .delete((target.team, &target.binding.assistant_id, &id));
-                Err((Failed::Uncertain(ActionFailure::Failed), Fault::Other))
+                let cause = validation(Condition::StoredInputRejected);
+                let error = ActionError::new(ActionFailure::Failed, cause);
+                (
+                    Failed::Uncertain(error),
+                    Fault::Other,
+                    "stored-input-rejected",
+                )
             }
             Err(Refused::Failure(failure)) => {
-                let _ = self.record(target, "error", "action-failed").await;
-                Err((Failed::Handled, Fault::Handled(Box::new(failure))))
+                let cause = Cause::handled(failure.http_status);
+                let fault = Fault::Handled(Box::new(failure));
+                (Failed::Handled(cause), fault, "action-failed")
             }
-            Err(Refused::SecretExposure | Refused::Invalid) => {
-                let _ = self.record(target, "error", "invalid-output").await;
-                Err((
-                    Failed::Uncertain(ActionFailure::Uncertain),
+            Err(Refused::SecretExposure) => {
+                let cause = validation(Condition::InjectedValueEchoed);
+                let error = ActionError::new(ActionFailure::Uncertain, cause);
+                (
+                    Failed::Uncertain(error),
                     Fault::Policy(None),
-                ))
+                    "invalid-output",
+                )
             }
-        }
+            Err(Refused::Invalid(condition)) => {
+                let error = ActionError::new(ActionFailure::Uncertain, validation(condition));
+                (
+                    Failed::Uncertain(error),
+                    Fault::Policy(None),
+                    "invalid-output",
+                )
+            }
+        };
+        self.record_failure(target, detail, &failed).await;
+        Err((failed, fault))
+    }
+
+    /// The direct route cannot ask a person: the refusal is audited against the Action.
+    async fn human_request_refused(&self, target: &Target<'_>) -> ActionError {
+        let error = ActionError::at(ActionFailure::HumanRequestRequired, Phase::ResultValidation);
+        let detail = "human-request-required";
+        let _ = self
+            .record(target, "denied", detail, error.cause.as_ref())
+            .await;
+        error
     }
 
     /// The binding and declared Action of `request`, its input validated.
@@ -707,17 +833,34 @@ impl Runner {
         &self,
         team: &str,
         request: &ActionRequest,
-    ) -> Result<(Binding, ActionSpec), ActionFailure> {
-        let binding = self.workloads.binding(team, &request.assistant_id).await?;
+    ) -> Result<(Binding, ActionSpec), ActionError> {
+        let admission = |failure| ActionError::at(failure, Phase::Admission);
+        let binding = self
+            .workloads
+            .binding(team, &request.assistant_id)
+            .await
+            .map_err(admission)?;
         let action = binding
             .contract
             .action(&request.action)
             .cloned()
-            .ok_or(ActionFailure::NotDeclared)?;
+            .ok_or_else(|| admission(ActionFailure::NotDeclared))?;
         action
             .validate(Direction::Input, &request.input)
-            .map_err(|_| ActionFailure::InvalidInput)?;
+            .map_err(|_| admission(ActionFailure::InvalidInput))?;
         Ok((binding, action))
+    }
+}
+
+/// The rule a result failed against the Action's reviewed output schema, never the result's content.
+fn schema_condition(error: action_schema::PayloadError) -> Condition {
+    match error {
+        action_schema::PayloadError::NotAnObject => Condition::ResultNotObject,
+        action_schema::PayloadError::TooDeep => Condition::ResultTooDeep,
+        action_schema::PayloadError::Invalid => Condition::ResultSchemaMismatch,
+        action_schema::PayloadError::Pattern(_) => Condition::SchemaPatternUnevaluable,
+        action_schema::PayloadError::Arithmetic => Condition::ResultNumberUnevaluable,
+        action_schema::PayloadError::Unsupported => Condition::SchemaUnsupported,
     }
 }
 
@@ -751,12 +894,17 @@ impl ActionExecutor for Executor {
         team_id: &'a str,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<Value, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<Value, ActionError>> {
         Box::pin(async move {
             let runner = &self.0;
             let (binding, action) = runner.admitted(team_id, request).await?;
-            let operation_id = crate::journal::new_operation_id(runner.entropy.as_ref())
-                .map_err(|_| ActionFailure::StateUnavailable)?;
+            let operation_id =
+                crate::journal::new_operation_id(runner.entropy.as_ref()).map_err(|_| {
+                    ActionError::new(
+                        ActionFailure::StateUnavailable,
+                        Cause::new(Condition::OperationIdUnavailable, Phase::Preparation),
+                    )
+                })?;
             let target = Target {
                 team: team_id,
                 binding: &binding,
@@ -766,7 +914,7 @@ impl ActionExecutor for Executor {
             let transcript = ActionTranscript::new(&request.interrupt_id);
             // The direct route has no replay, so it never delivers bytes and holds no slot.
             let file = files::action_file(&action.input_files, &request.input, &request.files)
-                .map_err(|_| ActionFailure::FileUnavailable)?;
+                .map_err(|_| ActionError::at(ActionFailure::FileUnavailable, Phase::Admission))?;
             let delivery = Delivery {
                 file,
                 admitted: None,
@@ -786,15 +934,8 @@ impl ActionExecutor for Executor {
                 .await
             {
                 Ok(Outcome::Completed(result)) => Ok(result),
-                Ok(Outcome::Request(_)) => {
-                    // The direct route cannot ask a person: the refusal is audited against the Action.
-                    let _ = runner
-                        .record(&target, "denied", "human-request-required")
-                        .await;
-                    Err(ActionFailure::HumanRequestRequired)
-                }
-                Err(Failed::NotDispatched(failure) | Failed::Uncertain(failure)) => Err(failure),
-                Err(Failed::Handled) => Err(ActionFailure::Failed),
+                Ok(Outcome::Request(_)) => Err(runner.human_request_refused(&target).await),
+                Err(failed) => Err(failed.error()),
             }
         })
     }

@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use strict_json::Value;
 use team_action::executor::{
-    ActionBatch, ActionExecutor, ActionFailure, ActionRequest, BatchScope, InvokeOutcome,
+    ActionBatch, ActionError, ActionExecutor, ActionFailure, ActionRequest, BatchScope,
+    InvokeOutcome,
 };
 use team_action::runner::Binding;
 use team_assistant::language::LanguagePack;
@@ -280,7 +281,7 @@ impl TeamView for FakeTeam {
 
 /// What one invoke of the fake executor answers.
 pub type Answer =
-    Box<dyn Fn(&ActionRequest, &Stop) -> Result<InvokeOutcome, ActionFailure> + Send + Sync>;
+    Box<dyn Fn(&ActionRequest, &Stop) -> Result<InvokeOutcome, ActionError> + Send + Sync>;
 
 /// An Action executor whose batches log every hook into one shared journal of events.
 pub struct FakeExecutor {
@@ -354,7 +355,7 @@ impl ActionBatch for FakeBatch {
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         let ids: Vec<&str> = requests
             .iter()
             .map(|request| request.interrupt_id.as_str())
@@ -367,10 +368,10 @@ impl ActionBatch for FakeBatch {
         &'a mut self,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>> {
         Box::pin(async move {
             if stop.is_stopped() {
-                return Err(ActionFailure::Stopped);
+                return Err(ActionFailure::Stopped.into());
             }
             lock(&self.events).push(format!("invoke {}", request.interrupt_id));
             let answer = lock(&self.answers).pop_front();
@@ -384,7 +385,7 @@ impl ActionBatch for FakeBatch {
     fn delivered<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         let ids: Vec<&str> = requests
             .iter()
             .map(|request| request.interrupt_id.as_str())
@@ -399,12 +400,12 @@ impl ActionBatch for FakeBatch {
         Box::pin(async { Ok(()) })
     }
 
-    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionError>> {
         lock(&self.events).push("settled".to_owned());
         Box::pin(async { Ok(()) })
     }
 
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         lock(&self.events).push("terminate".to_owned());
         Box::pin(async { Ok(true) })
     }
@@ -433,8 +434,8 @@ impl ActionExecutor for FakeExecutor {
         _team_id: &'a str,
         _request: &'a ActionRequest,
         _stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<Value, ActionFailure>> {
-        Box::pin(async { Err(ActionFailure::HumanRequestRequired) })
+    ) -> BoxFuture<'a, Result<Value, ActionError>> {
+        Box::pin(async { Err(ActionFailure::HumanRequestRequired.into()) })
     }
 }
 

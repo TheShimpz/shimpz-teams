@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use strict_json::Value;
-use team_action::executor::{self, ActionBatch, ActionFailure, ActionFile, InvokeOutcome};
+use team_action::executor::{self, ActionBatch, ActionError, ActionFile, InvokeOutcome};
 use team_action::result::MAX_RESULT_BYTES;
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
@@ -54,7 +54,7 @@ pub enum ChatError {
     /// The Brain was unavailable or answered outside its contract (`brain-runtime-failed`).
     Brain(BrainError),
     /// An Action could not run, or failed.
-    Action(ActionFailure),
+    Action(ActionError),
     /// The Team changed since the turn bound it (`team-context-changed`).
     ContextChanged,
     /// A controller adapter refused.

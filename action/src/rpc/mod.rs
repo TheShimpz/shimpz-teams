@@ -13,6 +13,7 @@ use assistant_protocol::input_file::{
 use strict_json::Value;
 use team_core::exec::{ExecEngine, ExecSpec, FailStop};
 use team_core::stop::Stop;
+use team_protocol::cause::{Cause, Cleanup, Condition, Kind, Phase};
 use team_protocol::python::json::{self, Options};
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::Instant;
@@ -171,21 +172,40 @@ impl RpcFailure {
     }
 }
 
-/// An RPC that did not return a terminal frame.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An RPC that did not return a terminal frame, with the exact cause Team observed, never child output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RpcError {
     /// Team refused before the workload process started; nothing ran.
-    NotDispatched,
-    /// The workload could not be proven stopped after a failure; nothing more may run in it.
-    Blocked,
-    /// It failed after it may have run; `condition` is the safe transport condition, never child output.
+    NotDispatched(Cause),
+    /// The workload could not be proven stopped after the failure its cause names; nothing more may run in it.
+    Blocked(Cause),
+    /// It failed after it may have run.
     Failed {
         /// The failure kind.
         kind: RpcFailure,
-        /// `timeout`, `transport-failed`, `frame-invalid`, `exit-unavailable`, `exit-status:<n>`, `stderr-output`,
-        /// `stopped`, or `request-after-provider-call`.
-        condition: String,
+        /// What Team observed, and what became of the workload's fail-stop.
+        cause: Cause,
     },
+}
+
+/// The closed condition a Routine run's diagnostics keep for `cause` (`routine_run.CONDITION_RE`): `timeout`,
+/// `transport-failed`, `frame-invalid`, `exit-unavailable`, `exit-status:<n>`, `stderr-output`, or a condition those
+/// diagnostics leave out (`stopped`, `request-after-provider-call`).
+#[must_use]
+pub fn routine_condition(cause: &Cause) -> String {
+    let condition = cause.condition();
+    match condition {
+        Condition::DeadlinePassed if cause.phase() == Phase::ExitInspection => {
+            "exit-unavailable".to_owned()
+        }
+        Condition::DeadlinePassed => "timeout".to_owned(),
+        Condition::ExitStatus => format!("exit-status:{}", cause.exit_code().unwrap_or_default()),
+        Condition::StderrOutput => "stderr-output".to_owned(),
+        Condition::ExitUnavailable | Condition::StillRunning => "exit-unavailable".to_owned(),
+        Condition::Stopped | Condition::RequestAfterProviderCall => condition.as_str().to_owned(),
+        _ if cause.kind() == Kind::AssistantOutputInvalid => "frame-invalid".to_owned(),
+        _ => "transport-failed".to_owned(),
+    }
 }
 
 /// One RPC's inputs.
@@ -216,6 +236,16 @@ fn action_exec(container: &str, action: &str) -> ExecSpec {
     }
 }
 
+/// A dispatch Team refused before the process started: Stop, or no Docker call slot before the deadline.
+fn not_dispatched(stop: &Stop) -> RpcError {
+    let condition = if stop.is_stopped() {
+        Condition::Stopped
+    } else {
+        Condition::SlotTimeout
+    };
+    RpcError::NotDispatched(Cause::new(condition, Phase::SlotAdmission))
+}
+
 /// Runs one RPC and returns its terminal frame, a strict JSON object.
 ///
 /// # Errors
@@ -234,17 +264,17 @@ pub async fn exchange(
         mut broker,
     } = call;
     let spec = action_exec(container, action);
-    let failed = |kind, condition: &str| (kind, condition.to_owned());
     let Some(permit) = slots.admit(deadline, Some(stop)).await else {
-        return Err(RpcError::NotDispatched);
+        return Err(not_dispatched(stop));
     };
     if stop.is_stopped() {
-        return Err(RpcError::NotDispatched);
+        return Err(not_dispatched(stop));
     }
     let attempt = async {
+        let start = |condition| Cause::new(condition, Phase::ExecStart);
         let session = match tokio::time::timeout_at(deadline, engine.start_exec(&spec)).await {
-            Err(_) => return Err(failed(RpcFailure::Timeout, "timeout")),
-            Ok(Err(_)) => return Err(failed(RpcFailure::Failed, "transport-failed")),
+            Err(_) => return Err((RpcFailure::Timeout, start(Condition::DeadlinePassed))),
+            Ok(Err(_)) => return Err((RpcFailure::Failed, start(Condition::ExecStartFailed))),
             Ok(Ok(session)) => session,
         };
         drop(permit);
@@ -264,17 +294,17 @@ pub async fn exchange(
     // fail-stopped and its outcome stays uncertain, exactly as for any other fault after a possible dispatch.
     let outcome = tokio::select! {
         biased;
-        () = stop.stopped() => Err(failed(RpcFailure::Ambiguous, "stopped")),
+        () = stop.stopped() => Err((RpcFailure::Ambiguous, Cause::new(Condition::Stopped, Phase::Exchange))),
         answer = attempt => answer,
     };
     let (stdout, calls) = match outcome {
         Ok(answer) => answer,
-        Err((kind, condition)) => return Err(fail_stop(engine, container, kind, condition).await),
+        Err((kind, cause)) => return Err(fail_stop(engine, container, kind, cause).await),
     };
     terminal(&stdout, calls)
 }
 
-type Attempted = Result<(Vec<u8>, usize), (RpcFailure, String)>;
+type Attempted = Result<(Vec<u8>, usize), (RpcFailure, Cause)>;
 
 /// The started process's exchange and exit inspection: its stdout and how many provider calls it made.
 async fn run<'b>(
@@ -285,7 +315,6 @@ async fn run<'b>(
     deadline: Instant,
     mut broker: Option<&'b mut (dyn CallBroker + 'b)>,
 ) -> Attempted {
-    let failed = |kind, condition: &str| (kind, condition.to_owned());
     let reborrowed = broker
         .as_mut()
         .map(|broker| &mut **broker as &mut dyn CallBroker);
@@ -299,16 +328,22 @@ async fn run<'b>(
     .await;
     let calls = broker.as_ref().map_or(0, |broker| broker.calls());
     let (stdout, stderr) = output.map_err(|error| match error {
-        FrameError::Timeout => failed(RpcFailure::Timeout, "timeout"),
-        FrameError::Invalid => failed(RpcFailure::Failed, "frame-invalid"),
-        FrameError::Transport => failed(RpcFailure::Failed, "transport-failed"),
+        FrameError::Timeout => (
+            RpcFailure::Timeout,
+            Cause::new(Condition::DeadlinePassed, Phase::Exchange),
+        ),
+        FrameError::Invalid(cause) | FrameError::Transport(cause) => (RpcFailure::Failed, cause),
     })?;
-    let exit = inspect(engine, slots, &session.id, deadline).await?;
+    // Only whether the workload wrote to stderr, and how much, is ever kept; its content is discarded.
+    let exit = inspect(engine, slots, &session.id, deadline)
+        .await
+        .map_err(|(kind, cause)| (kind, cause.with_stderr(stderr.len())))?;
     if exit != 0 {
-        return Err(failed(RpcFailure::Failed, &format!("exit-status:{exit}")));
+        let cause = Cause::exit_status(exit).with_stderr(stderr.len());
+        return Err((RpcFailure::Failed, cause));
     }
     if !stderr.is_empty() {
-        return Err(failed(RpcFailure::Failed, "stderr-output"));
+        return Err((RpcFailure::Failed, Cause::stderr_output(stderr.len())));
     }
     Ok((stdout, calls))
 }
@@ -319,33 +354,38 @@ async fn inspect(
     slots: &DockerSlots,
     id: &team_core::exec::ExecId,
     deadline: Instant,
-) -> Result<i64, (RpcFailure, String)> {
-    let unavailable = |kind| (kind, "exit-unavailable".to_owned());
+) -> Result<i64, (RpcFailure, Cause)> {
+    let because = |kind, condition| (kind, Cause::new(condition, Phase::ExitInspection));
+    let late = || because(RpcFailure::Timeout, Condition::DeadlinePassed);
+    let unavailable = || because(RpcFailure::Ambiguous, Condition::ExitUnavailable);
     // The workload already ran, so a refused slot here is never a dispatch refusal.
-    let _permit = slots
-        .admit(deadline, None)
-        .await
-        .ok_or_else(|| unavailable(RpcFailure::Timeout))?;
+    let _permit = slots.admit(deadline, None).await.ok_or_else(late)?;
     match tokio::time::timeout_at(deadline, engine.inspect_exec(id)).await {
-        Err(_) => Err(unavailable(RpcFailure::Timeout)),
-        Ok(Err(_)) => Err(unavailable(RpcFailure::Ambiguous)),
-        Ok(Ok(exit)) if exit.running => Err(unavailable(RpcFailure::Ambiguous)),
-        Ok(Ok(exit)) => exit
-            .exit_code
-            .ok_or_else(|| unavailable(RpcFailure::Ambiguous)),
+        Err(_) => Err(late()),
+        Ok(Err(_)) => Err(unavailable()),
+        Ok(Ok(exit)) if exit.running => {
+            Err(because(RpcFailure::Ambiguous, Condition::StillRunning))
+        }
+        Ok(Ok(exit)) => exit.exit_code.ok_or_else(unavailable),
     }
 }
 
-/// Fail-stops the workload of an outcome that may have run; one not proven stopped is blocked.
+/// Fail-stops the workload of an outcome that may have run; one not proven stopped is blocked. Either way the
+/// initiating cause stays, and its cleanup says what became of the stop.
 async fn fail_stop(
     engine: &dyn ExecEngine,
     container: &str,
     kind: RpcFailure,
-    condition: String,
+    cause: Cause,
 ) -> RpcError {
     match engine.fail_stop(container).await {
-        Ok(FailStop::Stopped) => RpcError::Failed { kind, condition },
-        Ok(FailStop::Blocked) | Err(_) => RpcError::Blocked,
+        Ok(FailStop::Stopped) => RpcError::Failed {
+            kind,
+            cause: cause.with_cleanup(Cleanup::WorkloadStopped),
+        },
+        Ok(FailStop::Blocked) | Err(_) => {
+            RpcError::Blocked(cause.with_cleanup(Cleanup::WorkloadStopUnconfirmed))
+        }
     }
 }
 
@@ -354,15 +394,16 @@ async fn fail_stop(
 /// # Errors
 /// [`RpcError::Failed`] with [`RpcFailure::InvalidResult`].
 pub fn terminal(stdout: &[u8], calls: usize) -> Result<Value, RpcError> {
-    let invalid = |condition: &str| RpcError::Failed {
+    let invalid = |condition| RpcError::Failed {
         kind: RpcFailure::InvalidResult,
-        condition: condition.to_owned(),
+        cause: Cause::new(condition, Phase::ResultValidation),
     };
-    let Ok(response @ Value::Object(_)) = strict_json::parse(stdout) else {
-        return Err(invalid("frame-invalid"));
-    };
+    let response = strict_json::parse(stdout).map_err(|_| invalid(Condition::LineNotJson))?;
+    if !matches!(response, Value::Object(_)) {
+        return Err(invalid(Condition::TerminalNotObject));
+    }
     if calls > 0 && response.get("type") == Some(&Value::String("request".to_owned())) {
-        return Err(invalid("request-after-provider-call"));
+        return Err(invalid(Condition::RequestAfterProviderCall));
     }
     Ok(response)
 }

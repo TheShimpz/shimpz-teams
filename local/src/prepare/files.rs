@@ -59,6 +59,7 @@ fn not_found() -> Problem {
 fn busy(message: &'static str, code: &'static str) -> Problem {
     Problem {
         retry_after_ms: Some(RETRY_AFTER_MS),
+        cause: None,
         ..Problem::new(503, message, code)
     }
 }

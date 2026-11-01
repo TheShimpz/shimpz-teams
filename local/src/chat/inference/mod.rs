@@ -127,6 +127,7 @@ impl InferenceService {
                 message: Cow::Borrowed(message),
                 code: Some("invalid-inference"),
                 retry_after_ms: None,
+                cause: None,
             }
         })?;
         let _team = self.locks.team(team_id).await;

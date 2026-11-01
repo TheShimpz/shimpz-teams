@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use sha2::{Digest, Sha256};
 use strict_json::Value;
 use team_action::executor::{
-    ActionBatch, ActionFailure as Refusal, ActionRequest, BatchScope, InvokeOutcome,
+    ActionBatch, ActionError, ActionFailure as Refusal, ActionRequest, BatchScope, InvokeOutcome,
 };
 use team_action::failure::ActionFailure;
 use team_action::journal::OperationRecord;
@@ -447,22 +447,22 @@ impl ActionBatch for FakeBatch {
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), Refusal>> {
-        Box::pin(async move { self.prepared(requests) })
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
+        Box::pin(async move { self.prepared(requests).map_err(Into::into) })
     }
 
     fn invoke<'a>(
         &'a mut self,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, Refusal>> {
-        Box::pin(async move { self.dispatch(request, stop).await })
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>> {
+        Box::pin(async move { self.dispatch(request, stop).await.map_err(Into::into) })
     }
 
     fn delivered<'a>(
         &'a mut self,
         _requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), Refusal>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         Box::pin(async move {
             let journal = &self.actions.journal;
             let mut batches = journal.checked().map_err(|_| Refusal::StateUnavailable)?;
@@ -471,7 +471,7 @@ impl ActionBatch for FakeBatch {
         })
     }
 
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, Refusal>> {
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         Box::pin(async move {
             let journal = &self.actions.journal;
             let mut batches = journal.checked().map_err(|_| Refusal::StateUnavailable)?;

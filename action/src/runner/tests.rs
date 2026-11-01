@@ -21,17 +21,26 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 use super::{Binding, Executor, Runner, Workloads};
 use crate::executor::{
-    ActionExecutor, ActionFailure, ActionRequest, BatchScope, DispatchObserver, DispatchRefused,
-    Fault, InvokeOutcome,
+    ActionError, ActionExecutor, ActionFailure, ActionRequest, BatchScope, DispatchObserver,
+    DispatchRefused, Fault, InvokeOutcome,
 };
 use crate::frames::tests::frame;
 use crate::journal::{Journal, Limits};
 use crate::provider::{Capacity, Transport};
 use crate::rpc::DockerSlots;
 use crate::stored_input::StoredInputStore;
+use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
 
 fn json(text: &str) -> Value {
     strict_json::parse(text.as_bytes()).expect("json")
+}
+
+fn because(failure: ActionFailure, condition: Condition, phase: Phase) -> ActionError {
+    ActionError::new(failure, Cause::new(condition, phase))
+}
+
+fn at(failure: ActionFailure, phase: Phase) -> ActionError {
+    ActionError::at(failure, phase)
 }
 
 struct Fixed(Binding);
@@ -259,7 +268,11 @@ async fn an_undeclared_action_or_invalid_input_never_dispatches() {
         executor
             .invoke("team_1", &request("i-1", "missing"), &Stop::new())
             .await,
-        Err(ActionFailure::NotDeclared)
+        Err(because(
+            ActionFailure::NotDeclared,
+            Condition::ActionNotDeclared,
+            Phase::Admission
+        ))
     );
     let invalid = ActionRequest {
         input: json("[]"),
@@ -267,7 +280,11 @@ async fn an_undeclared_action_or_invalid_input_never_dispatches() {
     };
     assert_eq!(
         executor.invoke("team_1", &invalid, &Stop::new()).await,
-        Err(ActionFailure::InvalidInput)
+        Err(because(
+            ActionFailure::InvalidInput,
+            Condition::InputInvalid,
+            Phase::Admission
+        ))
     );
     let foreign = ActionRequest {
         assistant_id: "other".to_owned(),
@@ -275,7 +292,7 @@ async fn an_undeclared_action_or_invalid_input_never_dispatches() {
     };
     assert_eq!(
         executor.invoke("team_1", &foreign, &Stop::new()).await,
-        Err(ActionFailure::ContextChanged)
+        Err(at(ActionFailure::ContextChanged, Phase::Admission))
     );
     assert_eq!(world.engine.started().len(), 0);
 }
@@ -328,9 +345,10 @@ async fn journal_executing_is_uncertain_never_reexecuted() {
     let _sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 1);
     let mut first = executor.batch(scope(false));
     first.prepare(&requests).await.expect("prepared");
+    let exited = Cause::exit_status(1).with_cleanup(Cleanup::WorkloadStopped);
     assert_eq!(
         first.invoke(&requests[0], &Stop::new()).await,
-        Err(ActionFailure::Uncertain)
+        Err(ActionError::new(ActionFailure::Uncertain, exited))
     );
     assert_eq!(world.engine.stopped(), ["container"]);
     // The interrupted operation stays uncertain: the same batch is refused again without a dispatch.
@@ -338,7 +356,11 @@ async fn journal_executing_is_uncertain_never_reexecuted() {
     again.prepare(&requests).await.expect("reopened");
     assert_eq!(
         again.invoke(&requests[0], &Stop::new()).await,
-        Err(ActionFailure::Uncertain)
+        Err(because(
+            ActionFailure::Uncertain,
+            Condition::AttemptUncertain,
+            Phase::Journal
+        ))
     );
     assert_eq!(world.engine.started().len(), 1);
 }
@@ -355,7 +377,10 @@ async fn settled_batch_ends_on_provider_failure_or_stop() {
     // A reviewed read-only Action's handled failure had no business effect, so its batch ends cleanly.
     assert_eq!(
         batch.invoke(&requests[0], &Stop::new()).await,
-        Err(ActionFailure::Failed)
+        Err(ActionError::new(
+            ActionFailure::Failed,
+            Cause::handled(None)
+        ))
     );
     assert_eq!(batch.terminate().await, Ok(true));
     let stop = Stop::new();
@@ -365,7 +390,11 @@ async fn settled_batch_ends_on_provider_failure_or_stop() {
     stopped.prepare(&fresh).await.expect("prepared");
     assert_eq!(
         stopped.invoke(&fresh[0], &stop).await,
-        Err(ActionFailure::Stopped)
+        Err(because(
+            ActionFailure::Stopped,
+            Condition::Stopped,
+            Phase::SlotAdmission
+        ))
     );
     assert_eq!(stopped.terminate().await, Ok(true));
 }
@@ -390,7 +419,12 @@ async fn file_bytes_reach_only_the_approved_replay_and_are_audited_by_id_and_siz
     let sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 0);
     // The first invocation carries metadata only, so it cannot report success with the file.
     let withheld = executor.invoke("team_1", &first, &Stop::new()).await;
-    assert_eq!(withheld, Err(ActionFailure::Uncertain));
+    let withheld_result = because(
+        ActionFailure::Uncertain,
+        Condition::ResultWithWithheldFile,
+        Phase::ResultValidation,
+    );
+    assert_eq!(withheld, Err(withheld_result));
     let sent = sent_text(sent).await;
     assert!(sent.contains(r#""content":{"type":"withheld"}"#) && !sent.contains("base64"));
     let replay = [upload_request(&world, "i-2")];
@@ -433,11 +467,11 @@ async fn a_refused_admission_never_begins_the_journaled_attempt() {
     batch.prepare(&requests).await.expect("prepared");
     let held = world.runner.file_slot.admit(true, &Stop::new()).await;
     let busy = batch.invoke(&requests[0], &Stop::new()).await;
-    assert_eq!(busy, Err(ActionFailure::FileBusy));
+    assert_eq!(busy, Err(at(ActionFailure::FileBusy, Phase::FileSlot)));
     let stop = Stop::new();
     stop.stop();
     let stopped = batch.invoke(&requests[0], &stop).await;
-    assert_eq!(stopped, Err(ActionFailure::Stopped));
+    assert_eq!(stopped, Err(at(ActionFailure::Stopped, Phase::FileSlot)));
     drop(held);
     assert_eq!(world.engine.started().len(), 0);
     // Nothing was journaled `executing`, so the operation still runs once the slot is free.
@@ -478,7 +512,8 @@ async fn delivered_bytes_outside_an_admitted_slot_never_reach_the_workload() {
             (&stop, &mut watch),
         )
         .await;
-    let refused = super::Failed::NotDispatched(ActionFailure::FileUnavailable);
+    let refused =
+        super::Failed::NotDispatched(at(ActionFailure::FileUnavailable, Phase::Preparation));
     assert_eq!(attempt, Err(refused));
     assert_eq!(world.engine.started().len(), 0);
 }
@@ -493,9 +528,10 @@ async fn a_file_the_turn_did_not_select_or_a_changed_file_is_refused_before_jour
     };
     let mut batch = executor.batch(scope(false));
     let prepared = batch.prepare(std::slice::from_ref(&unselected)).await;
-    assert_eq!(prepared, Err(ActionFailure::FileUnavailable));
+    let unavailable = at(ActionFailure::FileUnavailable, Phase::Admission);
+    assert_eq!(prepared, Err(unavailable));
     let direct = executor.invoke("team_1", &unselected, &Stop::new()).await;
-    assert_eq!(direct, Err(ActionFailure::FileUnavailable));
+    assert_eq!(direct, Err(unavailable));
     // The file's commitment is in the fingerprint: a different file under the same id is a changed context.
     let requests = [upload_request(&world, "i-2")];
     let mut batch = executor.batch(scope(false));
@@ -503,7 +539,10 @@ async fn a_file_the_turn_did_not_select_or_a_changed_file_is_refused_before_jour
     let mut changed = requests[0].clone();
     changed.files[0].name = "other.pdf".to_owned();
     let invoked = batch.invoke(&changed, &Stop::new()).await;
-    assert_eq!(invoked, Err(ActionFailure::ContextChanged));
+    assert_eq!(
+        invoked,
+        Err(at(ActionFailure::ContextChanged, Phase::Admission))
+    );
     assert_eq!(world.engine.started().len(), 0);
 }
 
@@ -513,10 +552,11 @@ async fn an_unavailable_integration_is_refused_before_dispatch() {
     let executor = Executor(Arc::clone(&world.runner));
     let sync = request("i-1", "sync");
     let direct = executor.invoke("team_1", &sync, &Stop::new()).await;
-    assert_eq!(direct, Err(ActionFailure::IntegrationUnavailable));
+    let unavailable = at(ActionFailure::IntegrationUnavailable, Phase::Preparation);
+    assert_eq!(direct, Err(unavailable));
     let mut batch = executor.batch(scope(false));
     let prepared = batch.prepare(std::slice::from_ref(&sync)).await;
-    assert_eq!(prepared, Err(ActionFailure::IntegrationUnavailable));
+    assert_eq!(prepared, Err(unavailable));
     assert_eq!(world.engine.started().len(), 0);
 }
 
@@ -670,7 +710,11 @@ async fn a_dispatch_the_run_cannot_seal_is_never_sent() {
     batch.prepare(&requests).await.expect("prepared");
     assert_eq!(
         batch.invoke(&requests[0], &Stop::new()).await,
-        Err(ActionFailure::StateUnavailable)
+        Err(because(
+            ActionFailure::StateUnavailable,
+            Condition::DispatchSealRefused,
+            Phase::DispatchRecord
+        ))
     );
     assert_eq!(world.engine.started().len(), 0);
     assert!(observer.faults.lock().expect("faults").is_empty());
@@ -690,9 +734,19 @@ async fn a_failed_dispatch_is_classified_by_team_and_told_once() {
     batch.prepare(&requests).await.expect("prepared");
     assert_eq!(
         batch.invoke(&requests[0], &Stop::new()).await,
-        Err(ActionFailure::Failed)
+        Err(ActionError::new(
+            ActionFailure::Failed,
+            Cause::handled(None)
+        ))
     );
-    assert!(batch.invoke(&requests[1], &Stop::new()).await.is_err());
+    assert_eq!(
+        batch.invoke(&requests[1], &Stop::new()).await,
+        Err(because(
+            ActionFailure::Uncertain,
+            Condition::ResultNotObject,
+            Phase::ResultValidation
+        ))
+    );
     let faults = observer.faults.lock().expect("faults").clone();
     assert!(matches!(
         faults.as_slice(),
@@ -731,7 +785,236 @@ async fn an_approval_reaches_only_the_batch_whose_continuation_carries_it() {
     });
     later.prepare(&requests).await.expect("prepared");
     let withheld = later.invoke(&requests[0], &Stop::new()).await;
-    assert_eq!(withheld, Err(ActionFailure::Uncertain));
+    assert_eq!(
+        withheld.map_err(|error| error.failure),
+        Err(ActionFailure::Uncertain)
+    );
     let sent = sent_text(sent).await;
     assert!(sent.contains(r#""content":{"type":"withheld"}"#) && !sent.contains("base64"));
+}
+
+/// An audit that refuses, as inadmissible, every record of one operation (or of one detail prefix) and keeps the rest
+/// in the real admission's in-memory audit: the way a record the Local log refuses stops what it was for.
+struct Refusing {
+    inner: Arc<MemoryAudit>,
+    operation: &'static str,
+    detail: Option<&'static str>,
+}
+
+impl team_core::audit::AuditSink for Refusing {
+    fn record(
+        &self,
+        event: team_core::audit::AuditEvent,
+    ) -> BoxFuture<'_, Result<(), team_core::audit::AuditUnavailable>> {
+        let text = |name: &str| {
+            event
+                .fields()
+                .iter()
+                .find(|(field, _)| field == name)
+                .and_then(|(_, value)| match value {
+                    Value::String(text) => Some(text.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        };
+        let refused = text("operation") == self.operation
+            && self
+                .detail
+                .is_none_or(|prefix| text("detail").starts_with(prefix));
+        if refused {
+            return Box::pin(async { Err(team_core::audit::AuditUnavailable::Refused) });
+        }
+        self.inner.record(event)
+    }
+}
+
+/// `world`'s runner recording through `audit`.
+fn recording_through(world: &World, audit: Arc<dyn team_core::audit::AuditSink>) -> Arc<Runner> {
+    let runner = &world.runner;
+    Arc::new(Runner {
+        journal: Arc::clone(&runner.journal),
+        stored_inputs: Arc::clone(&runner.stored_inputs),
+        integrations: Arc::clone(&runner.integrations),
+        oauth: Arc::clone(&runner.oauth),
+        engine: world.engine.clone(),
+        slots: Arc::new(DockerSlots::default()),
+        capacity: Capacity::default(),
+        transport: Arc::clone(&runner.transport),
+        audit,
+        workloads: Arc::new(Fixed(binding())),
+        entropy: Arc::new(CountingEntropy::default()),
+        blocked: Mutex::default(),
+        files: Arc::clone(&runner.files),
+        file_slot: crate::files::FileSlot::default(),
+    })
+}
+
+/// Each `assistant-action` record's detail and cause, as the audit received them.
+fn action_records(audit: &MemoryAudit) -> Vec<(String, Option<Value>)> {
+    audit
+        .events()
+        .iter()
+        .filter(|event| {
+            event.fields().iter().any(|(name, value)| {
+                name == "operation" && *value == Value::String("assistant-action".to_owned())
+            })
+        })
+        .map(|event| {
+            let field = |name: &str| {
+                event
+                    .fields()
+                    .iter()
+                    .find(|(field, _)| field == name)
+                    .map(|(_, value)| value.clone())
+            };
+            let detail = match field("detail") {
+                Some(Value::String(detail)) => detail,
+                _ => String::new(),
+            };
+            (detail, field("cause"))
+        })
+        .collect()
+}
+
+/// When Team's own dispatch record is refused, nothing is sent and the failure names the refused record, never a
+/// transport or Docker failure; the refusal is not recorded again.
+#[tokio::test]
+async fn a_refused_dispatch_record_is_named_and_nothing_is_sent() {
+    let world = world();
+    let refusing = Arc::new(Refusing {
+        inner: world.audit.clone(),
+        operation: "assistant-action",
+        detail: Some("started:"),
+    });
+    let runner = recording_through(&world, refusing);
+    let outcome = Executor(runner)
+        .invoke("team_1", &request("i-1", "lookup"), &Stop::new())
+        .await;
+    assert_eq!(
+        outcome,
+        Err(because(
+            ActionFailure::StateUnavailable,
+            Condition::RecordRefused,
+            Phase::DispatchRecord
+        ))
+    );
+    assert_eq!(world.engine.started().len(), 0);
+    assert_eq!(action_records(&world.audit), []);
+}
+
+/// Scripts one exec that reads its request line, makes one provider call, and then waits for its reply.
+fn calling(engine: &FakeExec) -> tokio::task::JoinHandle<()> {
+    let (ours, mut workload) = duplex(64 * 1024);
+    engine.push(ScriptedExec {
+        stream: ours,
+        exit: ExecExit {
+            running: false,
+            exit_code: Some(0),
+        },
+    });
+    tokio::spawn(async move {
+        let mut byte = [0_u8; 1];
+        while workload.read(&mut byte).await.is_ok_and(|read| read == 1) && byte[0] != b'\n' {}
+        let call =
+            br#"{"type":"fetch","method":"GET","url":"https://api.example.com/v1","headers":[]}"#;
+        let _ = workload
+            .write_all(&frame(1, &[call.as_slice(), b"\n"].concat()))
+            .await;
+        let mut rest = Vec::new();
+        let _ = workload.read_to_end(&mut rest).await;
+    })
+}
+
+/// The provider-call failure the Local log once caused: every provider-call record refused. The attempt ends naming
+/// the refused record in the provider-call phase and the workload's confirmed stop, and that cause reaches the audit.
+#[tokio::test]
+async fn a_refused_provider_call_record_reaches_the_failure_and_the_audit_without_collapsing() {
+    let world = world();
+    let refusing = Arc::new(Refusing {
+        inner: world.audit.clone(),
+        operation: "assistant-provider-call",
+        detail: None,
+    });
+    let runner = recording_through(&world, refusing);
+    let workload = calling(&world.engine);
+    let outcome = Executor(runner)
+        .invoke("team_1", &request("i-1", "lookup"), &Stop::new())
+        .await;
+    drop(workload.await);
+    let cause = Cause::new(Condition::RecordRefused, Phase::ProviderCall)
+        .with_cleanup(Cleanup::WorkloadStopped);
+    assert_eq!(
+        outcome,
+        Err(ActionError::new(ActionFailure::Uncertain, cause))
+    );
+    assert_eq!(world.engine.stopped(), ["container"]);
+    assert_eq!(
+        action_records(&world.audit),
+        [
+            ("started:lookup".to_owned(), None),
+            ("failed:lookup".to_owned(), Some(cause.to_value())),
+        ]
+    );
+}
+
+/// A failure whose workload cannot be proven stopped keeps its initiating cause and says the stop is unconfirmed.
+#[tokio::test]
+async fn an_unconfirmed_fail_stop_keeps_the_initiating_cause() {
+    let world = world();
+    world.engine.block_fail_stop();
+    let _sent = scripted(&world.engine, r#"{"type":"result","result":{}}"#, 2);
+    let outcome = Executor(Arc::clone(&world.runner))
+        .invoke("team_1", &request("i-1", "lookup"), &Stop::new())
+        .await;
+    let cause = Cause::exit_status(2).with_cleanup(Cleanup::WorkloadStopUnconfirmed);
+    assert_eq!(
+        outcome,
+        Err(ActionError::new(ActionFailure::Blocked, cause))
+    );
+    let blocked = Executor(Arc::clone(&world.runner))
+        .invoke("team_1", &request("i-2", "lookup"), &Stop::new())
+        .await;
+    assert_eq!(blocked, Err(at(ActionFailure::Blocked, Phase::Admission)));
+}
+
+/// A result echoing an injected value is refused as an echo; neither the value nor the result reaches the audit,
+/// which records only the closed cause.
+#[tokio::test]
+async fn a_secret_echo_is_named_without_the_secret_reaching_the_audit() {
+    let world = world();
+    connected(&world);
+    let echo = format!(r#"{{"type":"result","result":{{"leak":"{STORED}"}}}}"#);
+    let _sent = scripted(&world.engine, &echo, 0);
+    let outcome = Executor(Arc::clone(&world.runner))
+        .invoke("team_1", &request("i-1", "lookup"), &Stop::new())
+        .await;
+    let cause = Cause::new(Condition::InjectedValueEchoed, Phase::ResultValidation);
+    assert_eq!(
+        outcome,
+        Err(ActionError::new(ActionFailure::Uncertain, cause))
+    );
+    let recorded = format!("{:?}", world.audit.events());
+    assert!(!recorded.contains(STORED) && !recorded.contains("leak"));
+    assert_eq!(
+        action_records(&world.audit).last(),
+        Some(&("invalid-output:lookup".to_owned(), Some(cause.to_value())))
+    );
+}
+
+/// A refusal before dispatch is recorded with its cause, so Team's record states it too.
+#[tokio::test]
+async fn a_refusal_before_dispatch_is_recorded_with_its_cause() {
+    let world = world();
+    let executor = Executor(Arc::clone(&world.runner));
+    let sync = request("i-1", "sync");
+    let refused = executor.invoke("team_1", &sync, &Stop::new()).await;
+    let unavailable = at(ActionFailure::IntegrationUnavailable, Phase::Preparation);
+    assert_eq!(refused, Err(unavailable));
+    assert_eq!(
+        action_records(&world.audit),
+        [(
+            "not-dispatched:sync".to_owned(),
+            unavailable.cause.map(|cause| cause.to_value())
+        )]
+    );
 }

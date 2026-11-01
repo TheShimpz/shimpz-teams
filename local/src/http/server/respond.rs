@@ -71,7 +71,8 @@ pub fn json(code: u16, document: &Value, limit: usize) -> Answer {
     response
 }
 
-/// A problem's document: its message, its code when it has one, its retry delay when busy, and the trace id.
+/// A problem's document: its message, its code when it has one, a failed Action's closed cause, its retry delay when
+/// busy, and the trace id.
 #[must_use]
 pub fn problem_document(problem: &Problem, trace_id: &str) -> Value {
     let mut members = vec![(
@@ -80,6 +81,9 @@ pub fn problem_document(problem: &Problem, trace_id: &str) -> Value {
     )];
     if let Some(code) = problem.code {
         members.push(("code".to_owned(), Value::String(code.to_owned())));
+    }
+    if let Some(cause) = &problem.cause {
+        members.push(("cause".to_owned(), cause.to_value()));
     }
     if let Some(retry) = problem.retry_after_ms {
         members.push((

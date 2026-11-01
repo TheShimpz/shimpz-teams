@@ -8,9 +8,11 @@
 //! never ended this way).
 
 use strict_json::Value;
+use team_core::audit::AuditUnavailable;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
+use team_protocol::cause::{Cause, Condition, Phase};
 
 use crate::human::ActionTranscript;
 
@@ -101,26 +103,93 @@ pub enum ActionFailure {
     FileBusy,
 }
 
+/// A failed Action: its closed failure, which fixes the public message, code, and uncertainty, and the exact cause Team
+/// observed, which only describes it. A cause never changes the failure's uncertainty or authorizes a retry; `None`
+/// is an honestly unknown cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActionError {
+    /// The closed failure.
+    pub failure: ActionFailure,
+    /// What Team observed, when it knows.
+    pub cause: Option<Cause>,
+}
+
+impl ActionError {
+    /// `failure` because of `cause`.
+    #[must_use]
+    pub const fn new(failure: ActionFailure, cause: Cause) -> Self {
+        Self {
+            failure,
+            cause: Some(cause),
+        }
+    }
+
+    /// `failure` in `phase`, with the one condition it implies; one that implies none ([`ActionFailure::Uncertain`],
+    /// [`ActionFailure::Failed`]) states no cause.
+    #[must_use]
+    pub const fn at(failure: ActionFailure, phase: Phase) -> Self {
+        let condition = match failure {
+            ActionFailure::NotDeclared => Condition::ActionNotDeclared,
+            ActionFailure::InvalidInput => Condition::InputInvalid,
+            ActionFailure::ContextChanged => Condition::ContextChanged,
+            ActionFailure::Blocked => Condition::WorkloadBlocked,
+            ActionFailure::HumanRequestRequired => Condition::HumanRequestRequired,
+            ActionFailure::Stopped => Condition::Stopped,
+            ActionFailure::StateUnavailable => Condition::JournalUnavailable,
+            ActionFailure::DockerUnavailable => Condition::DockerUnavailable,
+            ActionFailure::IntegrationUnavailable => Condition::IntegrationUnavailable,
+            ActionFailure::FileUnavailable => Condition::FileUnavailable,
+            ActionFailure::FileBusy => Condition::FileBusy,
+            ActionFailure::Uncertain | ActionFailure::Failed => {
+                return Self {
+                    failure,
+                    cause: None,
+                };
+            }
+        };
+        Self::new(failure, Cause::new(condition, phase))
+    }
+}
+
+/// The condition of an audit record Team could not write, so it did not do what the record was for.
+#[must_use]
+pub const fn audit_condition(reason: AuditUnavailable) -> Condition {
+    match reason {
+        AuditUnavailable::Refused => Condition::RecordRefused,
+        AuditUnavailable::Unwritten => Condition::WriteFailed,
+        AuditUnavailable::Closed => Condition::JournalClosed,
+    }
+}
+
+impl From<ActionFailure> for ActionError {
+    fn from(failure: ActionFailure) -> Self {
+        Self {
+            failure,
+            cause: None,
+        }
+    }
+}
+
 /// One durable batch of a Brain suspension.
 pub trait ActionBatch: Send {
     /// Journals every request as `prepared`, once.
     ///
     /// # Errors
-    /// [`ActionFailure`] when the batch cannot be prepared; nothing ran.
+    /// [`ActionError`] when the batch cannot be prepared; nothing ran.
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>>;
+    ) -> BoxFuture<'a, Result<(), ActionError>>;
 
     /// Runs one prepared request under `stop`.
     ///
     /// # Errors
-    /// [`ActionFailure`] for a refusal before dispatch or a failed or uncertain execution.
+    /// [`ActionError`] for a refusal before dispatch or a failed or uncertain execution.
     fn invoke<'a>(
         &'a mut self,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionFailure>>;
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>>;
 
     /// Acknowledges that the model accepted these requests' results, retiring their journal entries.
     ///
@@ -129,7 +198,7 @@ pub trait ActionBatch: Send {
     fn delivered<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>>;
+    ) -> BoxFuture<'a, Result<(), ActionError>>;
 
     /// Ends the scope's open batch whose every result exists but whose delivery a Team restart interrupted, so the next
     /// batch may open (ADR-0125); a batch delivered already, or one an operation of which may still have acted, stays as
@@ -137,7 +206,7 @@ pub trait ActionBatch: Send {
     ///
     /// # Errors
     /// [`ActionFailure::StateUnavailable`] when the journal cannot record it.
-    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionError>> {
         Box::pin(async { Ok(()) })
     }
 
@@ -145,7 +214,7 @@ pub trait ActionBatch: Send {
     ///
     /// # Errors
     /// [`ActionFailure::StateUnavailable`] when the journal cannot record it.
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>>;
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>>;
 
     /// Every value Team injected into the most recent [`ActionBatch::invoke`]'s attempt: its Integration tokens and its
     /// Stored Input values. A caller that keeps anything of the call (a Routine recording) protects them first; it is
@@ -169,7 +238,7 @@ pub enum Fault {
 }
 
 /// The observer refused to seal a dispatch: nothing is sent, and the invoke fails with
-/// [`ActionFailure::StateUnavailable`].
+/// [`ActionFailure::StateUnavailable`] because of [`Condition::DispatchSealRefused`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DispatchRefused;
 
@@ -213,11 +282,11 @@ pub trait ActionExecutor: Send + Sync {
     /// Runs one Action directly (the `assistant-invoke` route), outside any batch, returning its projected result.
     ///
     /// # Errors
-    /// [`ActionFailure`] for any refusal or failure; [`ActionFailure::HumanRequestRequired`] when it asks a person.
+    /// [`ActionError`] for any refusal or failure; [`ActionFailure::HumanRequestRequired`] when it asks a person.
     fn invoke<'a>(
         &'a self,
         team_id: &'a str,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<Value, ActionFailure>>;
+    ) -> BoxFuture<'a, Result<Value, ActionError>>;
 }

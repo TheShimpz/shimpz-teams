@@ -230,4 +230,252 @@ mod tests {
             ]
         );
     }
+
+    /// No file is ever selected by the runner test.
+    struct NoFiles;
+
+    impl team_action::files::FileSource for NoFiles {
+        fn read(
+            &self,
+            _team: &str,
+            _file: &str,
+        ) -> Result<team_action::files::Stored, team_action::files::FileUnavailable> {
+            Err(team_action::files::FileUnavailable)
+        }
+    }
+
+    /// One running `search-web` Action of the Exa Assistant.
+    struct Running;
+
+    impl team_action::runner::Workloads for Running {
+        fn binding<'a>(
+            &'a self,
+            _team: &'a str,
+            _assistant: &'a str,
+        ) -> team_core::future::BoxFuture<
+            'a,
+            Result<team_action::runner::Binding, team_action::executor::ActionFailure>,
+        > {
+            let action = team_assistant::spec::ActionSpec::of(
+                &strict_json::parse(
+                    br#"{"id":"search-web","input_schema":{"type":"object"},"output_schema":{"type":"object"}}"#,
+                )
+                .expect("an Action"),
+            );
+            let contract = team_assistant::spec::RuntimeContract {
+                actions: vec![action],
+                allowed_hosts: Vec::new(),
+                integrations: Vec::new(),
+                stored_inputs: Vec::new(),
+                machine_contract: strict_json::parse(br#"{"messages":[]}"#).expect("a contract"),
+                presentation: team_assistant::manifest::ManifestPresentation {
+                    description: String::new(),
+                    links: Value::Object(Vec::new()),
+                },
+            };
+            Box::pin(async move {
+                Ok(team_action::runner::Binding {
+                    contract: Arc::new(contract),
+                    assistant_id: "shimpz-exa".to_owned(),
+                    name: "Exa".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    summary: "Exa".to_owned(),
+                    container: "container".to_owned(),
+                    image: "sha256:image".to_owned(),
+                })
+            })
+        }
+
+        fn egress(
+            &self,
+            _team: &str,
+            _assistant: &str,
+        ) -> Result<
+            Option<(team_core::secret::Secret, Vec<String>)>,
+            team_action::runner::EgressUnavailable,
+        > {
+            Ok(None)
+        }
+    }
+
+    /// The executor's private stores and its OAuth service, empty under `root`.
+    fn stores(
+        root: &std::path::Path,
+        entropy: &Arc<CountingEntropy>,
+    ) -> (
+        Arc<team_integrations::store::IntegrationStore>,
+        team_action::stored_input::StoredInputStore,
+        Arc<team_integrations::service::OAuthService>,
+    ) {
+        use team_integrations::pkce::{PkceLimits, PkceStore};
+        let clock: Arc<dyn team_core::clock::Clock> = Arc::new(FakeClock::at(
+            UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        ));
+        let integrations = Arc::new(
+            team_integrations::store::IntegrationStore::new(
+                root.join("i/state/i.json"),
+                root.join("i/key/k"),
+                Arc::clone(&clock),
+                entropy.clone(),
+            )
+            .expect("an Integration store"),
+        );
+        let stored_inputs = team_action::stored_input::StoredInputStore::new(
+            root.join("s/state/s.json"),
+            root.join("s/key/k"),
+            clock,
+            entropy.clone(),
+        )
+        .expect("a Stored Input store");
+        let pkce = Arc::new(PkceStore::new(PkceLimits::default(), entropy.clone()).expect("PKCE"));
+        let broker = team_integrations::broker::BrokerClient::new(Box::new(
+            team_integrations::broker::FixedTransport::local(),
+        ));
+        let oauth = Arc::new(team_integrations::service::OAuthService::new(
+            pkce,
+            Arc::clone(&integrations),
+            Arc::new(broker),
+        ));
+        (integrations, stored_inputs, oauth)
+    }
+
+    /// The real executor, recording through `audit` the way the Local controller composes it.
+    fn runner(
+        root: &std::path::Path,
+        audit: Arc<dyn AuditSink>,
+        engine: Arc<team_core::testing::FakeExec>,
+    ) -> team_action::runner::Executor {
+        let entropy = Arc::new(CountingEntropy::default());
+        let (integrations, stored_inputs, oauth) = stores(root, &entropy);
+        let journal = team_action::journal::Journal::open(
+            &root.join("journal/journal.sqlite3"),
+            team_action::journal::Limits::default(),
+            entropy.clone(),
+        )
+        .expect("a journal");
+        team_action::runner::Executor(Arc::new(team_action::runner::Runner {
+            journal: Arc::new(journal),
+            stored_inputs: Arc::new(stored_inputs),
+            integrations,
+            oauth,
+            engine,
+            slots: Arc::new(team_action::rpc::DockerSlots::default()),
+            capacity: Capacity::default(),
+            transport: Arc::new(Transport::local()),
+            audit: Arc::new(super::Attributed(audit)),
+            workloads: Arc::new(Running),
+            entropy,
+            blocked: std::sync::Mutex::default(),
+            files: Arc::new(NoFiles),
+            file_slot: team_action::files::FileSlot::default(),
+        }))
+    }
+
+    /// Each written line's operation, result, detail, and cause (its members written sorted, read in any order).
+    fn failures(
+        path: &std::path::Path,
+    ) -> Vec<(String, String, String, Option<team_protocol::cause::Cause>)> {
+        let content = std::fs::read(path).expect("the log");
+        content
+            .split_inclusive(|byte| *byte == b'\n')
+            .map(|line| {
+                let event = strict_json::parse(line).expect("a JSON line");
+                let text = |name: &str| match event.get(name) {
+                    Some(Value::String(value)) => value.clone(),
+                    _ => String::new(),
+                };
+                (
+                    text("operation"),
+                    text("result"),
+                    text("detail"),
+                    event.get("cause").map(|cause| {
+                        team_protocol::cause::Cause::from_value(cause).expect("a cause")
+                    }),
+                )
+            })
+            .collect()
+    }
+
+    /// Scripts one workload that reads its request, writes `stderr` to stderr, and exits 1.
+    fn failing(
+        engine: &team_core::testing::FakeExec,
+        stderr: &'static [u8],
+    ) -> tokio::task::JoinHandle<()> {
+        use team_core::testing::ScriptedExec;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (ours, mut workload) = tokio::io::duplex(64 * 1024);
+        engine.push(ScriptedExec {
+            stream: ours,
+            exit: team_core::exec::ExecExit {
+                running: false,
+                exit_code: Some(1),
+            },
+        });
+        tokio::spawn(async move {
+            let mut byte = [0_u8; 1];
+            while workload.read(&mut byte).await.is_ok_and(|read| read == 1) && byte[0] != b'\n' {}
+            let mut output = vec![2, 0, 0, 0];
+            output.extend_from_slice(&u32::try_from(stderr.len()).expect("small").to_be_bytes());
+            output.extend_from_slice(stderr);
+            let _ = workload.write_all(&output).await;
+            let _ = workload.shutdown().await;
+        })
+    }
+
+    /// The executor's own records of a failed Action, its exact cause included, are admitted and written by the real
+    /// Local log, and nothing of the workload's stderr reaches it.
+    #[tokio::test]
+    async fn the_local_log_records_a_failed_action_with_its_exact_cause() {
+        use team_action::executor::{ActionError, ActionExecutor, ActionFailure, ActionRequest};
+        use team_protocol::cause::{Cause, Cleanup};
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("audit.jsonl");
+        let log = log(&path);
+        let engine = Arc::new(team_core::testing::FakeExec::default());
+        let stderr = b"Traceback: sk-live-Local-4d1f";
+        let worker = failing(&engine, stderr);
+        let executor = runner(
+            directory.path(),
+            Arc::clone(&log) as Arc<dyn AuditSink>,
+            Arc::clone(&engine),
+        );
+        let request = ActionRequest {
+            interrupt_id: String::new(),
+            assistant_id: "shimpz-exa".to_owned(),
+            action: "search-web".to_owned(),
+            input: Value::Object(Vec::new()),
+            files: Vec::new(),
+        };
+        let outcome = executor
+            .invoke("neo", &request, &team_core::stop::Stop::new())
+            .await;
+        drop(worker.await);
+        let cause = Cause::exit_status(1)
+            .with_stderr(stderr.len())
+            .with_cleanup(Cleanup::WorkloadStopped);
+        assert_eq!(
+            outcome,
+            Err(ActionError::new(ActionFailure::Uncertain, cause))
+        );
+        log.close().expect("closed");
+        let written = failures(&path);
+        let action = |result: &str, detail: &str, cause: Option<Cause>| {
+            (
+                "assistant-action".to_owned(),
+                result.to_owned(),
+                detail.to_owned(),
+                cause,
+            )
+        };
+        assert_eq!(
+            written,
+            [
+                action("ok", "started:search-web", None),
+                action("error", "failed:search-web", Some(cause)),
+            ]
+        );
+        let content = String::from_utf8(std::fs::read(&path).expect("the log")).expect("UTF-8");
+        assert!(!content.contains("sk-live") && !content.contains("Traceback"));
+    }
 }

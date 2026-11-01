@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use strict_json::Value;
-use team_action::executor::{ActionExecutor, ActionFailure, ActionRequest};
+use team_action::executor::{ActionError, ActionExecutor, ActionFailure, ActionRequest};
 use team_assistant::details::AssistantPage;
 use team_core::audit::AuditSink;
 use team_core::future::BoxFuture;
@@ -662,9 +662,14 @@ fn image_id(call: &Call<'_>) -> Result<String, Problem> {
     Ok(format!("sha256:{hash}"))
 }
 
-/// An Action failure of the direct route as its public problem.
+/// An Action failure as its public problem, stating its exact cause beside the fixed message and code.
 #[must_use]
-pub const fn action_problem(failure: ActionFailure) -> Problem {
+pub const fn action_problem(error: ActionError) -> Problem {
+    failure_problem(error.failure).with_cause(error.cause)
+}
+
+/// An Action failure's fixed public problem.
+const fn failure_problem(failure: ActionFailure) -> Problem {
     match failure {
         ActionFailure::NotDeclared => ACTION_NOT_DECLARED,
         ActionFailure::InvalidInput => ACTION_INPUT_INVALID,

@@ -14,10 +14,12 @@ use team_assistant::spec::ActionSpec;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
+use team_protocol::cause::{Cause, Cleanup, Condition, Phase};
 
 use super::{Binding, Delivery, Failed, Outcome, Runner, Watch};
 use crate::executor::{
-    ActionBatch, ActionFailure, ActionRequest, BatchScope, DispatchObserver, InvokeOutcome,
+    ActionBatch, ActionError, ActionFailure, ActionRequest, BatchScope, DispatchObserver,
+    InvokeOutcome,
 };
 use crate::files;
 use crate::human::ActionTranscript;
@@ -84,19 +86,53 @@ async fn begin(
     journal: &Arc<journal::Journal>,
     handle: &journal::Batch,
     operation: &Operation,
-) -> Result<journal::Execution, ActionFailure> {
+) -> Result<journal::Execution, ActionError> {
     let (journal, handle, operation) = (Arc::clone(journal), handle.clone(), operation.clone());
     tokio::task::spawn_blocking(move || journal.begin(&handle, &operation))
         .await
-        .map_err(|_| ActionFailure::StateUnavailable)?
+        .map_err(|_| unavailable(Phase::Journal))?
         .map_err(journal_failure)
 }
 
-fn journal_failure(error: JournalError) -> ActionFailure {
+/// The settlement failed after the attempt's own outcome: that outcome stays the cause, and the journal's failure is
+/// what became of its cleanup.
+fn unsettled(answer: Result<InvokeOutcome, ActionError>, error: ActionError) -> ActionError {
+    let initiating = answer.err().and_then(|failed| failed.cause);
+    let cause = initiating.map_or(error.cause, |cause| {
+        Some(cause.with_cleanup(Cleanup::JournalUnavailable))
+    });
+    ActionError {
+        failure: error.failure,
+        cause,
+    }
+}
+
+/// A journal failure while the attempt's outcome was recorded.
+const fn settlement(error: ActionError) -> ActionError {
+    match error.cause {
+        Some(cause) => ActionError::new(
+            error.failure,
+            Cause::new(cause.condition(), Phase::Settlement),
+        ),
+        None => error,
+    }
+}
+
+/// The journal could not be read or written.
+const fn unavailable(phase: Phase) -> ActionError {
+    ActionError::at(ActionFailure::StateUnavailable, phase)
+}
+
+fn journal_failure(error: JournalError) -> ActionError {
     match error {
-        JournalError::Conflict(_) | JournalError::Archived => ActionFailure::ContextChanged,
-        JournalError::Uncertain => ActionFailure::Uncertain,
-        JournalError::Failure(_) | JournalError::Corrupt(_) => ActionFailure::StateUnavailable,
+        JournalError::Conflict(_) | JournalError::Archived => {
+            ActionError::at(ActionFailure::ContextChanged, Phase::Journal)
+        }
+        JournalError::Uncertain => ActionError::new(
+            ActionFailure::Uncertain,
+            Cause::new(Condition::AttemptUncertain, Phase::Journal),
+        ),
+        JournalError::Failure(_) | JournalError::Corrupt(_) => unavailable(Phase::Journal),
     }
 }
 
@@ -124,7 +160,13 @@ impl Batch {
         binding: &Binding,
         action: &ActionSpec,
         excluded: &[String],
-    ) -> Result<Generations, ActionFailure> {
+    ) -> Result<Generations, ActionError> {
+        let stored_unavailable = || {
+            ActionError::new(
+                ActionFailure::StateUnavailable,
+                Cause::new(Condition::StoredInputUnavailable, Phase::Preparation),
+            )
+        };
         let view = super::assistant_view(binding);
         let declared: Vec<_> = view
             .integrations
@@ -136,9 +178,12 @@ impl Batch {
             .runner
             .integrations
             .metadata(&self.scope.team_id, &binding.assistant_id, &declared)
-            .map_err(|_| ActionFailure::StateUnavailable)?;
+            .map_err(|_| stored_unavailable())?;
         if rows.len() != action.integrations.len() || rows.iter().any(|row| row.generation < 1) {
-            return Err(ActionFailure::IntegrationUnavailable);
+            return Err(ActionError::at(
+                ActionFailure::IntegrationUnavailable,
+                Phase::Preparation,
+            ));
         }
         let integrations = rows
             .into_iter()
@@ -155,7 +200,7 @@ impl Batch {
                     stored.push((id.clone(), value.generation));
                 }
                 Ok(_) | Err(crate::stored_input::StoredInputError::Missing) => {}
-                Err(_) => return Err(ActionFailure::StateUnavailable),
+                Err(_) => return Err(stored_unavailable()),
             }
         }
         Ok((integrations, stored))
@@ -166,12 +211,12 @@ impl Batch {
         &self,
         request: &ActionRequest,
         excluded: &[String],
-    ) -> Result<(Operation, Vec<(String, u64)>), ActionFailure> {
+    ) -> Result<(Operation, Vec<(String, u64)>), ActionError> {
         let (binding, action) = self.runner.admitted(&self.scope.team_id, request).await?;
         let (integrations, stored) = self.generations(&binding, &action, excluded)?;
         let (_, present) = self.generations(&binding, &action, &[])?;
         let file = files::action_file(&action.input_files, &request.input, &request.files)
-            .map_err(|_| ActionFailure::FileUnavailable)?;
+            .map_err(|_| ActionError::at(ActionFailure::FileUnavailable, Phase::Admission))?;
         let identity = Value::Object(vec![
             (
                 "assistant_container_id".to_owned(),
@@ -214,17 +259,18 @@ impl Batch {
 
     /// The prepared operation of `request`, refused as a changed context unless its binding, input, and private-value
     /// generations are still the ones it was prepared with.
-    async fn unchanged(&self, request: &ActionRequest) -> Result<Operation, ActionFailure> {
+    async fn unchanged(&self, request: &ActionRequest) -> Result<Operation, ActionError> {
+        let changed = || ActionError::at(ActionFailure::ContextChanged, Phase::Admission);
         let (operation, present) = self
             .prepared
             .iter()
             .find(|(interrupt, _)| *interrupt == request.interrupt_id)
             .map(|(_, prepared)| (prepared.operation.clone(), prepared.present.clone()))
-            .ok_or(ActionFailure::ContextChanged)?;
+            .ok_or_else(changed)?;
         let (current, now_present) = self.operation(request, &self.origins.clone()).await?;
         let unchanged = present.iter().all(|entry| now_present.contains(entry));
         if current.fingerprint != operation.fingerprint || !unchanged {
-            return Err(ActionFailure::ContextChanged);
+            return Err(changed());
         }
         Ok(operation)
     }
@@ -233,26 +279,33 @@ impl Batch {
         &mut self,
         request: &ActionRequest,
         stop: &Stop,
-    ) -> Result<InvokeOutcome, ActionFailure> {
+    ) -> Result<InvokeOutcome, ActionError> {
         self.injected.clear();
         let journal = Arc::clone(&self.runner.journal);
-        let handle = self.handle.clone().ok_or(ActionFailure::ContextChanged)?;
+        let handle = self.handle.clone().ok_or(ActionError::at(
+            ActionFailure::ContextChanged,
+            Phase::Admission,
+        ))?;
         let operation = self.unchanged(request).await?;
         let (binding, action) = self.runner.admitted(&self.scope.team_id, request).await?;
         let file = files::action_file(&action.input_files, &request.input, &request.files)
-            .map_err(|_| ActionFailure::FileUnavailable)?;
+            .map_err(|_| ActionError::at(ActionFailure::FileUnavailable, Phase::Admission))?;
         let transcript = self.transcript(&request.interrupt_id);
         // A delivery holds the one file-RPC slot before its execution is journaled, so a refusal here leaves the
         // journal exactly as it was (ADR-0093).
         let runner = Arc::clone(&self.runner);
         let granted = files::grants(file, &action, &transcript);
-        let admitted = runner.file_slot.admit(granted, stop).await?;
+        let admitted = runner
+            .file_slot
+            .admit(granted, stop)
+            .await
+            .map_err(|failure| ActionError::at(failure, Phase::FileSlot))?;
         let decision = begin(&journal, &handle, &operation).await?;
         if !decision.execute {
             return decision
                 .result
                 .map(InvokeOutcome::Completed)
-                .ok_or(ActionFailure::StateUnavailable);
+                .ok_or(unavailable(Phase::Journal));
         }
         self.executing_here.push(operation.interrupt_id.clone());
         let target = super::Target {
@@ -285,7 +338,7 @@ impl Batch {
         operation: &Operation,
         action: &ActionSpec,
         attempt: Result<Outcome, Failed>,
-    ) -> Result<InvokeOutcome, ActionFailure> {
+    ) -> Result<InvokeOutcome, ActionError> {
         let journal = Arc::clone(&self.runner.journal);
         let (handle, operation) = (handle.clone(), operation.clone());
         let interrupt = operation.interrupt_id.clone();
@@ -304,27 +357,29 @@ impl Batch {
                     tokio::task::spawn_blocking(move || journal.suspend(&handle, &operation)).await;
                 (settled, Ok(InvokeOutcome::HumanRequest(request.payload())))
             }
-            Err(Failed::NotDispatched(failure)) => {
+            Err(failed @ Failed::NotDispatched(_)) => {
                 let settled = tokio::task::spawn_blocking(move || {
                     journal.not_dispatched(&handle, &operation)
                 })
                 .await;
-                (settled, Err(failure))
+                (settled, Err(failed.error()))
             }
-            Err(Failed::Handled) if read_only => {
+            Err(failed @ Failed::Handled(_)) if read_only => {
                 let settled = tokio::task::spawn_blocking(move || {
                     journal.fail_without_effect(&handle, &operation)
                 })
                 .await;
-                (settled, Err(ActionFailure::Failed))
+                (settled, Err(failed.error()))
             }
             // Any other failure, and any failure of a mutating Action, stays uncertain in the journal (ADR-0092).
-            Err(Failed::Handled) => return Err(ActionFailure::Failed),
-            Err(Failed::Uncertain(failure)) => return Err(failure),
+            Err(failed) => return Err(failed.error()),
         };
-        settled
-            .map_err(|_| ActionFailure::StateUnavailable)?
-            .map_err(journal_failure)?;
+        let recorded = settled
+            .map_err(|_| unavailable(Phase::Settlement))
+            .and_then(|settled| settled.map_err(|error| settlement(journal_failure(error))));
+        if let Err(error) = recorded {
+            return Err(unsettled(answer, error));
+        }
         self.executing_here.retain(|id| *id != interrupt);
         answer
     }
@@ -334,10 +389,13 @@ impl ActionBatch for Batch {
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         Box::pin(async move {
             if self.handle.is_some() {
-                return Err(ActionFailure::ContextChanged);
+                return Err(ActionError::at(
+                    ActionFailure::ContextChanged,
+                    Phase::Journal,
+                ));
             }
             let origins: Vec<String> = requests.iter().map(origin).collect();
             let mut prepared = Vec::with_capacity(requests.len());
@@ -363,7 +421,7 @@ impl ActionBatch for Batch {
                 )
             })
             .await
-            .map_err(|_| ActionFailure::StateUnavailable)?
+            .map_err(|_| unavailable(Phase::Journal))?
             .map_err(journal_failure)?;
             self.handle = Some(handle);
             self.prepared = prepared;
@@ -376,16 +434,17 @@ impl ActionBatch for Batch {
         &'a mut self,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>> {
         Box::pin(self.run(request, stop))
     }
 
     fn delivered<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         Box::pin(async move {
-            let handle = self.handle.clone().ok_or(ActionFailure::ContextChanged)?;
+            let changed = ActionError::at(ActionFailure::ContextChanged, Phase::Journal);
+            let handle = self.handle.clone().ok_or(changed)?;
             let expected: Vec<&str> = handle
                 .operations
                 .iter()
@@ -396,12 +455,12 @@ impl ActionBatch for Batch {
                 .map(|request| request.interrupt_id.as_str())
                 .collect();
             if expected != given {
-                return Err(ActionFailure::ContextChanged);
+                return Err(changed);
             }
             let journal = Arc::clone(&self.runner.journal);
             tokio::task::spawn_blocking(move || journal.delivered(&handle))
                 .await
-                .map_err(|_| ActionFailure::StateUnavailable)?
+                .map_err(|_| unavailable(Phase::Journal))?
                 .map_err(journal_failure)?;
             self.release();
             Ok(())
@@ -412,18 +471,18 @@ impl ActionBatch for Batch {
         self.injected.clone()
     }
 
-    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionError>> {
         Box::pin(async move {
             let journal = Arc::clone(&self.runner.journal);
             let generation = self.scope.generation.clone();
             tokio::task::spawn_blocking(move || journal.end_settled(&generation))
                 .await
-                .map_err(|_| ActionFailure::StateUnavailable)?
+                .map_err(|_| unavailable(Phase::Journal))?
                 .map_err(journal_failure)
         })
     }
 
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         Box::pin(async move {
             let Some(handle) = self.handle.clone() else {
                 return Ok(false);
@@ -442,7 +501,7 @@ impl ActionBatch for Batch {
                 }
             })
             .await
-            .map_err(|_| ActionFailure::StateUnavailable)?
+            .map_err(|_| unavailable(Phase::Journal))?
             .map_err(journal_failure)?;
             if ended {
                 self.release();

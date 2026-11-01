@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use strict_json::Value;
-use team_action::executor::{ActionExecutor, ActionFailure};
+use team_action::executor::{ActionError, ActionExecutor, ActionFailure};
 use team_action::stored_input::StoredInputStore;
 use team_chat::orchestrator::ChatError;
 use team_chat::progress::{Reporter, Sink};
@@ -128,7 +128,11 @@ pub(super) struct Admitted {
 #[must_use]
 pub fn chat_problem(error: ChatError) -> Problem {
     match error {
-        ChatError::Stopped | ChatError::Action(ActionFailure::Stopped) => problem::chat_stopped(),
+        ChatError::Stopped
+        | ChatError::Action(ActionError {
+            failure: ActionFailure::Stopped,
+            ..
+        }) => problem::chat_stopped(),
         ChatError::Orchestration(_) => problem::brain_turn_failed(),
         ChatError::Brain(_) => problem::brain_runtime_failed(),
         ChatError::ContextChanged => problem::team_context_changed(),
@@ -151,11 +155,14 @@ pub fn refused(problem: &Problem) -> ChatError {
     })
 }
 
-/// The terminal answer of a failed streamed operation.
+/// The terminal answer of a failed streamed operation: its message, its code, and a failed Action's closed cause.
 fn failure_body(problem: &Problem) -> Value {
     let mut members = vec![("error", Value::String(problem.message.clone().into_owned()))];
     if let Some(code) = problem.code {
         members.push(("code", Value::String(code.to_owned())));
+    }
+    if let Some(cause) = &problem.cause {
+        members.push(("cause", cause.to_value()));
     }
     object_of(members)
 }

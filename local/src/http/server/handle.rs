@@ -61,6 +61,7 @@ fn internal_problem() -> Problem {
         message: Cow::Borrowed("internal error"),
         code: None,
         retry_after_ms: None,
+        cause: None,
     }
 }
 
@@ -710,7 +711,7 @@ impl<'a> Exchange<'a> {
         let detail = problem.code.unwrap_or("internal-error");
         if self
             .audit
-            .record(None, result, None, Some(detail))
+            .record_failure(None, result, (None, Some(detail)), problem.cause.as_ref())
             .await
             .is_err()
         {

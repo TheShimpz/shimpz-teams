@@ -11,6 +11,7 @@ pub const INTERNAL: Problem = Problem {
     message: Cow::Borrowed("internal error"),
     code: None,
     retry_after_ms: None,
+    cause: None,
 };
 
 /// The daemon could not answer; never read as the absence of an object.

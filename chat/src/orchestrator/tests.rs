@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use strict_json::Value;
-use team_action::executor::{self, ActionBatch, ActionFailure, InvokeOutcome};
+use team_action::executor::{self, ActionBatch, ActionError, ActionFailure, InvokeOutcome};
 use team_action::result::MAX_RESULT_BYTES;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
@@ -190,7 +190,7 @@ impl Runtime for FakeRuntime {
 }
 
 type Invoke =
-    Box<dyn Fn(&executor::ActionRequest) -> Result<InvokeOutcome, ActionFailure> + Send + Sync>;
+    Box<dyn Fn(&executor::ActionRequest) -> Result<InvokeOutcome, ActionError> + Send + Sync>;
 
 /// A durable batch that logs every hook.
 struct FakeBatch {
@@ -227,10 +227,10 @@ impl ActionBatch for FakeBatch {
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [executor::ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         Box::pin(async move {
             if self.fail_prepare {
-                return Err(ActionFailure::StateUnavailable);
+                return Err(ActionFailure::StateUnavailable.into());
             }
             let inputs: Vec<String> = requests
                 .iter()
@@ -245,7 +245,7 @@ impl ActionBatch for FakeBatch {
         &'a mut self,
         request: &'a executor::ActionRequest,
         _stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>> {
         Box::pin(async move {
             self.events.push(format!("invoke {}", request.interrupt_id));
             (self.invoke)(request)
@@ -255,7 +255,7 @@ impl ActionBatch for FakeBatch {
     fn delivered<'a>(
         &'a mut self,
         requests: &'a [executor::ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         Box::pin(async move {
             let ids: Vec<&str> = requests
                 .iter()
@@ -266,7 +266,7 @@ impl ActionBatch for FakeBatch {
         })
     }
 
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         Box::pin(async { Ok(true) })
     }
 
@@ -717,7 +717,7 @@ async fn a_stop_during_an_action_discards_its_result_and_never_resumes() {
     let stop = strategy.stop.clone();
     let mut batch = FakeBatch::with(Box::new(move |_| {
         stop.stop();
-        Err(ActionFailure::Uncertain)
+        Err(ActionFailure::Uncertain.into())
     }));
     assert_eq!(
         run(&runtime, &context(), &strategy, &mut batch).await,
@@ -895,7 +895,7 @@ async fn a_prepare_failure_stops_before_invoke_resume_or_delivery() {
     batch.fail_prepare = true;
     assert_eq!(
         run(&runtime, &context(), &Fake::default(), &mut batch).await,
-        Err(ChatError::Action(ActionFailure::StateUnavailable))
+        Err(ChatError::Action(ActionFailure::StateUnavailable.into()))
     );
     assert_eq!((batch.events.len(), runtime.resumes().len()), (0, 0));
 }

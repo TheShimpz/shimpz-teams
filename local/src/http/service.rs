@@ -7,6 +7,7 @@ use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_inference::brain::ModelCredential;
+use team_protocol::cause::Cause;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 
@@ -166,6 +167,9 @@ pub struct Problem {
     pub code: Option<&'static str>,
     /// For a busy answer, how long the caller waits before retrying.
     pub retry_after_ms: Option<u32>,
+    /// A failed Action's exact closed cause, which only describes the failure: the status, message, and code alone
+    /// decide what the caller may conclude.
+    pub cause: Option<Cause>,
 }
 
 impl Problem {
@@ -177,7 +181,15 @@ impl Problem {
             message: Cow::Borrowed(message),
             code: Some(code),
             retry_after_ms: None,
+            cause: None,
         }
+    }
+
+    /// The problem stating `cause`, when Team knows it.
+    #[must_use]
+    pub const fn with_cause(mut self, cause: Option<Cause>) -> Self {
+        self.cause = cause;
+        self
     }
 }
 

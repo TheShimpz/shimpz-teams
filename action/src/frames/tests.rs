@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use strict_json::Value;
 use team_core::future::BoxFuture;
+use team_protocol::cause::{Cause, Condition, MAX_CAUSE_COUNT, Phase};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use tokio::time::Instant;
 
@@ -12,6 +13,19 @@ pub(crate) fn frame(stream: u8, payload: &[u8]) -> Vec<u8> {
     framed.extend_from_slice(&u32::try_from(payload.len()).expect("small").to_be_bytes());
     framed.extend_from_slice(payload);
     framed
+}
+
+fn invalid(condition: Condition) -> FrameError {
+    FrameError::Invalid(Cause::new(condition, Phase::Exchange))
+}
+
+fn too_large(bytes: usize) -> FrameError {
+    FrameError::Invalid(Cause::output_too_large(bytes, Phase::Exchange))
+}
+
+/// The cause a broker that cannot answer names: its dispatch record was refused.
+fn unaudited() -> FrameError {
+    FrameError::Transport(Cause::new(Condition::RecordRefused, Phase::ProviderCall))
 }
 
 fn soon() -> Instant {
@@ -70,24 +84,27 @@ async fn split_stdout_and_stderr_frames_are_read_exactly() {
 async fn exec_frame_over_budget_refused_without_buffering() {
     let mut oversized = vec![1, 0, 0, 0];
     oversized.extend_from_slice(&(512 * 1024 + 2_u32).to_be_bytes());
-    for malformed in [
-        b"\x01\x00\x00".to_vec(),
-        frame(1, b"payload")[..13].to_vec(),
-        oversized,
-        b"garbage!".to_vec(),
+    // Each violation keeps its own condition: a cut-short frame, an announced or held size beyond the bound, and a
+    // stream that is neither stdout nor stderr.
+    for (malformed, refused) in [
+        (b"\x01\x00\x00".to_vec(), invalid(Condition::FrameTruncated)),
+        (
+            frame(1, b"payload")[..13].to_vec(),
+            invalid(Condition::FrameTruncated),
+        ),
+        (oversized, too_large(512 * 1024 + 2)),
+        (b"garbage!".to_vec(), invalid(Condition::StreamUnknown)),
     ] {
-        assert_eq!(
-            read_all(malformed, &[], 512 * 1024).await,
-            Err(FrameError::Invalid)
-        );
+        assert_eq!(read_all(malformed, &[], 512 * 1024).await, Err(refused));
     }
     let cumulative = [frame(1, b"ab"), frame(2, b"cd")].concat();
-    assert_eq!(read_all(cumulative, &[], 3).await, Err(FrameError::Invalid));
-    // A frame announcing far more than the bound is refused from its header alone.
+    assert_eq!(read_all(cumulative, &[], 3).await, Err(too_large(4)));
+    // A frame announcing far more than the bound is refused from its header alone, its size stated within bounds.
     let mut reader = FrameReader::new(16);
+    let refused = reader.feed(&[1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]);
     assert_eq!(
-        reader.feed(&[1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]),
-        Err(FrameError::Invalid)
+        refused,
+        Err(too_large(usize::try_from(MAX_CAUSE_COUNT).expect("fits")))
     );
 }
 
@@ -180,7 +197,7 @@ impl CallBroker for Refusing {
         Box::pin(async move {
             tokio::time::sleep(self.delay).await;
             if self.fail {
-                return Err(FrameError::Transport);
+                return Err(unaudited());
             }
             self.frames.push(frame);
             self.held = true;
@@ -332,15 +349,24 @@ async fn a_reply_that_cannot_be_written_ends_the_attempt_before_any_later_call()
     )
     .await;
     task.await.expect("joined");
-    assert_eq!(read, Err(FrameError::Transport));
+    assert_eq!(
+        read,
+        Err(FrameError::Transport(Cause::new(
+            Condition::ReplyWriteFailed,
+            Phase::Exchange
+        )))
+    );
     assert_eq!((broker.calls(), broker.held), (1, false));
 }
 
 #[tokio::test]
 async fn exec_trailing_output_after_terminal_refused() {
-    for output in [
-        [TERMINAL, b"{\"type\":\"fetch\"}\n"].concat(),
-        b"not json\n".to_vec(),
+    for (output, refused) in [
+        (
+            [TERMINAL, b"{\"type\":\"fetch\"}\n"].concat(),
+            invalid(Condition::OutputAfterTerminal),
+        ),
+        (b"not json\n".to_vec(), invalid(Condition::LineNotJson)),
     ] {
         let (ours, task) = replay(frame(1, &output), &[], 64 * 1024);
         let mut broker = Refusing::default();
@@ -353,7 +379,7 @@ async fn exec_trailing_output_after_terminal_refused() {
         )
         .await;
         let _ = task.await;
-        assert_eq!(read, Err(FrameError::Invalid));
+        assert_eq!(read, Err(refused));
     }
 }
 
@@ -380,6 +406,7 @@ async fn a_broker_that_cannot_answer_ends_the_attempt_as_a_transport_fault() {
         Some(&mut broker),
     )
     .await;
-    assert_eq!(read, Err(FrameError::Transport));
+    // The broker's own cause passes through unchanged, never collapsed into a generic transport failure.
+    assert_eq!(read, Err(unaudited()));
     drop(task.await);
 }

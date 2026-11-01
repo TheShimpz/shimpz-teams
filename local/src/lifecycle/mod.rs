@@ -312,6 +312,7 @@ fn teardown_incomplete(reset: bool) -> Problem {
         }),
         code: Some("teardown-incomplete"),
         retry_after_ms: None,
+        cause: None,
     }
 }
 

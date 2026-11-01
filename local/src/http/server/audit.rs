@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use strict_json::Value;
 use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
+use team_protocol::cause::Cause;
 
 use super::usage::{ModelUsageSink, model_usage};
 
@@ -126,7 +127,25 @@ impl RequestAudit {
         assistant: Option<&str>,
         detail: Option<&str>,
     ) -> Result<(), AuditUnavailable> {
+        self.record_failure(operation, result, (assistant, detail), None)
+            .await
+    }
+
+    /// [`RequestAudit::record`] of an answer that also states a failed Action's closed cause.
+    ///
+    /// # Errors
+    /// [`AuditUnavailable`] when the event was not recorded and the operation is not tolerant.
+    pub async fn record_failure(
+        &self,
+        operation: Option<&str>,
+        result: &str,
+        (assistant, detail): (Option<&str>, Option<&str>),
+        cause: Option<&Cause>,
+    ) -> Result<(), AuditUnavailable> {
         let mut event = self.event(operation, result, assistant, detail);
+        if let Some(cause) = cause {
+            event = event.with("cause", cause.to_value());
+        }
         if let Some(usage) = model_usage(&self.usage.drain(&self.trace_id)) {
             event = event.with("model_usage", usage);
         }

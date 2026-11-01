@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use hyper::body::{Bytes, Frame};
 use strict_json::Value;
+use team_protocol::cause::Cause;
 use team_protocol::progress::encode_record;
 use team_protocol::python::value::int;
 use tokio::sync::{OwnedSemaphorePermit, mpsc};
@@ -83,21 +84,26 @@ impl Pump {
         let Value::Object(mut members) = body else {
             return None;
         };
-        let (result, detail) = if answered(status) {
-            ("ok", None)
-        } else {
-            let code = members
+        let member = |name: &str| {
+            members
                 .iter()
-                .find(|(name, _)| name == "code")
-                .and_then(|(_, code)| match code {
-                    Value::String(code) => Some(code.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| "internal-error".to_owned());
-            (if status < 500 { "denied" } else { "error" }, Some(code))
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value)
+        };
+        let (result, detail, cause) = if answered(status) {
+            ("ok", None, None)
+        } else {
+            let code = match member("code") {
+                Some(Value::String(code)) => code.clone(),
+                _ => "internal-error".to_owned(),
+            };
+            // Only a closed cause in its one canonical spelling is recorded.
+            let cause = member("cause").and_then(Cause::from_value);
+            let result = if status < 500 { "denied" } else { "error" };
+            (result, Some(code), cause)
         };
         self.audit
-            .record(None, result, None, detail.as_deref())
+            .record_failure(None, result, (None, detail.as_deref()), cause.as_ref())
             .await
             .ok()?;
         members.retain(|(name, _)| name != "trace_id");

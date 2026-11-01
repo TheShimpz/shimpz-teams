@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use strict_json::Value;
 use team_action::challenges::{HumanRequirement, input_projection, render_copy};
-use team_action::executor::{ActionBatch, ActionFailure, ActionRequest, BatchScope, InvokeOutcome};
+use team_action::executor::{ActionBatch, ActionError, ActionRequest, BatchScope, InvokeOutcome};
 use team_action::human::validate_request;
 use team_assistant::spec::Direction;
 use team_chat::orchestrator::{
@@ -426,7 +426,7 @@ impl Tracked {
     }
 
     /// Keeps a recording send's successful call as an occurrence.
-    fn record(&self, request: &ActionRequest, outcome: &Result<InvokeOutcome, ActionFailure>) {
+    fn record(&self, request: &ActionRequest, outcome: &Result<InvokeOutcome, ActionError>) {
         let (Some((recording, assistants)), Ok(InvokeOutcome::Completed(result))) =
             (&self.recording, outcome)
         else {
@@ -452,7 +452,7 @@ impl ActionBatch for Tracked {
     fn prepare<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         self.inner.prepare(requests)
     }
 
@@ -460,7 +460,7 @@ impl ActionBatch for Tracked {
         &'a mut self,
         request: &'a ActionRequest,
         stop: &'a Stop,
-    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<InvokeOutcome, ActionError>> {
         Box::pin(async move {
             self.service
                 .executing()
@@ -479,15 +479,15 @@ impl ActionBatch for Tracked {
     fn delivered<'a>(
         &'a mut self,
         requests: &'a [ActionRequest],
-    ) -> BoxFuture<'a, Result<(), ActionFailure>> {
+    ) -> BoxFuture<'a, Result<(), ActionError>> {
         self.inner.delivered(requests)
     }
 
-    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionFailure>> {
+    fn terminate(&mut self) -> BoxFuture<'_, Result<bool, ActionError>> {
         self.inner.terminate()
     }
 
-    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionFailure>> {
+    fn settle_undelivered(&mut self) -> BoxFuture<'_, Result<(), ActionError>> {
         self.inner.settle_undelivered()
     }
 

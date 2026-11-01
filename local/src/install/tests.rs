@@ -13,7 +13,7 @@ use std::time::Duration;
 use bollard::models::{ImageConfig, ImageInspect};
 use strict_json::Value;
 use team_action::executor::{
-    ActionBatch, ActionExecutor, ActionFailure, ActionRequest, BatchScope,
+    ActionBatch, ActionError, ActionExecutor, ActionFailure, ActionRequest, BatchScope,
 };
 use team_core::future::BoxFuture;
 use team_core::stop::Stop;
@@ -193,12 +193,12 @@ impl ActionExecutor for Executor {
         _: &'a str,
         _: &'a ActionRequest,
         _: &'a Stop,
-    ) -> BoxFuture<'a, Result<Value, ActionFailure>> {
+    ) -> BoxFuture<'a, Result<Value, ActionError>> {
         let failure = *self.failure.lock().expect("usable");
         Box::pin(async move {
             failure.map_or_else(
                 || Ok(Value::Object(vec![("done".to_owned(), Value::Bool(true))])),
-                Err,
+                |failure| Err(failure.into()),
             )
         })
     }

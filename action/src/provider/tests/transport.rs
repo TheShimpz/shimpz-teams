@@ -333,7 +333,15 @@ async fn no_dispatch_when_audit_fails() {
             tokio::time::Instant::now() + Duration::from_secs(5),
         )
         .await;
-    assert_eq!(answered, Err(crate::frames::FrameError::Transport));
+    // The attempt ends naming the unwritten dispatch record, never a generic transport failure.
+    let unwritten = team_protocol::cause::Cause::new(
+        team_protocol::cause::Condition::WriteFailed,
+        team_protocol::cause::Phase::ProviderCall,
+    );
+    assert_eq!(
+        answered,
+        Err(crate::frames::FrameError::Transport(unwritten))
+    );
     assert_eq!(fake.received.lock().expect("usable").len(), 0);
 }
 

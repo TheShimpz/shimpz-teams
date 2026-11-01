@@ -12,14 +12,16 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use strict_json::{Number, Value};
-use team_core::audit::{AuditEvent, AuditSink};
+use team_core::audit::{AuditEvent, AuditSink, AuditUnavailable};
 use team_core::future::BoxFuture;
 use team_core::secret::Secret;
 use team_core::stop::Stop;
+use team_protocol::cause::{Cause, Phase};
 use team_protocol::python::json::{self, Options};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 
+use crate::executor::audit_condition;
 use crate::frames::{CallBroker, FrameError};
 
 mod credential;
@@ -174,8 +176,8 @@ impl std::fmt::Debug for Broker {
     }
 }
 
-/// An audit record could not be written; the attempt ends as a transport fault.
-struct Unaudited;
+/// An audit record could not be written, and why; the attempt ends as a transport fault that names it.
+struct Unaudited(AuditUnavailable);
 
 impl Broker {
     /// A broker over `scope`.
@@ -226,7 +228,7 @@ impl Broker {
             .with("team_id", text(&attempt.team_id))
             .with("assistant", text(&attempt.assistant_id))
             .with("detail", Value::String(detail));
-        self.scope.audit.record(event).await.map_err(|_| Unaudited)
+        self.scope.audit.record(event).await.map_err(Unaudited)
     }
 
     /// Admits one frame and places its credentials; nothing is sent.
@@ -443,7 +445,9 @@ impl CallBroker for Broker {
             let reply = self
                 .reply(frame, deadline)
                 .await
-                .map_err(|Unaudited| FrameError::Transport)?;
+                .map_err(|Unaudited(reason)| {
+                    FrameError::Transport(Cause::new(audit_condition(reason), Phase::ProviderCall))
+                })?;
             Ok(json::dumps(&reply, REPLY_JSON).into_bytes())
         })
     }

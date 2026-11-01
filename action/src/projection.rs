@@ -7,6 +7,7 @@
 
 use strict_json::Value;
 use team_core::secret::Secret;
+use team_protocol::cause::Condition;
 
 use crate::failure::{self, ActionFailure};
 use crate::human::{self, HumanRequest};
@@ -47,8 +48,8 @@ pub enum Refused {
     Failure(ActionFailure),
     /// The frame echoed an injected value; it never travels further.
     SecretExposure,
-    /// The frame is not an admitted Spec v1 result, request, or rejection.
-    Invalid,
+    /// The frame is not an admitted Spec v1 result, request, or rejection: the rule it failed, never its content.
+    Invalid(Condition),
     /// The Assistant rejected this held Stored Input, which Team then clears.
     StoredInputRejected(String),
 }
@@ -78,14 +79,15 @@ pub fn contains_secret(value: &Value, secrets: &[&str]) -> bool {
     !secrets.is_empty() && visit(value, &secrets, 0)
 }
 
-/// Projects one terminal frame; `validate` checks a result against the Action's output schema.
+/// Projects one terminal frame; `validate` checks a result against the Action's output schema and names the rule a
+/// refused result failed.
 ///
 /// # Errors
 /// [`Refused`] for every frame that is not an admitted result or request.
 pub fn project(
     raw: &Value,
     policy: &ResultPolicy<'_>,
-    validate: impl FnOnce(&Value) -> bool,
+    validate: impl FnOnce(&Value) -> Result<(), Condition>,
 ) -> Result<Projected, Refused> {
     let secrets: Vec<&str> = policy
         .injected
@@ -93,31 +95,38 @@ pub fn project(
         .map(|(_, secret)| secret.expose())
         .collect();
     if failure::is_failure(raw) {
-        return Err(failure::admit(raw, &secrets).map_or(Refused::Invalid, Refused::Failure));
+        return Err(failure::admit(raw, &secrets).map_or(
+            Refused::Invalid(Condition::FailureInvalid),
+            Refused::Failure,
+        ));
     }
     if contains_secret(raw, &secrets) {
         return Err(Refused::SecretExposure);
     }
     let Value::Object(members) = raw else {
-        return Err(Refused::Invalid);
+        return Err(Refused::Invalid(Condition::TerminalNotObject));
     };
     let mut names: Vec<&str> = members.iter().map(|(name, _)| name.as_str()).collect();
     names.sort_unstable();
     let kind = match raw.get("type") {
         Some(Value::String(kind)) => kind.as_str(),
-        _ => return Err(Refused::Invalid),
+        _ => return Err(Refused::Invalid(Condition::FrameTypeInvalid)),
     };
+    let members_invalid = Refused::Invalid(Condition::FrameMembersInvalid);
     match (kind, names.as_slice()) {
         ("stored_input_rejected", ["stored_input", "type"]) => rejected(raw, policy),
         ("request", ["request", "type"]) => request(raw, policy),
-        ("result", ["result", "type"]) if !policy.file_withheld => {
-            let result = raw.get("result").ok_or(Refused::Invalid)?;
-            if !validate(result) || require_durable(result).is_err() {
-                return Err(Refused::Invalid);
-            }
+        ("result", ["result", "type"]) if policy.file_withheld => {
+            Err(Refused::Invalid(Condition::ResultWithWithheldFile))
+        }
+        ("result", ["result", "type"]) => {
+            let result = raw.get("result").ok_or(members_invalid)?;
+            validate(result).map_err(Refused::Invalid)?;
+            require_durable(result).map_err(|_| Refused::Invalid(Condition::ResultNotDurable))?;
             Ok(Projected::Result(result.clone()))
         }
-        _ => Err(Refused::Invalid),
+        ("stored_input_rejected" | "request" | "result", _) => Err(members_invalid),
+        _ => Err(Refused::Invalid(Condition::FrameTypeInvalid)),
     }
 }
 
@@ -129,20 +138,21 @@ fn rejected(raw: &Value, policy: &ResultPolicy<'_>) -> Result<Projected, Refused
         {
             Err(Refused::StoredInputRejected(id.clone()))
         }
-        _ => Err(Refused::Invalid),
+        _ => Err(Refused::Invalid(Condition::StoredInputNotHeld)),
     }
 }
 
 fn request(raw: &Value, policy: &ResultPolicy<'_>) -> Result<Projected, Refused> {
+    let invalid = Refused::Invalid(Condition::RequestInvalid);
     let request = human::validate_request(
-        raw.get("request").ok_or(Refused::Invalid)?,
+        raw.get("request").ok_or(invalid.clone())?,
         policy.human_requests,
         policy.declared_stored_inputs,
         policy.messages,
     )
-    .map_err(|_| Refused::Invalid)?;
+    .map_err(|_| invalid)?;
     if policy.authorization_requested && human::authorizes(&request.kind) {
-        return Err(Refused::Invalid);
+        return Err(Refused::Invalid(Condition::AuthorizationRepeated));
     }
     // A held Stored Input is injected, so a request for it is never answerable.
     if request
@@ -150,7 +160,7 @@ fn request(raw: &Value, policy: &ResultPolicy<'_>) -> Result<Projected, Refused>
         .as_ref()
         .is_some_and(|id| policy.held_stored_inputs.contains(id))
     {
-        return Err(Refused::Invalid);
+        return Err(Refused::Invalid(Condition::HeldInputRequested));
     }
     Ok(Projected::Request(request))
 }
@@ -159,6 +169,8 @@ fn request(raw: &Value, policy: &ResultPolicy<'_>) -> Result<Projected, Refused>
 mod tests {
     use strict_json::Value;
     use team_core::secret::Secret;
+
+    use team_protocol::cause::Condition;
 
     use super::{Projected, Refused, ResultPolicy, contains_secret, project};
 
@@ -190,7 +202,7 @@ mod tests {
             messages: &Value::Array(Vec::new()),
             file_withheld,
         };
-        project(&json(raw), &policy, |_| true)
+        project(&json(raw), &policy, |_| Ok(()))
     }
 
     #[test]
@@ -222,7 +234,10 @@ mod tests {
             r#"{"type":"failure"}"#,
             r#"{"type":"failure","failure":{},"extra":true}"#,
         ] {
-            assert_eq!(projected(invalid, false), Err(Refused::Invalid));
+            assert_eq!(
+                projected(invalid, false),
+                Err(Refused::Invalid(Condition::FailureInvalid))
+            );
         }
     }
 
@@ -241,19 +256,57 @@ mod tests {
                 r#"{"type":"stored_input_rejected","stored_input":"other"}"#,
                 false
             ),
-            Err(Refused::Invalid)
+            Err(Refused::Invalid(Condition::StoredInputNotHeld))
         );
         assert_eq!(
             projected(r#"{"type":"result","result":{}}"#, true),
-            Err(Refused::Invalid)
+            Err(Refused::Invalid(Condition::ResultWithWithheldFile))
         );
         assert_eq!(
             projected(r#"{"type":"result","result":{},"extra":1}"#, false),
-            Err(Refused::Invalid)
+            Err(Refused::Invalid(Condition::FrameMembersInvalid))
         );
         assert_eq!(
             projected(r#"{"type":"request","request":{}}"#, false),
-            Err(Refused::Invalid)
+            Err(Refused::Invalid(Condition::RequestInvalid))
+        );
+    }
+
+    /// Each refused frame names the rule it failed and nothing of its content, so a member name or value the
+    /// Assistant chose never becomes part of the cause.
+    #[test]
+    fn a_refused_frame_names_only_the_rule_it_failed() {
+        for (raw, condition) in [
+            (
+                r#"{"type":"answer","answer":1}"#,
+                Condition::FrameTypeInvalid,
+            ),
+            (r#"{"result":{}}"#, Condition::FrameTypeInvalid),
+            (
+                r#"{"type":"result","result":{},"password":"hunter2"}"#,
+                Condition::FrameMembersInvalid,
+            ),
+        ] {
+            assert_eq!(projected(raw, false), Err(Refused::Invalid(condition)));
+        }
+        let injected: [(String, team_core::secret::Secret); 0] = [];
+        let policy = ResultPolicy {
+            human_requests: &[],
+            authorization_requested: false,
+            injected: &injected,
+            held_stored_inputs: &[],
+            declared_stored_inputs: &[],
+            messages: &Value::Array(Vec::new()),
+            file_withheld: false,
+        };
+        let mismatch = project(
+            &json(r#"{"type":"result","result":{"api_key":"x"}}"#),
+            &policy,
+            |_| Err(Condition::ResultSchemaMismatch),
+        );
+        assert_eq!(
+            mismatch,
+            Err(Refused::Invalid(Condition::ResultSchemaMismatch))
         );
     }
 
