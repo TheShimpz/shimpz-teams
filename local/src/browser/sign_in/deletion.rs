@@ -246,7 +246,7 @@ impl SignInSessions {
         }
     }
 
-    /// Asks easi.run to delete one profile; whether it answered that nothing is left.
+    /// Asks easi.run to delete one profile; whether it answered that nothing is left, or that none is there.
     pub(super) async fn remove_profile(&self, profile: &str) -> bool {
         self.service
             .runtime()
@@ -258,7 +258,7 @@ impl SignInSessions {
                 Instant::now() + CALL_SECONDS,
             )
             .await
-            .is_ok_and(|answer| answer.ok())
+            .is_ok_and(|answer| answer.ok() || answer.status == 404)
     }
 
     /// Keeps removing residue while Team runs: what a Team's deletion or an expiry leaves goes on its next pass.

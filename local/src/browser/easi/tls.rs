@@ -88,6 +88,8 @@ impl ServerCertVerifier for Pinned {
 /// Dials the admin on the internal Browser network, admitting the certificate its container holds.
 pub struct PinnedDial {
     docker: Arc<dyn DockerEngine>,
+    container: String,
+    address: (String, u16),
     certificate: Mutex<Option<Vec<u8>>>,
 }
 
@@ -95,8 +97,16 @@ impl PinnedDial {
     /// A dial reading the certificate through `docker`.
     #[must_use]
     pub fn new(docker: Arc<dyn DockerEngine>) -> Self {
+        Self::at(docker, ADMIN_CONTAINER, (HOST_NAME, PORT))
+    }
+
+    /// A dial of the admin at `address`, whose certificate its `container` holds.
+    #[must_use]
+    pub fn at(docker: Arc<dyn DockerEngine>, container: &str, address: (&str, u16)) -> Self {
         Self {
             docker,
+            container: container.to_owned(),
+            address: (address.0.to_owned(), address.1),
             certificate: Mutex::new(None),
         }
     }
@@ -118,7 +128,7 @@ impl PinnedDial {
     async fn read(&self) -> Result<Vec<u8>, EasiError> {
         let archive = self
             .docker
-            .get_archive(ADMIN_CONTAINER, CERTIFICATE_PATH, MAX_CERTIFICATE_BYTES)
+            .get_archive(&self.container, CERTIFICATE_PATH, MAX_CERTIFICATE_BYTES)
             .await
             .map_err(|_| EasiError::Lost)?;
         der(&archive.tar).ok_or(EasiError::Invalid)
@@ -135,7 +145,7 @@ impl PinnedDial {
                 provider,
             }))
             .with_no_client_auth();
-        let stream = TcpStream::connect((HOST_NAME, PORT)).await?;
+        let stream = TcpStream::connect((self.address.0.as_str(), self.address.1)).await?;
         stream.set_nodelay(true)?;
         // The name is only the handshake's: the certificate is what is checked.
         let name = ServerName::try_from("localhost").map_err(std::io::Error::other)?;

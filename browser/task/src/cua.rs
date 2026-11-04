@@ -49,6 +49,8 @@ pub const MAX_REFS: usize = 200;
 pub const MAX_NAME_CHARS: usize = 120;
 /// One call's own bound.
 pub const CALL_SECONDS: Duration = Duration::from_secs(30);
+/// How long a session asks for the browser's window to be listed with its process.
+pub const WINDOW_SECONDS: Duration = Duration::from_secs(5);
 /// A tab mid-navigation is briefly reported with no tab marked active; binding checks again at this interval.
 pub const BIND_POLL_SECONDS: Duration = Duration::from_millis(100);
 /// How far a scroll moves the page.
@@ -346,53 +348,78 @@ impl CuaSession {
             .map_err(|_| CuaError::fatal("channel-lost"))
     }
 
-    /// How many top-level Chromium windows the display shows (the Driver's own cursor overlay is not one).
+    /// Admits the browser's one window, attaches the Driver to it, and binds it.
     ///
-    /// # Errors
-    /// [`CuaError`] when the windows cannot be listed.
-    pub async fn chromium_windows(&mut self) -> Result<usize, CuaError> {
-        let listed = self
-            .call("list_windows", object(vec![]), false, None)
-            .await?;
-        let Some(Value::Array(windows)) = listed.0.get("windows") else {
-            return Err(CuaError::fatal("browser-window-unavailable"));
-        };
-        if !windows.iter().all(|window| is_object(Some(window))) {
-            return Err(CuaError::fatal("browser-window-unavailable"));
-        }
-        Ok(windows.iter().filter(|window| chromium(window)).count())
-    }
-
-    /// Initializes, admits Chromium's one window, attaches the Driver to it, and binds its active tab.
+    /// easi.run lists the window with its process only while the session starts, so this asks at once and briefly. The
+    /// window it admits stays usable after that: [`Self::window`] gives it to the next session on the same Browser.
     ///
     /// # Errors
     /// [`CuaError`] when any step fails.
     pub async fn open(&mut self) -> Result<(), CuaError> {
         self.initialize().await?;
-        let listed = self
-            .call("list_windows", object(vec![]), false, None)
-            .await?;
-        let window = match listed.0.get("windows") {
-            Some(Value::Array(windows)) if windows.len() == 1 && is_object(windows.first()) => {
-                &windows[0]
+        let until = self
+            .call_deadline(None)?
+            .min(Instant::now() + WINDOW_SECONDS);
+        let window = loop {
+            let listed = self
+                .call("list_windows", object(vec![]), false, None)
+                .await?;
+            let Some(Value::Array(windows)) = listed.0.get("windows") else {
+                return Err(CuaError::fatal("browser-window-unavailable"));
+            };
+            let mut named = windows
+                .iter()
+                .filter(|window| chromium(window))
+                .filter_map(
+                    |window| match (window.get("pid"), window.get("window_id")) {
+                        (
+                            Some(Value::Number(Number::Int(pid))),
+                            Some(Value::Number(Number::Int(id))),
+                        ) => Some(Window {
+                            pid: *pid,
+                            window_id: *id,
+                        }),
+                        _ => None,
+                    },
+                );
+            match (named.next(), named.next()) {
+                (Some(window), None) => break window,
+                (Some(_), Some(_)) => return Err(CuaError::fatal("browser-window-unavailable")),
+                (None, _) if Instant::now() >= until => {
+                    return Err(CuaError::fatal("browser-window-unavailable"));
+                }
+                (None, _) => sleep(BIND_POLL_SECONDS).await,
             }
-            _ => return Err(CuaError::fatal("browser-window-unavailable")),
         };
-        let (Some(Value::Number(Number::Int(pid))), Some(Value::Number(Number::Int(window_id)))) =
-            (window.get("pid"), window.get("window_id"))
-        else {
-            return Err(CuaError::fatal("browser-window-unavailable"));
-        };
-        if !chromium(window) {
-            return Err(CuaError::fatal("browser-window-unavailable"));
-        }
-        self.window = Some(Window {
-            pid: *pid,
-            window_id: *window_id,
-        });
+        self.opened_on(window).await
+    }
+
+    /// Attaches to and binds the window an earlier session on the same Browser admitted.
+    ///
+    /// # Errors
+    /// [`CuaError`] when any step fails.
+    pub async fn reopen(&mut self, window: (i64, i64)) -> Result<(), CuaError> {
+        self.initialize().await?;
+        self.opened_on(Window {
+            pid: window.0,
+            window_id: window.1,
+        })
+        .await
+    }
+
+    async fn opened_on(&mut self, window: Window) -> Result<(), CuaError> {
+        self.window = Some(window);
         self.prepare(None).await?;
         self.bind(None).await?;
         Ok(())
+    }
+
+    /// The window this session admitted, as its process and window ids.
+    #[must_use]
+    pub fn window(&self) -> Option<(i64, i64)> {
+        self.window
+            .as_ref()
+            .map(|window| (window.pid, window.window_id))
     }
 
     /// Attaches the Driver to the admitted window, or renews its lapsed grant there; the same call either way.
@@ -770,7 +797,7 @@ impl CuaSession {
 
 /// Whether a listed window is a window of easi.run's Chrome.
 fn chromium(window: &Value) -> bool {
-    matches!(window.get("app_name"), Some(Value::String(name)) if name.eq_ignore_ascii_case("google-chrome"))
+    matches!(window.get("app_name"), Some(Value::String(name)) if name.to_ascii_lowercase().contains("chrome"))
 }
 
 /// The failure a call that answered an error, or no structured answer, ends with.

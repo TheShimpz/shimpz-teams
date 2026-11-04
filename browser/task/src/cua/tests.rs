@@ -59,25 +59,39 @@ fn failure(error: CuaError) -> (&'static str, bool) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn counting_windows_binds_nothing_and_skips_the_drivers_own_overlay() {
+async fn a_window_that_never_names_its_process_or_is_no_browser_is_unavailable() {
+    let listings = [
+        WINDOW.replace("google-chrome", "Xterm"),
+        WINDOW.replace(r#""pid": 20"#, r#""pid": "20""#),
+        WINDOW.replace(r#""window_id": 7"#, r#""window_id": true"#),
+    ];
+    for listing in listings {
+        let replies = std::iter::once(answer(r#"{"result": {"capabilities": {}}}"#))
+            .chain((0..100).map(|_| windows(&format!("[{listing}]"))));
+        let mut session = CuaSession::new(Script::new(replies).channel());
+        assert_eq!(
+            session.open().await.map_err(failure),
+            Err(("browser-window-unavailable", true)),
+            "{listing}"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn opening_admits_the_one_chrome_window_that_names_its_process() {
+    // The compositor's own listing of the same window names no process, and the Driver's overlay is no browser.
+    let unnamed = r#"{"pid": null, "window_id": 4278190080, "app_name": "google-chrome"}"#;
     let overlay = r#"{"pid": 21, "window_id": 9, "app_name": ""}"#;
     let script = Script::new([
         answer(r#"{"result": {"capabilities": {}}}"#),
-        windows(&format!("[{WINDOW}, {WINDOW}, {overlay}]")),
+        windows(&format!("[{unnamed}, {overlay}]")),
+        windows(&format!("[{unnamed}, {WINDOW}, {overlay}]")),
+        tool(OK),
+        bound(),
     ]);
     let mut session = CuaSession::new(script.channel());
-    session.initialize().await.expect("initialized");
-    assert_eq!(session.chromium_windows().await, Ok(2));
-    assert_eq!(script.calls(), [("list_windows".to_owned(), json("{}"))]);
-    for listed in [r#""none""#, &format!(r#"[{WINDOW}, "window"]"#)] {
-        let script = Script::new([
-            answer(r#"{"result": {"capabilities": {}}}"#),
-            windows(listed),
-        ]);
-        let mut session = CuaSession::new(script.channel());
-        session.initialize().await.expect("initialized");
-        assert!(session.chromium_windows().await.is_err());
-    }
+    session.open().await.expect("opened");
+    assert_eq!(session.window(), Some((20, 7)));
 }
 
 #[tokio::test(start_paused = true)]
@@ -147,18 +161,7 @@ async fn requests_are_compact_ascii_json_rpc_lines_numbered_from_one() {
 #[tokio::test(start_paused = true)]
 async fn opening_refuses_anything_but_one_exactly_bound_chromium_tab() {
     let one = format!("[{WINDOW}]");
-    let window_cases = [
-        "[]".to_owned(),
-        format!("[{WINDOW}, {WINDOW}]"),
-        r#"["window"]"#.to_owned(),
-        "null".to_owned(),
-        format!("[{}]", WINDOW.replace("google-chrome", "Xterm")),
-        format!("[{}]", WINDOW.replace(r#""pid": 20"#, r#""pid": "20""#)),
-        format!(
-            "[{}]",
-            WINDOW.replace(r#""window_id": 7"#, r#""window_id": true"#)
-        ),
-    ];
+    let window_cases = [r#""none""#.to_owned(), format!("[{WINDOW}, {WINDOW}]")];
     let mut cases: Vec<(&str, Vec<Reply>)> = window_cases
         .iter()
         .map(|list| ("browser-window-unavailable", vec![windows(list)]))

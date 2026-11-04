@@ -4,8 +4,8 @@
 //! other session opens on that Browser: the run replaces it. A session's channel sends nothing once the turn no longer
 //! holds its Browser (Stop).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use strict_json::Value;
 use team_browser::cua::{Channel as CuaChannel, ChannelLost, CuaError, CuaSession};
@@ -74,6 +74,8 @@ pub(super) struct Drivers {
     held: HeldBy,
     // Set while a call has no answer; one that never got any leaves it set.
     uncertain: Arc<AtomicBool>,
+    // The window the first session admitted, which every later one on this Browser binds.
+    window: Mutex<Option<(i64, i64)>>,
 }
 
 impl Drivers {
@@ -96,6 +98,7 @@ impl Drivers {
             lease,
             held,
             uncertain: Arc::new(AtomicBool::new(false)),
+            window: Mutex::new(None),
         }
     }
 
@@ -113,7 +116,12 @@ impl Drivers {
             held: self.held.clone(),
         }));
         session.set_deadline(Some(deadline));
-        session.open().await?;
+        let known = *self.window.lock().unwrap_or_else(PoisonError::into_inner);
+        match known {
+            Some(window) => session.reopen(window).await?,
+            None => session.open().await?,
+        }
+        *self.window.lock().unwrap_or_else(PoisonError::into_inner) = session.window();
         Ok(session)
     }
 
