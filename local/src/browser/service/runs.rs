@@ -139,7 +139,6 @@ impl RunBrowsers {
         &self,
         run_id: &str,
         mut held: HeldRun,
-        relaunch: bool,
         deadline: Instant,
     ) -> Result<Recovered, OpenFailure> {
         let failed = held
@@ -154,12 +153,12 @@ impl RunBrowsers {
                 retryable: false,
             });
         };
-        let replaced = held.drivers.replace(failed, deadline, relaunch).await;
+        let replaced = held.drivers.replace(failed, deadline).await;
         let outcome = match replaced {
-            Ok((session, relaunched)) => {
+            Ok(session) => {
                 held.session = Some(Arc::new(tokio::sync::Mutex::new(session)));
                 Ok(Recovered {
-                    relaunched,
+                    relaunched: false,
                     replaced: false,
                 })
             }
@@ -172,7 +171,7 @@ impl RunBrowsers {
         outcome
     }
 
-    /// Removes the run's Browser, proving it absent and ending its egress generation; whether it was proven.
+    /// Removes the run's Browser, proving it absent; whether it was proven.
     async fn remove(&self, held: HeldRun) -> bool {
         drop(held.session);
         held.view.end();
@@ -188,16 +187,15 @@ impl RunBrowsers {
         self.runtime.release(&held.lease).await.is_ok()
     }
 
-    /// Acquires a Browser for the run on a fresh egress generation, holds it, and opens its Driver session.
+    /// Acquires a Browser for the run, holds it, and opens its Driver session.
     async fn acquire(&self, lent: &Lent, recovery: &Recovery) -> Result<HeldRun, OpenFailure> {
         let turn = &lent.turn;
         let lease = self
             .runtime
             .acquire(Acquire {
                 team_id: &turn.team_id,
-                language: &recovery.language,
                 mode: RunMode::Agent,
-                capsule: None,
+                profile: None,
                 deadline: Some(recovery.deadline),
                 stop: Some(&turn.stop),
             })
@@ -230,13 +228,9 @@ impl RunBrowsers {
         let mut session = match opened {
             Ok(session) => session,
             Err(failure) => {
-                let code = match failure {
-                    super::drivers::Fresh::Runtime(error) => error.0,
-                    super::drivers::Fresh::Driver(error) => error.code,
-                };
                 self.remove(held).await;
                 return Err(OpenFailure {
-                    code,
+                    code: failure.code,
                     retryable: false,
                 });
             }
@@ -263,7 +257,7 @@ impl RunBrowsers {
             "browser-view",
             &turn.team_id,
             "",
-            format!(":container={}", short(&lease.container_id)),
+            format!(":session={}", short(&lease.session_id)),
         );
         let view =
             super::view_of(&self.runtime, &self.entropy, &lease, lines, false).map_err(|_| {
@@ -326,12 +320,14 @@ impl RunHost for RunBrowsers {
             })?;
             let held = self.take_held(run_id);
             if let Some(held) = held {
-                let repairable = recovery.mode != Mode::Start
+                // A browser that must start again is a new session, as easi.run has no restart of one in place; so is
+                // one a call got no answer on, which may still be acting on its page.
+                let repairable = recovery.mode == Mode::Reopen
                     && held.session.is_some()
+                    && !held.drivers.uncertain()
                     && self.runtime.intact(&held.lease).await;
                 if repairable {
-                    let relaunch = recovery.mode == Mode::Relaunch;
-                    return self.reopen(run_id, held, relaunch, recovery.deadline).await;
+                    return self.reopen(run_id, held, recovery.deadline).await;
                 }
                 // The run's earlier Browser is proven removed before another one is created.
                 if !self.remove(held).await {

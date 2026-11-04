@@ -3,14 +3,20 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
+use hyper::Method;
 use strict_json::{Number, Value};
 use team_protocol::python::value::{exact_object, field};
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 
 use super::{Activity, DELETE, RECOVER_SECONDS, SessionError, SignInSessions, UNAVAILABLE};
 use crate::browser::audit::{Actor, Field, human};
+use crate::browser::easi::CALL_SECONDS;
 use crate::browser::sign_ins::{Deleting, Pending};
+
+/// How often Team looks for profiles no Sign-in names.
+const RESIDUE_SECONDS: Duration = Duration::from_mins(5);
 
 /// A Supervisor's deletion of a Team's Sign-in, as its activity events name it until its completion is recorded.
 #[derive(Clone, Debug)]
@@ -171,7 +177,7 @@ impl SignInSessions {
                 return false;
             }
         }
-        if self.store.purge(team_id, &deletion.deleting.event_id) != Ok(true) {
+        if !self.purged(team_id, &deletion.deleting.event_id).await {
             return false;
         }
         let own = background.then_some(deletion.deleting.initiator_id.as_str());
@@ -180,6 +186,17 @@ impl SignInSessions {
             return false;
         }
         self.store.settle(team_id, &deletion.deleting.event_id) == Ok(true)
+    }
+
+    /// Whether easi.run proved the deletion's profile gone: repeating it finishes what an earlier one left, and a
+    /// deletion no longer fenced by `event_id` was already done.
+    async fn purged(&self, team_id: &str, event_id: &str) -> bool {
+        let profile = match self.store.fenced_profile(team_id, event_id) {
+            Ok(Some(profile)) => profile,
+            Ok(None) => return true,
+            Err(_) => return false,
+        };
+        self.remove_profile(&profile).await
     }
 
     /// Retries a fenced deletion until it is proven and recorded; a restarted Team process resumes it at its start.
@@ -203,6 +220,8 @@ impl SignInSessions {
         } else {
             tokio::spawn(Arc::clone(self).recover_startup());
         }
+        self.remove_residue().await;
+        tokio::spawn(Arc::clone(self).sweep_residue());
         let pending = loop {
             match self.store.deletions() {
                 Ok(pending) => break pending,
@@ -223,6 +242,64 @@ impl SignInSessions {
             if self.service.runtime().recover().await {
                 self.cleaned.store(true, Ordering::SeqCst);
                 return;
+            }
+        }
+    }
+
+    /// Asks easi.run to delete one profile; whether it answered that nothing is left.
+    pub(super) async fn remove_profile(&self, profile: &str) -> bool {
+        self.service
+            .runtime()
+            .easi()
+            .call(
+                Method::DELETE,
+                &format!("/api/profiles/{profile}"),
+                None,
+                Instant::now() + CALL_SECONDS,
+            )
+            .await
+            .is_ok_and(|answer| answer.ok())
+    }
+
+    /// Keeps removing residue while Team runs: what a Team's deletion or an expiry leaves goes on its next pass.
+    async fn sweep_residue(self: Arc<Self>) {
+        loop {
+            sleep(RESIDUE_SECONDS).await;
+            self.remove_residue().await;
+        }
+    }
+
+    /// Removes every profile easi.run lists that no Sign-in names: what an ended first sign-in, a deleted Team, or an
+    /// expiry left. Nothing is removed while a session may be making one.
+    pub(super) async fn remove_residue(&self) {
+        if !self.guard().starting.is_empty() {
+            return;
+        }
+        let Ok(named) = self.store.named_profiles() else {
+            return;
+        };
+        let answer = self
+            .service
+            .runtime()
+            .easi()
+            .call(
+                Method::GET,
+                "/api/profiles",
+                None,
+                Instant::now() + CALL_SECONDS,
+            )
+            .await;
+        let Some(body) = answer.ok().and_then(|answer| answer.json().ok()) else {
+            return;
+        };
+        let Some(Value::Array(profiles)) = body.get("profiles") else {
+            return;
+        };
+        for listed in profiles {
+            if let Some(Value::String(id)) = listed.get("id")
+                && !named.contains(id)
+            {
+                let _ = self.remove_profile(id).await;
             }
         }
     }

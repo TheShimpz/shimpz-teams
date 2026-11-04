@@ -32,11 +32,11 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 
 use super::audit::{self, Actor, Lines, short};
-use super::runtime::{BrowserError, BrowserRuntime, Lease, LeaseRelays};
-use super::view::{Refused, RfbRelease, Stream, View, ViewParts};
+use super::easi::Upgraded as EasiStream;
+use super::runtime::{BrowserError, BrowserRuntime, Lease};
+use super::view::{Refused, RelayUnavailable, Relays, Stream, View, ViewParts};
 use crate::http::service::{Relay, Upgraded};
 
-pub(crate) use drivers::plain as drivers_channel;
 pub(crate) use runs::{Runs, RunsParts};
 pub use runs::{TurnContext, Unsettled};
 
@@ -76,7 +76,7 @@ pub struct BrowserTurn {
     pub actor: Actor,
 }
 
-/// The Browser's page language for the turn's interface language.
+/// The turn's language for its task, as its run records it.
 #[must_use]
 pub fn language(locale: Option<&str>) -> &'static str {
     if locale.is_some_and(|locale| locale.to_lowercase().starts_with("pt")) {
@@ -484,23 +484,17 @@ impl BrowserService {
     }
 }
 
-/// One audit line of a task's Browser: its Team and incarnation, the container, its address, and the egress process
-/// and generation it ran on, never a URL or page text.
+/// One audit line of a task's Browser: its Team and incarnation and its easi.run session, never a URL or page text.
 pub(super) async fn audit_task(
     sink: &dyn AuditSink,
     turn: &TurnContext,
     lease: &Lease,
     state: &str,
 ) -> Result<(), ()> {
-    let egress = &lease.egress;
     let detail = format!(
-        "{state}:incarnation={}:container={}:address={}:egress={}@{}:generation={}",
+        "{state}:incarnation={}:session={}",
         turn.incarnation.get(..12).unwrap_or(&turn.incarnation),
-        short(&lease.container_id),
-        lease.address,
-        short(&egress.container_id),
-        egress.started,
-        egress.generation
+        short(&lease.session_id),
     );
     audit::record(
         sink,
@@ -514,7 +508,31 @@ pub(super) async fn audit_task(
     .map_err(drop)
 }
 
-/// A new view of `lease` for `lines`, controlled with `lease`'s credentials when it has them.
+/// The viewers' streams of one lease.
+struct LeaseRelays {
+    runtime: Arc<BrowserRuntime>,
+    session_id: String,
+}
+
+impl Relays for LeaseRelays {
+    fn open_relay<'a>(
+        &'a self,
+        key: &'a str,
+        viewer: &'a str,
+        deadline: Instant,
+    ) -> BoxFuture<'a, Result<EasiStream, RelayUnavailable>> {
+        Box::pin(async move {
+            let path = format!("/ws/sessions/{}?viewer={viewer}", self.session_id);
+            self.runtime
+                .easi()
+                .upgrade(&path, key, deadline)
+                .await
+                .map_err(|_| RelayUnavailable)
+        })
+    }
+}
+
+/// A new view of `lease` for `lines`, controllable by a person when `lease` is a person's.
 pub(super) fn view_of(
     runtime: &Arc<BrowserRuntime>,
     entropy: &Arc<dyn Entropy>,
@@ -525,13 +543,12 @@ pub(super) fn view_of(
     View::new(ViewParts {
         relays: Arc::new(LeaseRelays {
             runtime: Arc::clone(runtime),
-            lease: lease.clone(),
+            session_id: lease.session_id.clone(),
         }),
         lines,
-        credentials: lease.credentials.clone(),
+        controllable: lease.mode == "person",
         private,
         entropy: Arc::clone(entropy),
-        release: Arc::new(RfbRelease(Arc::clone(entropy))),
     })
 }
 

@@ -147,12 +147,9 @@ COPY --link --chown=0:0 --from=cosign /tmp/cosign /usr/local/bin/cosign
 COPY --link --chown=0:0 --from=pdfium /tmp/pdfium/lib/libpdfium.so /tmp/pdfium/lib/pdfium.toml /usr/local/lib/
 COPY --link --chown=0:0 --from=build /workspace/target/release/shimpz-team /usr/local/bin/shimpz-team
 ENV TZDIR=/usr/share/shimpz-team/zoneinfo
-# The exact Browser image built with this Team image (ADR-0117 §9); the deploy and the publisher pass its digest.
-ARG SHIMPZ_BROWSER_IMAGE=""
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
-      org.shimpz.local.profile="local-v1" \
-      org.shimpz.local.browser-image="${SHIMPZ_BROWSER_IMAGE}"
+      org.shimpz.local.profile="local-v1"
 USER 10001:10001
 EXPOSE 7077
 HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --start-interval=1s --retries=3 \

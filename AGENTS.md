@@ -6,9 +6,46 @@
   Assistant egress proxy merely because it integrates with them.
 - Team owns its outbound policy and bindings under `egress/`; `assistants/egress` owns the separate enforcement
   proxy. Do not merge policy authority and network enforcement into one component.
-- Team owns the Browser (ADR-0117): its rules under `browser/`, its image under `browser/image/`, its Local lifecycle
-  under `local/browser/`, and the `browser` egress profile source under `browser/egress/`. That profile is a separate
-  `shimpz-egress` deployable: it receives no Team policy, credential, or state, and Team only restarts it.
+- Team owns the Browser's task and Sign-in rules (ADR-0117, ADR-0126): its rules under `browser/`, its Local lifecycle
+  under `local/browser/`. easi.run runs every Browser, unmodified, through its public administrator API; a capability
+  it lacks becomes a generic easi.run feature, never a patch here.
+- Organize the Local controller under `local/` (the Hosted profile is retired, ADR-0108). Keep source at the
+  repository root only while its ownership is genuinely controller-neutral and its final responsibility has been
+  classified.
+- Name responsibility directories with the shortest clear term. Use `install/`, not `installation/`.
+- Place peer integrations beneath the Team responsibility they serve. A peer may appear in a leaf adapter name such
+  as `developers.rs`; do not create a peer-domain directory that implies Team owns that domain.
+- Use `protocol/` only for versioned wire schemas, vectors, semantic validation, and integrity evidence. It is not
+  executable Team core logic.
+- Team owns its HTTP protocol. The neutral Assistant-install (resolve) protocol is a generated, pinned mirror; Developers
+  owns the published Assistant specification while Team admission remains independently fail-closed.
+- Do not create `core/`, `shared/`, `common/`, `utils/`, or `misc/` as a convenience. `core/` is allowed only for
+  cohesive Team invariants shared by several responsibilities.
+- Prefer a named profile-neutral responsibility such as `chat/`, `egress/`, `inference/`, or `action/` over hiding
+  that responsibility in `core/`.
+- Preserve Team isolation, least privilege, fail-closed validation, secret redaction, and exact image-copy closure
+  while moving source.
+
+## Shared delivery
+
+- Read the canonical [Shimpz architecture](https://github.com/TheShimpz/shimpz/blob/main/.context/ARCHITECTURE.md)
+  before changing vocabulary, cross-domain authority, protocols, topology, or placement.
+- Deliver the smallest useful microtask, validate it, and commit it with a clear English conventional message.
+- Commits reach `main` only through the umbrella's `.scripts/local-release/deploy` (ADR-0102), which pushes this
+  repository's commits before the umbrella commit that records their gitlink. Never push around it.
+- Shimpz is pre-production. Change the current contract directly; do not add aliases, dual imports, fallback
+  parsers, or cleanup code triggered only by retired repository state.
+- Tests that support workers use half of local processors and all GitHub Actions runner processors.
+
+## Validation
+
+- The controller is one Rust workspace (ADR-0123). From the umbrella root, run its lane with
+  `.scripts/gate/rust crate teams`, and the real-daemon controller suite with `.scripts/gate/live controller-local`.
+- Team owns its outbound policy and bindings under `egress/`; `assistants/egress` owns the separate enforcement
+  proxy. Do not merge policy authority and network enforcement into one component.
+- Team owns the Browser's task and Sign-in rules (ADR-0117, ADR-0126): its rules under `browser/`, its Local lifecycle
+  under `local/browser/`. easi.run runs every Browser, unmodified, through its public administrator API; a capability
+  it lacks becomes a generic easi.run feature, never a patch here.
 - Organize the Local controller under `local/` (the Hosted profile is retired, ADR-0108). Keep source at the
   repository root only while its ownership is genuinely controller-neutral and its final responsibility has been
   classified.

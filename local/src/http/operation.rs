@@ -1,4 +1,4 @@
-//! The closed set of the controller's 77 operations, in the route table's order (generated once from
+//! The closed set of the controller's 78 operations, in the route table's order (generated once from
 //! `core/http/strict.py`'s `CONTROLLER_ROUTES`; the table in [`super::route`] is now the authority).
 
 /// One controller operation, named on the wire and in the audit log by [`Operation::name`].
@@ -26,6 +26,8 @@ pub enum Operation {
     FileContent = 9,
     /// `file-acknowledgement`: `POST /v1/teams/:team_id/files/:file_id/acknowledgement`.
     FileAcknowledgement = 10,
+    /// `browser-viewer`: `GET /v1/browser/viewer`.
+    BrowserViewer = 77,
     /// `browser-view-open`: `POST /v1/teams/:team_id/browser/view`.
     BrowserViewOpen = 11,
     /// `browser-view-stream`: `GET /v1/teams/:team_id/browser/views/:view_id/stream`.

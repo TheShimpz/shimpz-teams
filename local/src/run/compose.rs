@@ -21,8 +21,9 @@ use super::{Startup, actions, group, integrations, state, step, team, web};
 use crate::assistant::containers::{self, Containers};
 use crate::audit::AuditLog;
 use crate::authority::Verifier;
+use crate::browser::easi::Easi;
 use crate::browser::http::BrowserGroup;
-use crate::browser::runtime::{BrowserRuntime, Host, own_browser_image};
+use crate::browser::runtime::BrowserRuntime;
 use crate::browser::service::{BrowserService, ServiceParts};
 use crate::browser::sign_in::{SessionParts, SignInSessions};
 use crate::browser::teardown::{Browsers, SignIns};
@@ -183,23 +184,16 @@ fn action_runner(shared: &Shared, publications: &Publications) -> Result<Actions
 }
 
 /// The Browser service and the Space's sign-in sessions.
-async fn browser(
+fn browser(
     shared: &Shared,
     team: &Arc<team::Team>,
 ) -> Result<(Arc<BrowserService>, Arc<SignInSessions>), Startup> {
     let seams = &shared.seams;
-    let host = Host {
-        docker: seams.docker.clone(),
-        exec: seams.exec.clone(),
-        entropy: seams.entropy.clone(),
-    };
-    let image = own_browser_image(seams.docker.as_ref(), &shared.hostname).await;
-    let runtime = Arc::new(BrowserRuntime::new(
-        host,
-        shared.space.id(),
-        &shared.cpuset,
-        image,
-    ));
+    let runtime = Arc::new(BrowserRuntime::new(Arc::new(Easi::new(
+        seams.docker.clone(),
+        seams.entropy.clone(),
+        shared.layout.sign_ins.state.clone(),
+    ))));
     let service = Arc::new(step(
         BrowserService::new(ServiceParts {
             runtime,
@@ -571,11 +565,11 @@ fn updates(shared: &Shared, built: &Built) -> AutomaticUpdates {
     )
 }
 
-async fn built(shared: &Shared) -> Result<Built, Startup> {
+fn built(shared: &Shared) -> Result<Built, Startup> {
     let publications = publications(shared)?;
     let actions = action_runner(shared, &publications)?;
     let (preparer, store) = preparation(shared);
-    let (browser, sessions) = browser(shared, &publications.team).await?;
+    let (browser, sessions) = browser(shared, &publications.team)?;
     let turns = turns(
         shared,
         (&publications, &actions),
@@ -596,7 +590,7 @@ async fn built(shared: &Shared) -> Result<Built, Startup> {
 
 /// The controller over `shared`, serving with `token`.
 pub(super) async fn compose(shared: Shared, token: Secret) -> Result<Composed, Startup> {
-    let built = built(&shared).await?;
+    let built = built(&shared)?;
     let lifecycle = lifecycle(
         &shared,
         &built.publications,

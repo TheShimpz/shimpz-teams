@@ -710,7 +710,6 @@ fn constants_16() {
 #[test]
 fn constants_17() {
     check(&[
-        ("sign_in.MAX_SITES", n(sign_in::MAX_SITES), 64),
         (
             "sign_in.MAX_GENERATION",
             n(sign_in::MAX_GENERATION),

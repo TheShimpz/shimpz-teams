@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -6,15 +5,14 @@ use strict_json::Value;
 use team_core::entropy::OsEntropy;
 use team_core::future::BoxFuture;
 use team_core::testing::{FakeClock, MemoryAudit};
-use team_protocol::sign_in::{IDENTITY_PROVIDER, NOT_RUNNING, UNSAVED, URL_INVALID, WINDOWS};
+use team_protocol::sign_in::{NOT_RUNNING, UNSAVED, URL_INVALID};
 
 use super::{
     IDLE_SECONDS, Incarnations, SessionError, SessionParts, SignInSessions, TEAM_NOT_FOUND,
     UNAVAILABLE,
 };
 use crate::browser::audit::Actor;
-use crate::browser::capsule::tests::{archive, cookie_store};
-use crate::browser::fake::{Fixture, driver, image};
+use crate::browser::fake::Fake;
 use crate::browser::service::{BrowserService, ServiceParts, WebFiles};
 use crate::browser::sign_ins::SignInStore;
 use crate::browser::sign_ins::tests::Scratch;
@@ -52,19 +50,18 @@ impl WebFiles for NoFiles {
 }
 
 pub(crate) struct Case {
-    pub(crate) fixture: Fixture,
+    pub(crate) fake: Fake,
     _scratch: Scratch,
     pub(crate) store: Arc<SignInStore>,
     pub(crate) sessions: Arc<SignInSessions>,
     pub(crate) audit: Arc<MemoryAudit>,
     pub(crate) incarnation: Arc<Incarnation>,
-    pub(crate) windows: Arc<AtomicUsize>,
     pub(crate) actor: Actor,
 }
 
 impl Case {
     pub(crate) async fn new() -> Self {
-        let mut fixture = Fixture::new();
+        let fake = Fake::default();
         let scratch = Scratch::new();
         let clock = Arc::new(FakeClock::at(UNIX_EPOCH + Duration::from_hours(500_000)));
         let store = Arc::new(
@@ -79,7 +76,7 @@ impl Case {
         let audit = Arc::new(MemoryAudit::default());
         let service = Arc::new(
             BrowserService::new(ServiceParts {
-                runtime: Arc::new(fixture.runtime(Some(image()))),
+                runtime: Arc::new(fake.runtime(&scratch.0)),
                 files: Arc::new(NoFiles),
                 audit: audit.clone(),
                 entropy: Arc::new(OsEntropy),
@@ -95,15 +92,13 @@ impl Case {
             audit: audit.clone(),
             entropy: Arc::new(OsEntropy),
         }));
-        let windows = drive(&mut fixture);
         let case = Self {
-            fixture,
+            fake,
             _scratch: scratch,
             store,
             sessions,
             audit,
             incarnation,
-            windows,
             actor: crate::browser::audit::request_actor(&Principal::Machine, &"a".repeat(32)),
         };
         case.sessions.startup().await;
@@ -112,7 +107,7 @@ impl Case {
 
     async fn start(&self) -> Result<Value, SessionError> {
         self.sessions
-            .start(TEAM, &self.actor, &text(URL), Some("pt"), ORIGIN)
+            .start(TEAM, &self.actor, &text(URL), ORIGIN)
             .await
     }
 
@@ -149,32 +144,6 @@ impl Case {
 
 /// Answers every Driver session the Browser opens, with the window count the test sets, and scripts the Browser's
 /// clean stop and its profile's export.
-fn drive(fixture: &mut Fixture) -> Arc<AtomicUsize> {
-    let windows = Arc::new(AtomicUsize::new(1));
-    let counted = windows.clone();
-    let mut attached = std::mem::replace(
-        &mut fixture.attached,
-        tokio::sync::mpsc::unbounded_channel().1,
-    );
-    tokio::spawn(async move {
-        while let Some((arguments, far)) = attached.recv().await {
-            if arguments == ["mcp"] {
-                tokio::spawn(driver(far, None, counted.load(Ordering::SeqCst)));
-            }
-        }
-    });
-    let profile = archive(&[
-        ("Default", None),
-        (
-            "Default/Cookies",
-            Some(&cookie_store(&[".linkedin.com"], &[], &[])),
-        ),
-    ]);
-    fixture.execs.script(&["profile", "export"], &profile, 0);
-    fixture.execs.script(&["stop"], b"stopped\n", 0);
-    windows
-}
-
 fn text(value: &str) -> Value {
     Value::String(value.to_owned())
 }
@@ -192,10 +161,10 @@ async fn a_session_runs_a_person_s_browser_through_a_view_no_one_can_watch() {
     let started = case.start().await.expect("started");
     assert!(team_protocol::sign_in::canonical_started(&started).is_some());
     assert_eq!(started.get("site"), Some(&text("www.linkedin.com")));
-    let created = case.fixture.daemon.state().created.clone();
-    let env = created[0].env.clone().expect("env");
-    assert!(env.contains(&"BROWSER_MODE=person".to_owned()));
-    assert!(env.contains(&format!("BROWSER_URL={URL}")));
+    let body = case.fake.state().bodies[0].clone();
+    let body = strict_json::parse(body.as_bytes()).expect("json");
+    assert_eq!(body.get("url"), Some(&text(URL)));
+    assert_eq!(body.get("devtools"), Some(&Value::Bool(false)));
     // Its view is private: no watcher opens it.
     assert!(case.sessions.service.open_view(TEAM).await.is_err());
     assert!(case.has("browser-sign-in-start", "requested"));
@@ -218,17 +187,14 @@ async fn saving_keeps_the_profile_as_a_sign_in_and_releases_the_browser() {
         .expect("readable")
         .expect("kept");
     assert_eq!(current.get("state"), Some(&text("ready")));
-    assert_eq!(
-        current.get("sites"),
-        Some(&Value::Array(vec![text("linkedin.com")]))
-    );
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert!(case.has("browser-sign-in-save", "completed"));
     // The session is gone: a second Save or a Cancel finds none.
     assert_eq!(case.save(&started).await, Err(SessionError(NOT_RUNNING)));
-    // The next session restores the saved profile before Chromium is ready.
+    // The next session starts on the saved profile.
+    let profile = case.fake.state().profiles[0].id.clone();
     let next = case.start().await.expect("started");
-    assert_ne!(case.fixture.execs.input(&["profile", "import"]).len(), 0);
+    assert!(case.fake.state().bodies[1].contains(&profile));
     case.sessions
         .cancel(TEAM, &case.actor, &id(&next), ORIGIN, false, "cancelled")
         .await
@@ -243,19 +209,6 @@ async fn saving_keeps_the_profile_as_a_sign_in_and_releases_the_browser() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn more_than_one_window_is_refused_and_the_session_goes_on() {
-    let case = Case::new().await;
-    let started = case.start().await.expect("started");
-    case.windows.store(2, Ordering::SeqCst);
-    assert_eq!(case.save(&started).await, Err(SessionError(WINDOWS)));
-    assert_eq!(case.fixture.daemon.browsers().len(), 1);
-    case.windows.store(1, Ordering::SeqCst);
-    case.save(&started)
-        .await
-        .expect("saved after closing the window");
-}
-
-#[tokio::test(start_paused = true)]
 async fn cancel_releases_the_browser_and_a_first_session_keeps_nothing() {
     let case = Case::new().await;
     let started = case.start().await.expect("started");
@@ -263,7 +216,7 @@ async fn cancel_releases_the_browser_and_a_first_session_keeps_nothing() {
         .cancel(TEAM, &case.actor, &id(&started), ORIGIN, false, "cancelled")
         .await
         .expect("cancelled");
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert_eq!(case.sessions.current(TEAM).await, Ok(None));
     assert!(case.has("browser-sign-in-cancel", "completed"));
     assert_eq!(
@@ -275,36 +228,72 @@ async fn cancel_releases_the_browser_and_a_first_session_keeps_nothing() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn nothing_is_kept_when_the_profile_or_the_team_does_not_allow_it() {
-    let identity = archive(&[
-        ("Default", None),
-        (
-            "Default/Cookies",
-            Some(&cookie_store(&[".accounts.google.com"], &[], &[])),
-        ),
-    ]);
-    let truncated = identity[..identity.len() - 512].to_vec();
-    for (profile, code, gone) in [
-        (identity, IDENTITY_PROVIDER, false),
-        (truncated, UNSAVED, false),
-        (Vec::new(), UNSAVED, true),
-    ] {
+async fn nothing_new_is_kept_when_easi_run_cannot_vouch_for_the_save() {
+    for problem in ["save-not-durable", "save-failed", "save-unconfirmed"] {
         let case = Case::new().await;
-        if !profile.is_empty() {
-            case.fixture
-                .execs
-                .script(&["profile", "export"], &profile, 0);
-        }
+        case.fake.state().save_problem = Some(problem);
         let started = case.start().await.expect("started");
-        if gone {
-            // The Team is a new incarnation by the time the Save commits.
-            *case.incarnation.0.lock().expect("usable") = Some("b".repeat(64));
-        }
-        assert_eq!(case.save(&started).await, Err(SessionError(code)), "{code}");
-        assert_eq!(case.store.current(TEAM, None), Ok(None));
-        assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
-        assert!(case.has("browser-sign-in-save", "failed"));
+        assert_eq!(
+            case.save(&started).await,
+            Err(SessionError(UNSAVED)),
+            "{problem}"
+        );
+        assert_eq!(case.fake.state().sessions, Vec::<String>::new());
+        assert_eq!(case.sessions.current(TEAM).await, Ok(None));
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn nothing_is_kept_for_a_team_that_changed_while_saving() {
+    let case = Case::new().await;
+    let started = case.start().await.expect("started");
+    *case.incarnation.0.lock().expect("usable") = Some("b".repeat(64));
+    assert_eq!(case.save(&started).await, Err(SessionError(UNSAVED)));
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
+    assert_eq!(case.sessions.current(TEAM).await, Ok(None));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_deletion_is_pending_until_easi_run_proves_the_profile_gone() {
+    let case = Case::new().await;
+    let started = case.start().await.expect("started");
+    let saved = case.save(&started).await.expect("saved");
+    let sign_in = saved.get("sign_in").expect("a Sign-in");
+    let confirmed = Value::Object(vec![
+        (
+            "sign_in_id".to_owned(),
+            sign_in.get("sign_in_id").expect("an id").clone(),
+        ),
+        (
+            "generation".to_owned(),
+            Value::Number(strict_json::Number::Int(1)),
+        ),
+        ("team_incarnation".to_owned(), text(&incarnation())),
+        ("factor".to_owned(), text("totp")),
+        ("origin".to_owned(), text(ORIGIN)),
+    ]);
+    case.fake.state().faults.insert("profile-residue");
+    assert_eq!(
+        case.sessions.delete(TEAM, &case.actor, &confirmed).await,
+        Ok("pending")
+    );
+    assert_eq!(case.fake.state().profiles.len(), 1);
+    assert!(!case.has("browser-sign-in-delete", "completed"));
+    case.fake.state().faults.remove("profile-residue");
+    tokio::time::sleep(super::RECOVER_SECONDS + Duration::from_secs(1)).await;
+    assert_eq!(case.fake.state().profiles.len(), 0);
+    assert!(case.has("browser-sign-in-delete", "completed"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_profile_no_sign_in_names_is_removed_as_residue() {
+    let case = Case::new().await;
+    let started = case.start().await.expect("started");
+    case.sessions
+        .cancel(TEAM, &case.actor, &id(&started), ORIGIN, false, "cancelled")
+        .await
+        .expect("cancelled");
+    assert_eq!(case.fake.state().profiles.len(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -312,13 +301,13 @@ async fn only_an_admissible_url_and_an_existing_team_start_a_session() {
     let case = Case::new().await;
     assert_eq!(
         case.sessions
-            .start(TEAM, &case.actor, &text("http://example.com"), None, ORIGIN)
+            .start(TEAM, &case.actor, &text("http://example.com"), ORIGIN)
             .await,
         Err(SessionError(URL_INVALID))
     );
     *case.incarnation.0.lock().expect("usable") = None;
     assert_eq!(case.start().await, Err(SessionError(TEAM_NOT_FOUND)));
-    assert_eq!(case.fixture.daemon.state().created.len(), 0);
+    assert_eq!(case.fake.state().started, 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -326,7 +315,7 @@ async fn nothing_delegating_starts_unless_its_activity_is_recorded_first() {
     let case = Case::new().await;
     case.audit.fail(true);
     assert_eq!(case.start().await, Err(SessionError(UNAVAILABLE)));
-    assert_eq!(case.fixture.daemon.state().created.len(), 0);
+    assert_eq!(case.fake.state().started, 0);
     case.audit.fail(false);
     let started = case.start().await.expect("started");
     case.audit.fail(true);
@@ -336,7 +325,7 @@ async fn nothing_delegating_starts_unless_its_activity_is_recorded_first() {
         .cancel(TEAM, &case.actor, &id(&started), ORIGIN, false, "cancelled")
         .await
         .expect("cancelled");
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
 }
 
 #[tokio::test(start_paused = true)]
@@ -370,7 +359,7 @@ async fn deletion_takes_the_exact_confirmed_sign_in_and_ends_a_session_using_it(
         Ok("deleted")
     );
     assert_eq!(case.sessions.current(TEAM).await, Ok(None));
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert!(case.has("browser-sign-in-delete", "completed"));
     assert_eq!(case.save(&running).await, Err(SessionError(NOT_RUNNING)));
 }
@@ -380,7 +369,7 @@ async fn a_session_ends_at_its_limit_or_left_alone() {
     let case = Case::new().await;
     case.start().await.expect("started");
     tokio::time::sleep(IDLE_SECONDS + Duration::from_secs(10)).await;
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert!(case.has("browser-sign-in-cancel", "completed"));
 }
 
@@ -389,11 +378,11 @@ async fn the_team_s_end_and_a_reset_end_its_session_keeping_nothing() {
     let case = Case::new().await;
     let started = case.start().await.expect("started");
     case.sessions.end_team(TEAM).await;
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert_eq!(case.save(&started).await, Err(SessionError(NOT_RUNNING)));
     let started = case.start().await.expect("started");
     case.sessions.end_all().await;
-    assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
     assert_eq!(case.save(&started).await, Err(SessionError(NOT_RUNNING)));
 }
 
@@ -421,9 +410,8 @@ async fn a_restarted_team_removes_earlier_browsers_and_completes_pending_deletio
     let left = runtime
         .acquire(crate::browser::runtime::Acquire {
             team_id: "other",
-            language: "en",
             mode: crate::browser::runtime::Mode::Agent,
-            capsule: None,
+            profile: None,
             deadline: None,
             stop: None,
         })

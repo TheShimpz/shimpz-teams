@@ -13,8 +13,7 @@ use team_core::future::BoxFuture;
 use team_protocol::browser_view::{self, BUSY, INVALID_UPGRADE, NOT_RUNNING, UNAVAILABLE};
 use team_protocol::identifiers::canonical_team_id;
 use team_protocol::sign_in::{
-    self, ABSENT, CHANGED, IDENTITY_PROVIDER, URL_INVALID, WINDOWS, canonical_delete,
-    canonical_session, canonical_start,
+    self, ABSENT, CHANGED, URL_INVALID, canonical_delete, canonical_session, canonical_start,
 };
 
 use super::audit::{Actor, request_actor};
@@ -60,12 +59,6 @@ fn session_problem(SessionError(code): SessionError) -> Problem {
             CHANGED,
         ),
         ABSENT => Problem::new(404, "the Team has no Sign-in", ABSENT),
-        WINDOWS => Problem::new(409, "close every window but one before saving", WINDOWS),
-        IDENTITY_PROVIDER => Problem::new(
-            409,
-            "the profile holds a session at an identity provider; sign out of it before saving",
-            IDENTITY_PROVIDER,
-        ),
         sign_in::UNSAVED => Problem::new(503, "the Sign-in could not be saved", sign_in::UNSAVED),
         "browser-busy" => Problem::new(409, "the Space's Browser is busy", "browser-busy"),
         TEAM_NOT_FOUND => Problem::new(404, "the Team does not exist", TEAM_NOT_FOUND),
@@ -114,6 +107,9 @@ impl BrowserGroup {
     }
 
     async fn answer(&self, call: &Call<'_>) -> Result<Answer, Problem> {
+        if call.operation() == Operation::BrowserViewer {
+            return self.viewer().await;
+        }
         let team_id = Self::team(call)?;
         let actor = request_actor(&call.principal, &call.trace_id);
         match call.operation() {
@@ -134,6 +130,21 @@ impl BrowserGroup {
             Operation::BrowserSignIn => self.current(team_id).await,
             _ => self.sign_in(call, team_id, &actor).await,
         }
+    }
+
+    /// easi.run's own viewer, which Admin's page draws every screen with.
+    async fn viewer(&self) -> Result<Answer, Problem> {
+        let body = self
+            .service
+            .runtime()
+            .viewer()
+            .await
+            .map_err(|_| view_problem(Refused(UNAVAILABLE)))?;
+        Ok(Answer::Binary {
+            media_type: "text/javascript",
+            body,
+            headers: Vec::new(),
+        })
     }
 
     /// Carries one viewer's stream of the watched screen, or a person's control of it, once the display answered.
@@ -201,18 +212,8 @@ impl BrowserGroup {
         actor: &Actor,
     ) -> Result<Answer, Problem> {
         let body = admitted(call, canonical_start)?;
-        let locale = match member(body, "locale") {
-            Value::String(locale) => Some(locale.as_str()),
-            _ => None,
-        };
         self.sessions
-            .start(
-                team_id,
-                actor,
-                member(body, "url"),
-                locale,
-                text(body, "origin"),
-            )
+            .start(team_id, actor, member(body, "url"), text(body, "origin"))
             .await
             .map(json)
             .map_err(session_problem)

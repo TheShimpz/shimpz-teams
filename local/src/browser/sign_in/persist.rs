@@ -1,28 +1,21 @@
-//! Saving a sign-in session: fence, rest, stop, export, check, and commit; anything short of a commit keeps nothing,
+//! Saving a sign-in session: fence, stop, read what easi.run saved, and commit; anything short of a commit keeps nothing,
 //! and the Browser is released however it ends.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use hyper::Method;
 use strict_json::Value;
-use team_browser::cua::{CALL_SECONDS, CuaSession};
-use team_core::stop::Stop;
-use team_protocol::sign_in::{IDENTITY_PROVIDER, NOT_RUNNING, UNSAVED, WINDOWS};
+use team_protocol::sign_in::{NOT_RUNNING, UNSAVED};
 use tokio::time::Instant;
 
 use super::{Activity, SAVE, Session, SessionError, SignInSessions, UNAVAILABLE};
 use crate::browser::audit::{Actor, Field};
-use crate::browser::capsule::Check;
-use crate::browser::service::drivers_channel;
-use crate::browser::sign_ins::Draft;
+use crate::browser::easi::CALL_SECONDS;
 
-/// Chromium commits its cookie store every 30 seconds; Save lets it rest that long first (owner-accepted, item 4).
-pub const REST_SECONDS: Duration = Duration::from_secs(31);
-/// How long Save waits for the person's control to end and its release to be proven.
+/// How long Save waits for the person's control to end.
 pub const QUIESCE_SECONDS: Duration = Duration::from_secs(15);
-/// The deadline to prove a window count's Driver exec ended.
-const COUNT_END_SECONDS: Duration = Duration::from_secs(5);
 
 impl SignInSessions {
     /// Keeps the session's profile as the Team's Sign-in's next generation; the Browser is released however it ends.
@@ -39,9 +32,6 @@ impl SignInSessions {
         origin: &str,
     ) -> Result<Value, SessionError> {
         let session = self.running(team_id, session_id)?;
-        if self.windows(&session).await? != 1 {
-            return Err(SessionError(WINDOWS));
-        }
         let requested = Activity {
             operation: SAVE,
             phase: "requested",
@@ -76,7 +66,7 @@ impl SignInSessions {
             guard.sessions.remove(&session.team_id);
             guard
                 .residue
-                .insert((session.team_id.clone(), session.lease.container_id.clone()));
+                .insert((session.team_id.clone(), session.lease.session_id.clone()));
         }
         session.ended.stop();
         self.fence(session).await;
@@ -131,7 +121,7 @@ impl SignInSessions {
         Ok(())
     }
 
-    /// Fences, rests, stops, exports, checks, and commits; anything short of a commit keeps nothing.
+    /// Fences, stops, and commits; anything short of a commit keeps nothing new.
     async fn persist(&self, session: &Arc<Session>, actor: &Actor) -> Result<Value, SessionError> {
         self.fence(session).await;
         let kept = self.kept(session).await;
@@ -148,62 +138,57 @@ impl SignInSessions {
 
     async fn kept(&self, session: &Arc<Session>) -> Result<Value, SessionError> {
         let unsaved = |_| SessionError(UNSAVED);
-        // Nothing acts on the Browser until the person's control ended and what they held was proven released.
-        if !session.view.quiesce(Instant::now() + QUIESCE_SECONDS).await
-            || self.windows(session).await? != 1
-        {
+        let fence = self.store.save_fence(&session.team_id);
+        // Nothing acts on the Browser until the person's control ended.
+        if !session.view.quiesce(Instant::now() + QUIESCE_SECONDS).await {
             return Err(SessionError(UNSAVED));
         }
-        // The rest is the session's own; an end meanwhile (Cancel, the limit, the Team's deletion) cuts it short.
-        if tokio::time::timeout(REST_SECONDS, session.ended.stopped())
-            .await
-            .is_ok()
-        {
+        if session.ended.is_stopped() {
             return Err(SessionError(NOT_RUNNING));
         }
+        // Stopping the session is what saves it; what easi.run says of that save decides whether it is kept.
         let runtime = self.service.runtime();
-        runtime.stop(&session.lease).await.map_err(unsaved)?;
-        let mut draft = self
-            .store
-            .draft(&session.checkout)
-            .map_err(|_| SessionError(UNSAVED))?;
-        let checked = self.exported(session, &mut draft).await;
+        runtime.kill(&session.lease).await.map_err(unsaved)?;
+        if !self.durably_saved(session).await {
+            return Err(SessionError(UNSAVED));
+        }
         let still = self.incarnations.current(&session.team_id).await.as_deref()
             == Some(session.incarnation.as_str());
-        let committed = checked.and_then(|check| {
-            let (sites, truncated) = check.sites();
-            draft
-                .commit(
-                    &sites,
-                    truncated,
-                    runtime.image().unwrap_or_default(),
-                    || still && self.commits(session),
-                )
-                .map_err(|_| SessionError(UNSAVED))
-        });
-        if committed.is_err() {
-            draft.discard();
-        }
-        committed
+        self.store
+            .commit(&session.checkout, fence, || still && self.commits(session))
+            .map_err(|_| SessionError(UNSAVED))
     }
 
-    /// Streams the stopped Browser's profile through the capsule check into `draft`; the check, once the capsule is
-    /// whole and holds no session at a known identity provider.
-    async fn exported(&self, session: &Session, draft: &mut Draft) -> Result<Check, SessionError> {
-        let mut check = Check::default();
-        self.service
+    /// Whether easi.run reports the session's profile saved, durably, with nothing wrong.
+    async fn durably_saved(&self, session: &Session) -> bool {
+        let Ok(Some(profile)) = self.store.profile(&session.checkout) else {
+            return false;
+        };
+        let answer = self
+            .service
             .runtime()
-            .export(&session.lease, &mut |chunk: &[u8]| {
-                check.feed(chunk).map_err(drop)?;
-                draft.add(chunk).map_err(drop)
-            })
-            .await
-            .map_err(|_| SessionError(UNSAVED))?;
-        check.finish().map_err(|_| SessionError(UNSAVED))?;
-        if !check.identity_hosts().is_empty() {
-            return Err(SessionError(IDENTITY_PROVIDER));
-        }
-        Ok(check)
+            .easi()
+            .call(
+                Method::GET,
+                "/api/profiles",
+                None,
+                Instant::now() + CALL_SECONDS,
+            )
+            .await;
+        let Ok(answer) = answer else {
+            return false;
+        };
+        let Ok(body) = answer.json() else {
+            return false;
+        };
+        let Some(Value::Array(profiles)) = body.get("profiles") else {
+            return false;
+        };
+        profiles.iter().any(|listed| {
+            matches!(listed.get("id"), Some(Value::String(id)) if *id == profile)
+                && matches!(listed.get("unsaved"), None | Some(Value::Null))
+                && matches!(listed.get("used"), Some(Value::Number(_)))
+        })
     }
 
     /// Under the store's commit: whether the session may still be kept, after which it can no longer be ended.
@@ -215,27 +200,6 @@ impl SignInSessions {
         }
         flags.committed = true;
         true
-    }
-
-    /// How many Chromium windows the person's Browser shows, through a Driver session that binds nothing.
-    async fn windows(&self, session: &Session) -> Result<usize, SessionError> {
-        let runtime = self.service.runtime();
-        let deadline = Instant::now() + CALL_SECONDS;
-        let (exec_id, channel) = runtime
-            .open_stream(&session.lease, deadline, &Stop::new())
-            .await
-            .map_err(|_| SessionError(UNSAVED))?;
-        let mut cua = CuaSession::new(drivers_channel(channel));
-        cua.set_deadline(Some(deadline));
-        let counted = match cua.initialize().await {
-            Ok(()) => cua.chromium_windows().await,
-            Err(error) => Err(error),
-        };
-        drop(cua);
-        runtime
-            .exited(&exec_id, Instant::now() + COUNT_END_SECONDS)
-            .await;
-        counted.map_err(|_| SessionError(UNSAVED))
     }
 }
 

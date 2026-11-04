@@ -1,7 +1,7 @@
 //! Team's MCP session with the Cua Driver inside one Browser (ADR-0117 §3.5).
 //!
-//! Team is the only MCP client. It speaks newline-delimited JSON-RPC over the channel its Local profile opens (a
-//! `docker exec` of `browser-host mcp`), calls only the closed set of tools below with arguments it builds itself, and
+//! Team is the only MCP client. It speaks newline-delimited JSON-RPC over the channel its Local profile opens (one call
+//! at a time on the session's easi.run agent endpoint), calls only the closed set of tools below with arguments it builds itself, and
 //! bounds every answer before anything reaches the Brain. Page content is untrusted: it is returned as bounded text,
 //! never interpreted.
 
@@ -768,9 +768,9 @@ impl CuaSession {
     }
 }
 
-/// Whether a listed window is a Chromium window.
+/// Whether a listed window is a window of easi.run's Chrome.
 fn chromium(window: &Value) -> bool {
-    matches!(window.get("app_name"), Some(Value::String(name)) if name.starts_with("Chromium"))
+    matches!(window.get("app_name"), Some(Value::String(name)) if name.eq_ignore_ascii_case("google-chrome"))
 }
 
 /// The failure a call that answered an error, or no structured answer, ends with.

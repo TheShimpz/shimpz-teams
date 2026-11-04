@@ -477,7 +477,7 @@ impl Browser {
         let ok = json(r#"{"structuredContent": {"status": "ok"}}"#);
         let result = match tool {
             "list_windows" => json(
-                r#"{"structuredContent": {"windows": [{"pid": 20, "window_id": 7, "app_name": "Chromium-browser"}]}}"#,
+                r#"{"structuredContent": {"windows": [{"pid": 20, "window_id": 7, "app_name":"google-chrome"}]}}"#,
             ),
             "get_browser_state" if arguments.get("snapshot_format").is_none() => json(
                 r#"{"structuredContent": {"binding_quality": "exact", "target_id": "bt-1", "tabs": [{"tab_id": "tab-1", "active": true}]}}"#,

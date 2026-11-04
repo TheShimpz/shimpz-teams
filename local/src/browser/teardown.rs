@@ -122,16 +122,15 @@ mod tests {
                 "neo",
                 &case.actor,
                 &strict_json::Value::String("https://www.linkedin.com/login".to_owned()),
-                None,
                 "https://admin.example",
             )
             .await
             .expect("started");
         assert!(started.get("view_id").is_some());
         browsers.remove_team(&team()).await.expect("removed");
-        assert_eq!(case.fixture.daemon.browsers(), Vec::<String>::new());
+        assert_eq!(case.fake.state().sessions, Vec::<String>::new());
         sign_ins.remove_team(&team()).await.expect("deleted");
-        assert_eq!(case.store.current("neo", None), Ok(None));
+        assert_eq!(case.store.current("neo"), Ok(None));
         browsers.remove_space().await.expect("reset");
         sign_ins.remove_space().await.expect("reset");
     }

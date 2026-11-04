@@ -1,65 +1,45 @@
-//! The Local Team Browser's Docker lifecycle (ADR-0117 §4 and §8).
+//! The Space's one Browser session on easi.run (ADR-0117, ADR-0126).
 //!
-//! One Browser exists per Space at a time. Before creating one, Team proves from the labelled Docker inventory that no
-//! Browser container exists and that the egress is the static Browser network's only member, and it runs every task
-//! on a fresh egress generation: the egress is restarted after each task, and before a task whenever the generation an
-//! earlier task used is still running. The Browser is created, inspected against its complete envelope before Chromium
-//! starts, started, and inspected again; drift removes it. A failed or unproven removal keeps every later task refused
-//! until a cleanup proves the Space clean again.
+//! One Browser exists per Space at a time. Before creating one, Team proves from easi.run's own listing that no session
+//! is left. A creation or call whose answer was lost leaves its outcome unknown, so nothing replaces that session until
+//! it is proven gone. A failed or unproven removal keeps every later task refused until a cleanup proves the Space
+//! clean again. Team is easi.run's one administrator, so every session listed is Team's.
 
-mod egress;
-mod programs;
+mod agent;
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use sha2::{Digest, Sha256};
-use team_core::entropy::Entropy;
-use team_core::exec::ExecEngine;
+use hyper::Method;
+use strict_json::{Number, Value};
 use team_core::stop::Stop;
-use tokio::sync::watch;
-use tokio::time::{Instant, sleep, sleep_until, timeout_at};
+use tokio::time::{Instant, sleep};
 
-use super::credentials::Credentials;
-use super::envelope::{self, Drift, Requested};
-use crate::docker::{DockerEngine, DockerError};
+use super::easi::{Answer, CALL_SECONDS, Easi, EasiError};
 
-pub use egress::Generation;
-pub use programs::{HOST, LeaseRelays};
+pub use agent::AgentCalls;
 
-/// The Browser's ownership kind.
-pub const KIND: &str = "browser";
-/// The label a Team image names its exact Browser image with (ADR-0117 §9).
-pub const IMAGE_LABEL: &str = "org.shimpz.local.browser-image";
-/// The published Browser repository; a missing image of it is pulled by digest.
-pub const PUBLISHED: &str = "ghcr.io/theshimpz/shimpz-browser";
-const DEVELOPER: &str = "localhost/shimpz-browser";
-/// Removing a Browser, proved absent, ends by this one deadline.
-pub const REMOVE_SECONDS: Duration = Duration::from_secs(30);
+/// How long a session has to start.
+pub const START_SECONDS: Duration = Duration::from_mins(1);
+/// Removing a Browser ends by this one deadline: easi.run saves a saved session first, within its own two minutes.
+pub const REMOVE_SECONDS: Duration = Duration::from_mins(3);
+/// How long a creation whose answer was lost can still finish on easi.run.
+pub const CREATE_SETTLE_SECONDS: Duration = Duration::from_mins(2);
 /// How often a removed Browser's absence is checked again.
 pub const REMOVE_POLL: Duration = Duration::from_millis(100);
-/// How long a Browser has to answer `ready`.
-pub const READY_SECONDS: Duration = Duration::from_secs(20);
-
-const MANAGED_LABEL: &str = "com.shimpz.local.managed";
-const PROFILE_LABEL: &str = "com.shimpz.local.profile";
-const SPACE_LABEL: &str = "com.shimpz.local.space-id";
-const KIND_LABEL: &str = "com.shimpz.local.kind";
-const TEAM_LABEL: &str = "com.shimpz.local.team-id";
-const OWNED_IMAGE_LABEL: &str = "com.shimpz.local.image";
-const PROFILE: &str = "local-v1";
+/// The page a task's session opens on, before its first navigation: one easi.run's proxy refuses, so nothing leaves.
+const BLANK: &str = "http://localhost/";
 
 /// A closed reason no Browser task can run or continue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BrowserError(pub &'static str);
 
 impl BrowserError {
-    /// No Browser can run, or this one drifted.
+    /// No Browser can run.
     pub const UNAVAILABLE: Self = Self("browser-unavailable");
-    /// The Space's one Browser is held, or something still occupies its network.
+    /// The Space's one Browser is held.
     pub const BUSY: Self = Self("browser-busy");
     /// The Browser failed, or could not be proven removed.
     pub const LOST: Self = Self("browser-lost");
@@ -73,8 +53,7 @@ impl std::fmt::Display for BrowserError {
 
 impl std::error::Error for BrowserError {}
 
-/// Who drives a Browser (ADR-0117, Sign-ins amendment): the agent alone, a person signing in at a URL, or a task
-/// restored from a Sign-in. Only the last two hold display credentials and keep a profile.
+/// Who drives a Browser: the agent alone, a person signing in at a URL, or a task restored from a Sign-in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// The agent alone.
@@ -86,7 +65,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    fn name(&self) -> &'static str {
+    const fn name(&self) -> &'static str {
         match self {
             Self::Agent => "agent",
             Self::Person(_) => "person",
@@ -95,183 +74,105 @@ impl Mode {
     }
 }
 
-/// A capsule chunk that could not be read or authenticated.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CapsuleUnreadable;
-
-/// A Sign-in's capsule, chunk by chunk, each authenticated as it is read.
-pub type Capsule = Box<dyn Iterator<Item = Result<Vec<u8>, CapsuleUnreadable>> + Send>;
-
-/// One running Browser: its Team, container, address, the egress generation it runs on, and who drives it.
+/// One running Browser: its Team, easi.run session, and who drives it.
 #[derive(Clone, Debug)]
 pub struct Lease {
     /// Its Team.
     pub team_id: String,
-    /// Its container's id.
-    pub container_id: String,
-    /// Its address on the Browser network.
-    pub address: String,
-    /// The egress process it started on.
-    pub egress: Generation,
+    /// Its easi.run session.
+    pub session_id: String,
     /// `agent`, `person`, or `signed-in`.
     pub mode: &'static str,
-    /// The display's viewer credentials, for a Browser a person may control.
-    pub credentials: Option<Arc<Credentials>>,
 }
 
 /// What one Browser is acquired for.
 pub struct Acquire<'a> {
     /// The Team.
     pub team_id: &'a str,
-    /// The pages' language (`en` or a two-letter language and region).
-    pub language: &'a str,
     /// Who drives it.
     pub mode: Mode,
-    /// The capsule restored before Chromium starts.
-    pub capsule: Option<Capsule>,
-    /// When a missing image's pull, and the whole start, stop being waited for.
+    /// The easi.run profile restored into it.
+    pub profile: Option<&'a str>,
+    /// When the whole start stops being waited for.
     pub deadline: Option<Instant>,
-    /// The task's Stop, which ends every wait at once.
+    /// The task's Stop, which ends the wait at once.
     pub stop: Option<&'a Stop>,
 }
 
-/// Whether a task may still wait for its Browser: not stopped, and its deadline not passed.
-#[derive(Clone, Copy)]
-struct Waiting<'a> {
-    deadline: Option<Instant>,
-    stop: Option<&'a Stop>,
-}
-
-impl Waiting<'_> {
-    fn may(&self) -> bool {
-        !self.stop.is_some_and(Stop::is_stopped)
-            && self
-                .deadline
-                .is_none_or(|deadline| Instant::now() < deadline)
-    }
-
-    /// Resolves once the task may no longer wait.
-    async fn ended(&self) {
-        let stopped = async {
-            match self.stop {
-                Some(stop) => stop.stopped().await,
-                None => std::future::pending().await,
-            }
-        };
-        let passed = async {
-            match self.deadline {
-                Some(deadline) => sleep_until(deadline).await,
-                None => std::future::pending().await,
-            }
-        };
-        tokio::select! {
-            () = stopped => {},
-            () = passed => {},
-        }
-    }
-}
-
-/// Where the runtime runs.
-#[derive(Clone)]
-pub struct Host {
-    /// The Docker daemon.
-    pub docker: Arc<dyn DockerEngine>,
-    /// Exec into the Browser.
-    pub exec: Arc<dyn ExecEngine>,
-    /// The random source of display credentials.
-    pub entropy: Arc<dyn Entropy>,
-}
-
-/// Admission, creation, the exec programs, and proven removal of the Space's one Browser.
+/// Creation, calls, and proven removal of the Space's one Browser.
 pub struct BrowserRuntime {
-    host: Host,
-    space_id: String,
-    cpuset: String,
-    image: Option<String>,
+    easi: Arc<Easi>,
     // The Space's one slot: held from a lease's acquisition until its release.
     held: AtomicBool,
     // Set when a removal failed or was not proven: the next holder cleans first.
     dirty: AtomicBool,
-    // Set once this process proved that no Browser of an earlier Team process is left.
+    // Set once this process proved that no session of an earlier Team process is left.
     cleaned: AtomicBool,
-    // The egress generation an earlier task ran on, which no later task may share; unknown after a Team start.
-    used: Mutex<Option<Generation>>,
-    // The one pull of the pinned image under way, if any: its outcome once known.
-    pull: Mutex<Option<watch::Receiver<Option<bool>>>>,
+    // Whether easi.run answered the last time it was asked.
+    reachable: AtomicBool,
+    // Set once easi.run keeps a task's downloads without asking a person.
+    policy: AtomicBool,
+    // When a creation's answer was lost: it may still finish until the settle time passed.
+    creating: Mutex<Option<Instant>>,
+    // Each Team's session now, for its teardown.
+    sessions: Mutex<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for BrowserRuntime {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("BrowserRuntime")
-            .field("image", &self.image)
-            .finish_non_exhaustive()
+        formatter.write_str("BrowserRuntime")
     }
 }
 
-/// The exact Browser image a Team image's labels name, or `None` (ADR-0117 §9).
-#[must_use]
-pub fn browser_image<S: std::hash::BuildHasher>(
-    labels: Option<&HashMap<String, String, S>>,
-) -> Option<String> {
-    let value = labels?.get(IMAGE_LABEL)?;
-    let (repository, digest) = value.split_once("@sha256:")?;
-    let exact = (repository == DEVELOPER || repository == PUBLISHED)
-        && digest.len() == 64
-        && digest
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    exact.then(|| value.clone())
+/// What a session's viewers and agent may do, as easi.run's features name it: an agent's session keeps its downloads
+/// for the task and nothing is recorded; a person signing in types, pastes, and uploads, and takes nothing out.
+fn features(mode: &Mode) -> Value {
+    let person = matches!(mode, Mode::Person(_));
+    let on = |name: &str, value: bool| (name.to_owned(), Value::Bool(value));
+    Value::Object(vec![
+        on("keyboard_pointer", person),
+        on("clipboard", person),
+        on("uploads", person),
+        on("downloads", !person),
+        on("sound", false),
+        on("recording", false),
+        on("replay", false),
+    ])
 }
 
-/// The Browser image this Team container's own image names, or `None`: Team then answers browser-unavailable.
-pub async fn own_browser_image(docker: &dyn DockerEngine, hostname: &str) -> Option<String> {
-    let container = docker.inspect_container(hostname).await.ok()?;
-    let image = docker
-        .inspect_image(container.image.as_deref()?)
-        .await
-        .ok()?;
-    browser_image(image.config.as_ref()?.labels.as_ref())
-}
-
-fn language_admitted(language: &str) -> bool {
-    let bytes = language.as_bytes();
-    let lower = |part: &[u8]| part.len() == 2 && part.iter().all(u8::is_ascii_lowercase);
-    let upper = |part: &[u8]| part.len() == 2 && part.iter().all(u8::is_ascii_uppercase);
-    match bytes.len() {
-        2 => lower(bytes),
-        5 => lower(&bytes[..2]) && bytes[2] == b'-' && upper(&bytes[3..]),
-        _ => false,
+fn listed_id(session: &Value) -> Option<&str> {
+    match session.get("id") {
+        Some(Value::String(id)) => Some(id),
+        _ => None,
     }
 }
 
 impl BrowserRuntime {
-    /// The runtime of `space_id`'s Browser on `cpuset`, running `image` (only on amd64; `None` where it cannot run).
+    /// The runtime over `easi`.
     #[must_use]
-    pub fn new(host: Host, space_id: &str, cpuset: &str, image: Option<String>) -> Self {
+    pub fn new(easi: Arc<Easi>) -> Self {
         Self {
-            host,
-            space_id: space_id.to_owned(),
-            cpuset: cpuset.to_owned(),
-            image,
+            easi,
             held: AtomicBool::new(false),
             dirty: AtomicBool::new(true),
             cleaned: AtomicBool::new(false),
-            used: Mutex::new(None),
-            pull: Mutex::new(None),
+            reachable: AtomicBool::new(false),
+            policy: AtomicBool::new(false),
+            creating: Mutex::new(None),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
-    /// The exact Browser image this Team runs, which a Sign-in records as its writer.
+    /// The client of the installation.
     #[must_use]
-    pub fn image(&self) -> Option<&str> {
-        self.image.as_deref()
+    pub fn easi(&self) -> &Arc<Easi> {
+        &self.easi
     }
 
-    /// Whether this Team image names a Browser it can run.
+    /// Whether easi.run answered the last time it was asked; a task still asks it again.
     #[must_use]
     pub fn available(&self) -> bool {
-        self.image.is_some()
+        self.reachable.load(Ordering::SeqCst)
     }
 
     fn take_slot(&self) -> bool {
@@ -284,8 +185,8 @@ impl BrowserRuntime {
         self.held.store(false, Ordering::SeqCst);
     }
 
-    /// Whether this process proved that no Browser an earlier Team process left remains, so none of its Driver
-    /// sessions can act again.
+    /// Whether this process proved that no session an earlier Team process left remains, so none of its calls can act
+    /// again.
     #[must_use]
     pub fn previous_gone(&self) -> bool {
         self.cleaned.load(Ordering::SeqCst)
@@ -297,61 +198,24 @@ impl BrowserRuntime {
         self.dirty.load(Ordering::SeqCst)
     }
 
-    /// The labels every Browser of this Space carries, optionally for one Team.
-    fn ownership(&self, team_id: Option<&str>) -> Vec<(&'static str, String)> {
-        let mut labels = vec![
-            (MANAGED_LABEL, "1".to_owned()),
-            (PROFILE_LABEL, PROFILE.to_owned()),
-            (SPACE_LABEL, self.space_id.clone()),
-            (KIND_LABEL, KIND.to_owned()),
-        ];
-        if let Some(team_id) = team_id {
-            labels.push((TEAM_LABEL, team_id.to_owned()));
-        }
-        labels
-    }
-
-    /// The container name of `team_id`'s Browser.
-    #[must_use]
-    pub fn container_name(&self, team_id: &str) -> String {
-        let digest = Sha256::digest(self.space_id.as_bytes());
-        let prefix = digest
-            .iter()
-            .take(6)
-            .fold(String::new(), |mut prefix, byte| {
-                // Writing to a String cannot fail.
-                let _ = write!(prefix, "{byte:02x}");
-                prefix
-            });
-        format!("shimpz-local-{prefix}-{team_id}-browser")
-    }
-
-    // Admission and creation
-
-    /// Creates this task's Browser on a fresh egress generation; the caller releases the returned lease.
+    /// Creates this task's Browser; the caller releases the returned lease.
     ///
     /// # Errors
-    /// [`BrowserError`]: `browser-unavailable` when it cannot run or drifted, `browser-busy` while the Space's Browser
-    /// is held or its network is occupied.
+    /// [`BrowserError`]: `browser-unavailable` when it cannot run, `browser-busy` while the Space's Browser is held.
     pub async fn acquire(&self, request: Acquire<'_>) -> Result<Lease, BrowserError> {
-        let admitted = self.image.is_some()
-            && language_admitted(request.language)
-            && match request.mode {
-                Mode::SignedIn => request.capsule.is_some(),
-                Mode::Agent => request.capsule.is_none(),
-                Mode::Person(_) => true,
-            };
+        let admitted = match request.mode {
+            Mode::SignedIn => request.profile.is_some(),
+            Mode::Agent => request.profile.is_none(),
+            Mode::Person(_) => true,
+        };
         if !admitted {
             return Err(BrowserError::UNAVAILABLE);
         }
         if !self.take_slot() {
             return Err(BrowserError::BUSY);
         }
-        match self.acquired(request).await {
-            Ok((lease, egress)) => {
-                *self.used.lock().unwrap_or_else(PoisonError::into_inner) = Some(egress);
-                Ok(lease)
-            }
+        match self.acquired(&request).await {
+            Ok(lease) => Ok(lease),
             Err(error) => {
                 self.dirty.store(true, Ordering::SeqCst);
                 self.free_slot();
@@ -360,33 +224,150 @@ impl BrowserRuntime {
         }
     }
 
-    async fn acquired(&self, request: Acquire<'_>) -> Result<(Lease, Generation), BrowserError> {
+    async fn acquired(&self, request: &Acquire<'_>) -> Result<Lease, BrowserError> {
         if self.dirty() {
             self.clean().await?;
         }
-        self.prove_clean().await?;
-        let egress = self.fresh_egress().await?;
-        let waiting = Waiting {
-            deadline: request.deadline,
-            stop: request.stop,
-        };
-        let lease = self.create(request, egress.clone(), waiting).await?;
-        Ok((lease, egress))
+        if !self.listed().await?.is_empty() {
+            return Err(BrowserError::BUSY);
+        }
+        self.keep_downloads().await?;
+        let answer = self.created(request).await?;
+        if !answer.ok() {
+            return Err(BrowserError::UNAVAILABLE);
+        }
+        let session = answer.json().map_err(|_| BrowserError::UNAVAILABLE)?;
+        let id = listed_id(&session).ok_or(BrowserError::UNAVAILABLE)?;
+        self.sessions()
+            .insert(request.team_id.to_owned(), id.to_owned());
+        Ok(Lease {
+            team_id: request.team_id.to_owned(),
+            session_id: id.to_owned(),
+            mode: request.mode.name(),
+        })
     }
 
-    /// Removes the task's Browser, proves it absent, and ends its egress generation; then frees the slot.
+    /// easi.run's answer to creating the session, bounded by the start's deadline and the task's Stop.
+    async fn created(&self, request: &Acquire<'_>) -> Result<Answer, BrowserError> {
+        let deadline = request
+            .deadline
+            .map_or(Instant::now() + START_SECONDS, |deadline| {
+                deadline.min(Instant::now() + START_SECONDS)
+            });
+        let body = Self::session_body(request);
+        let created = self
+            .easi
+            .call(Method::POST, "/api/sessions", Some(&body), deadline);
+        let answer = match request.stop {
+            Some(stop) => tokio::select! {
+                answer = created => answer,
+                () = stop.stopped() => Err(EasiError::Lost),
+            },
+            None => created.await,
+        };
+        answer.map_err(|error| self.creation_lost(error))
+    }
+
+    fn session_body(request: &Acquire<'_>) -> Value {
+        let url = match &request.mode {
+            Mode::Person(url) => url.as_str(),
+            Mode::Agent | Mode::SignedIn => BLANK,
+        };
+        let agent = !matches!(request.mode, Mode::Person(_));
+        let mut members = vec![
+            ("url".to_owned(), Value::String(url.to_owned())),
+            ("devtools".to_owned(), Value::Bool(agent)),
+            ("agent".to_owned(), Value::Bool(agent)),
+            ("features".to_owned(), features(&request.mode)),
+        ];
+        if let Some(profile) = request.profile {
+            members.push(("profile".to_owned(), Value::String(profile.to_owned())));
+        }
+        Value::Object(members)
+    }
+
+    /// The creation's answer never came: it may still finish, so what it made is removed once it can no longer appear.
+    fn creation_lost(&self, error: EasiError) -> BrowserError {
+        if error == EasiError::Lost {
+            *self.creating.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        }
+        BrowserError::UNAVAILABLE
+    }
+
+    fn sessions(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lets a task keep its downloads without a person's answer, which it would otherwise wait two minutes for.
+    async fn keep_downloads(&self) -> Result<(), BrowserError> {
+        if self.policy.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let body = Value::Object(vec![
+            ("downloads".to_owned(), Value::String("allow".to_owned())),
+            ("transfers".to_owned(), Value::String("deny".to_owned())),
+        ]);
+        let answer = self
+            .easi
+            .call(
+                Method::PUT,
+                "/api/agent-files",
+                Some(&body),
+                Instant::now() + CALL_SECONDS,
+            )
+            .await
+            .map_err(|_| BrowserError::UNAVAILABLE)?;
+        if !answer.ok() {
+            return Err(BrowserError::UNAVAILABLE);
+        }
+        self.policy.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Every session easi.run lists.
+    async fn listed(&self) -> Result<Vec<Value>, BrowserError> {
+        let answered = self
+            .easi
+            .call(
+                Method::GET,
+                "/api/sessions",
+                None,
+                Instant::now() + CALL_SECONDS,
+            )
+            .await;
+        self.reachable.store(answered.is_ok(), Ordering::SeqCst);
+        let answer = answered.map_err(|_| BrowserError::UNAVAILABLE)?;
+        if !answer.ok() {
+            return Err(BrowserError::UNAVAILABLE);
+        }
+        match answer.json().map_err(|_| BrowserError::UNAVAILABLE)? {
+            Value::Object(members) => {
+                match members.into_iter().find(|(name, _)| name == "sessions") {
+                    Some((_, Value::Array(sessions))) => Ok(sessions),
+                    _ => Err(BrowserError::UNAVAILABLE),
+                }
+            }
+            _ => Err(BrowserError::UNAVAILABLE),
+        }
+    }
+
+    /// Removes the task's Browser and proves it absent; then frees the slot.
     ///
     /// # Errors
-    /// [`BrowserError::LOST`] or `browser-unavailable` when either was not proven; the runtime stays dirty.
+    /// [`BrowserError::LOST`] when that was not proven; the runtime stays dirty.
     pub async fn release(&self, lease: &Lease) -> Result<(), BrowserError> {
-        let outcome = async {
-            self.remove(&lease.container_id).await?;
-            self.restart_egress().await.map(drop)
-        }
-        .await;
+        let outcome = self.remove(&lease.session_id).await;
+        self.forget(lease);
         self.dirty.store(outcome.is_err(), Ordering::SeqCst);
         self.free_slot();
         outcome
+    }
+
+    fn forget(&self, lease: &Lease) {
+        let mut sessions = self.sessions();
+        if sessions.get(&lease.team_id) == Some(&lease.session_id) {
+            sessions.remove(&lease.team_id);
+        }
     }
 
     /// Cleans up after a removal that failed; whether no residue is left, proven. While a task holds the slot, only
@@ -404,31 +385,35 @@ impl BrowserRuntime {
         outcome
     }
 
-    /// Removes every Browser a previous Team process left; whether it proved none is left. The egress is not
-    /// restarted here, and the runtime stays dirty, so the first task restarts it on a generation no task used.
+    /// Removes every session a previous Team process left; whether it proved none is left.
     pub async fn startup(&self) -> bool {
         if !self.take_slot() {
             return false;
         }
-        let outcome = self.remove_all(None).await.is_ok();
-        if outcome {
-            self.cleaned.store(true, Ordering::SeqCst);
-        }
+        let outcome = self.clean().await.is_ok();
         self.free_slot();
         outcome
     }
 
-    /// Removes every Browser of this Space and restarts the egress, proving both; where no Browser can run, proving
-    /// none is left is all.
+    /// Removes every session easi.run lists, once a lost creation can no longer add one, and proves none is left.
     ///
     /// # Errors
-    /// [`BrowserError`] when either was not proven.
+    /// [`BrowserError`] when that was not proven.
     pub async fn clean(&self) -> Result<(), BrowserError> {
-        self.remove_all(None).await?;
-        self.cleaned.store(true, Ordering::SeqCst);
-        if self.available() {
-            self.restart_egress().await?;
+        let creating = *self.creating.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(lost) = creating {
+            let settled = lost + CREATE_SETTLE_SECONDS;
+            let now = Instant::now();
+            if settled > now {
+                sleep(settled - now).await;
+            }
         }
+        for session in self.listed().await? {
+            let id = listed_id(&session).ok_or(BrowserError::UNAVAILABLE)?;
+            self.remove(id).await?;
+        }
+        *self.creating.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        self.cleaned.store(true, Ordering::SeqCst);
         self.dirty.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -438,70 +423,25 @@ impl BrowserRuntime {
     /// # Errors
     /// [`BrowserError`] when it may remain.
     pub async fn remove_team(&self, team_id: &str) -> Result<(), BrowserError> {
-        self.remove_all(Some(team_id)).await
-    }
-
-    async fn remove_all(&self, team_id: Option<&str>) -> Result<(), BrowserError> {
-        for id in self.browsers(team_id).await? {
-            self.remove(&id).await?;
-        }
-        Ok(())
-    }
-
-    async fn browsers(&self, team_id: Option<&str>) -> Result<Vec<String>, BrowserError> {
-        let owned = self.ownership(team_id);
-        let labels: Vec<(&str, &str)> = owned
-            .iter()
-            .map(|(name, value)| (*name, value.as_str()))
-            .collect();
-        let listed = self
-            .host
-            .docker
-            .list_containers(&labels)
-            .await
-            .map_err(|_| BrowserError::UNAVAILABLE)?;
-        listed
-            .into_iter()
-            .map(|summary| summary.id.ok_or(BrowserError::UNAVAILABLE))
-            .collect()
-    }
-
-    async fn prove_clean(&self) -> Result<(), BrowserError> {
-        if !self.browsers(None).await?.is_empty() {
-            return Err(BrowserError::BUSY);
-        }
-        let network = self.network().await?;
-        let egress = self.egress().await?;
-        let members = network.containers.unwrap_or_default();
-        let only_egress = members.len() == 1
-            && egress
-                .id
-                .as_ref()
-                .is_some_and(|id| members.contains_key(id));
-        if only_egress {
-            Ok(())
-        } else {
-            Err(BrowserError::BUSY)
+        let session = self.sessions().get(team_id).cloned();
+        match session {
+            Some(session) => {
+                self.remove(&session).await?;
+                self.sessions().remove(team_id);
+                Ok(())
+            }
+            None => Ok(()),
         }
     }
 
-    /// Whether the lease's Browser still runs on the very egress process it started on (ADR-0117 §4.3).
+    /// Whether the lease's session still runs on easi.run, not failed.
     pub async fn intact(&self, lease: &Lease) -> bool {
-        let Ok(egress) = self.egress().await else {
-            return false;
-        };
-        let Ok(current) = egress::generation(&egress) else {
-            return false;
-        };
-        let Ok(container) = self
-            .host
-            .docker
-            .inspect_container(&lease.container_id)
-            .await
-        else {
-            return false;
-        };
-        current == lease.egress && container.state.and_then(|state| state.running) == Some(true)
+        self.listed().await.is_ok_and(|sessions| {
+            sessions.iter().any(|session| {
+                listed_id(session) == Some(lease.session_id.as_str())
+                    && matches!(session.get("failed"), None | Some(Value::Null))
+            })
+        })
     }
 
     /// Removes the lease's Browser at once, for Stop; its task's release proves the removal and frees the slot.
@@ -509,241 +449,194 @@ impl BrowserRuntime {
     /// # Errors
     /// [`BrowserError::LOST`] when the removal was not proven.
     pub async fn kill(&self, lease: &Lease) -> Result<(), BrowserError> {
-        self.remove(&lease.container_id).await
+        self.remove(&lease.session_id).await
     }
 
-    async fn create(
-        &self,
-        request: Acquire<'_>,
-        egress: Generation,
-        waiting: Waiting<'_>,
-    ) -> Result<Lease, BrowserError> {
-        let image = self.image.clone().ok_or(BrowserError::UNAVAILABLE)?;
-        // The egress has its outbound network too; the Browser reaches it only on the Browser network.
-        let proxy =
-            envelope::networks_address(&self.egress().await?).ok_or(BrowserError::UNAVAILABLE)?;
-        let image_id = self.image_id(&image, waiting).await?;
-        if !waiting.may() {
-            return Err(BrowserError::UNAVAILABLE);
-        }
-        let requested = self.requested(&request, &image, &proxy);
-        let id = self
-            .host
-            .docker
-            .create_container(&requested.name, envelope::body(&requested))
-            .await
-            .map_err(|_| BrowserError::UNAVAILABLE)?;
-        match self
-            .started(&id, &requested, &image_id, &egress, request, waiting)
-            .await
-        {
-            Ok(lease) => Ok(lease),
-            Err(error) => {
-                // Removal is proven or the runtime stays dirty: either way the Browser never serves this task.
-                let _ = self.remove(&id).await;
-                Err(error)
-            }
-        }
-    }
-
-    fn requested(&self, request: &Acquire<'_>, image: &str, proxy: &str) -> Requested {
-        let mut labels: HashMap<String, String> = self
-            .ownership(Some(request.team_id))
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect();
-        labels.insert(OWNED_IMAGE_LABEL.to_owned(), image.to_owned());
-        let mut env = vec![
-            format!("BROWSER_PROXY={proxy}"),
-            format!("BROWSER_LANG={}", request.language),
-            format!("BROWSER_MODE={}", request.mode.name()),
-        ];
-        if let Mode::Person(url) = &request.mode {
-            env.push(format!("BROWSER_URL={url}"));
-            if request.capsule.is_some() {
-                env.push("BROWSER_RESTORE=1".to_owned());
-            }
-        }
-        Requested {
-            image: image.to_owned(),
-            name: self.container_name(request.team_id),
-            labels,
-            env,
-            cpuset: self.cpuset.clone(),
-        }
-    }
-
-    /// Inspects the created Browser against its envelope, starts it, inspects it again, hands it its credentials and
-    /// capsule, and waits for it to be ready.
-    async fn started(
-        &self,
-        id: &str,
-        requested: &Requested,
-        image_id: &str,
-        egress: &Generation,
-        request: Acquire<'_>,
-        waiting: Waiting<'_>,
-    ) -> Result<Lease, BrowserError> {
-        let drifted = |_: Drift| BrowserError::UNAVAILABLE;
-        let created = self.inspect(id).await?;
-        envelope::before_start(&created, requested, image_id).map_err(drifted)?;
-        // Stop or the deadline came while the container was created: Chromium never starts.
-        if !waiting.may() {
-            return Err(BrowserError::UNAVAILABLE);
-        }
-        self.host
-            .docker
-            .start_container(id)
-            .await
-            .map_err(|_| BrowserError::UNAVAILABLE)?;
-        let running = self.inspect(id).await?;
-        let network = self.network().await?;
-        let address = envelope::after_start(
-            &running,
-            id,
-            requested,
-            image_id,
-            &network,
-            &egress.container_id,
-        )
-        .map_err(drifted)?;
-        let mode = request.mode.name();
-        let credentials = self.provision(id, &request.mode, request.capsule).await?;
-        self.wait_ready(id, waiting).await?;
-        Ok(Lease {
-            team_id: request.team_id.to_owned(),
-            container_id: id.to_owned(),
-            address,
-            egress: egress.clone(),
-            mode,
-            credentials,
-        })
-    }
-
-    async fn provision(
-        &self,
-        id: &str,
-        mode: &Mode,
-        capsule: Option<Capsule>,
-    ) -> Result<Option<Arc<Credentials>>, BrowserError> {
-        let credentials = if *mode == Mode::Agent {
-            None
-        } else {
-            let drawn = Credentials::draw(self.host.entropy.as_ref())
-                .map_err(|_| BrowserError::UNAVAILABLE)?;
-            let file = drawn.file();
-            self.feed(id, &["credentials"], Box::new(std::iter::once(Ok(file))))
-                .await?;
-            Some(Arc::new(drawn))
-        };
-        if let Some(capsule) = capsule {
-            self.feed(id, &["profile", "import"], capsule).await?;
-        }
-        Ok(credentials)
-    }
-
-    async fn inspect(
-        &self,
-        id: &str,
-    ) -> Result<bollard::models::ContainerInspectResponse, BrowserError> {
-        self.host
-            .docker
-            .inspect_container(id)
-            .await
-            .map_err(|_| BrowserError::UNAVAILABLE)
-    }
-
-    async fn wait_ready(&self, id: &str, waiting: Waiting<'_>) -> Result<(), BrowserError> {
-        let deadline = Instant::now() + READY_SECONDS;
-        while self
-            .program(id, &["ready"], Instant::now() + Duration::from_secs(2))
-            .await
-            != Some(0)
-        {
-            if Instant::now() >= deadline || !waiting.may() {
-                return Err(BrowserError::UNAVAILABLE);
-            }
-            sleep(Duration::from_millis(200)).await;
-        }
-        Ok(())
-    }
-
-    /// The image's id: present, or the published image pulled by digest while the task may wait.
-    async fn image_id(&self, image: &str, waiting: Waiting<'_>) -> Result<String, BrowserError> {
-        match self.host.docker.inspect_image(image).await {
-            Ok(found) => return found.id.ok_or(BrowserError::UNAVAILABLE),
-            Err(DockerError::NotFound) if image.starts_with(&format!("{PUBLISHED}@")) => {}
-            Err(_) => return Err(BrowserError::UNAVAILABLE),
-        }
-        self.pulled(image, waiting).await?;
-        let pulled = self
-            .host
-            .docker
-            .inspect_image(image)
-            .await
-            .map_err(|_| BrowserError::UNAVAILABLE)?;
-        pulled.id.ok_or(BrowserError::UNAVAILABLE)
-    }
-
-    /// Waits for the one pull of the pinned image, starting it if none runs, while the task may wait. A pull still
-    /// running when the wait ends goes on alone and is never used by this task.
-    async fn pulled(&self, image: &str, waiting: Waiting<'_>) -> Result<(), BrowserError> {
-        if !waiting.may() {
-            return Err(BrowserError::UNAVAILABLE);
-        }
-        let mut outcome = {
-            let mut pull = self.pull.lock().unwrap_or_else(PoisonError::into_inner);
-            let running = pull
-                .as_ref()
-                .is_some_and(|receiver| receiver.borrow().is_none());
-            if !running {
-                let (sender, receiver) = watch::channel(None);
-                let docker = Arc::clone(&self.host.docker);
-                let reference = image.to_owned();
-                tokio::spawn(async move {
-                    let pulled = docker.pull_image(&reference).await.is_ok();
-                    sender.send_replace(Some(pulled));
-                });
-                *pull = Some(receiver);
-            }
-            pull.clone().ok_or(BrowserError::UNAVAILABLE)?
-        };
-        let finished = async {
-            outcome
-                .wait_for(Option::is_some)
-                .await
-                .ok()
-                .and_then(|value| *value)
-        };
-        tokio::select! {
-            pulled = finished => match pulled {
-                Some(true) => Ok(()),
-                _ => Err(BrowserError::UNAVAILABLE),
-            },
-            () = waiting.ended() => Err(BrowserError::UNAVAILABLE),
-        }
-    }
-
-    /// Removes one Browser and proves it absent, all by one deadline that no stalled Docker call extends.
-    ///
-    /// A removal another caller already has under way (Stop and the task's release race) is no failure: its end is
-    /// proved like any other. Only Docker answering that the container is gone proves it.
-    async fn remove(&self, id: &str) -> Result<(), BrowserError> {
+    async fn remove(&self, session_id: &str) -> Result<(), BrowserError> {
         let deadline = Instant::now() + REMOVE_SECONDS;
-        match timeout_at(deadline, self.host.docker.remove_container(id)).await {
-            Ok(Ok(()) | Err(DockerError::NotFound | DockerError::Conflict)) => {}
-            Ok(Err(DockerError::Unavailable)) | Err(_) => return Err(BrowserError::LOST),
+        let answer = self
+            .easi
+            .call(
+                Method::DELETE,
+                &format!("/api/sessions/{session_id}"),
+                None,
+                deadline,
+            )
+            .await
+            .map_err(|_| BrowserError::LOST)?;
+        if !answer.ok() && answer.status != 404 {
+            return Err(BrowserError::LOST);
         }
-        loop {
-            match timeout_at(deadline, self.host.docker.inspect_container(id)).await {
-                Ok(Err(DockerError::NotFound)) => return Ok(()),
-                Ok(Ok(_)) => {}
-                Ok(Err(_)) | Err(_) => return Err(BrowserError::LOST),
-            }
-            if Instant::now() + REMOVE_POLL > deadline {
-                return Err(BrowserError::LOST);
+        while Instant::now() < deadline {
+            let sessions = self.listed().await.map_err(|_| BrowserError::LOST)?;
+            if !sessions
+                .iter()
+                .any(|session| listed_id(session) == Some(session_id))
+            {
+                return Ok(());
             }
             sleep(REMOVE_POLL).await;
+        }
+        Err(BrowserError::LOST)
+    }
+
+    /// easi.run's viewer SDK as the installed release serves it.
+    ///
+    /// # Errors
+    /// [`BrowserError::UNAVAILABLE`] when it could not be read.
+    pub async fn viewer(&self) -> Result<Vec<u8>, BrowserError> {
+        let answer = self
+            .easi
+            .call(
+                Method::GET,
+                "/sdk/viewer.js",
+                None,
+                Instant::now() + CALL_SECONDS,
+            )
+            .await
+            .map_err(|_| BrowserError::UNAVAILABLE)?;
+        if answer.ok() {
+            Ok(answer.body)
+        } else {
+            Err(BrowserError::UNAVAILABLE)
+        }
+    }
+
+    /// One tool call on the lease's session, its MCP result, by `deadline`.
+    ///
+    /// # Errors
+    /// [`EasiError`] when no answer came, so the call's outcome is unknown.
+    pub async fn tool(
+        &self,
+        session_id: &str,
+        tool: &str,
+        arguments: Value,
+        deadline: Instant,
+    ) -> Result<Answer, EasiError> {
+        let body = Value::Object(vec![
+            ("tool".to_owned(), Value::String(tool.to_owned())),
+            ("arguments".to_owned(), arguments),
+        ]);
+        self.easi
+            .call(
+                Method::POST,
+                &format!("/api/sessions/{session_id}/agent"),
+                Some(&body),
+                deadline,
+            )
+            .await
+    }
+
+    /// The task's downloads in the shape its ingest reads: `files`, `refused`, and how many it could not name a size
+    /// for (`skipped`), by `deadline`.
+    ///
+    /// # Errors
+    /// [`BrowserError::LOST`] when they could not be read.
+    pub async fn files(
+        &self,
+        lease: &Lease,
+        deadline: Option<Instant>,
+        stop: Option<&Stop>,
+    ) -> Result<Value, BrowserError> {
+        let end = deadline.unwrap_or_else(|| Instant::now() + CALL_SECONDS);
+        let listing = self
+            .structured(lease, "list_files", Value::Object(Vec::new()), end)
+            .await?;
+        if stop.is_some_and(Stop::is_stopped) {
+            return Err(BrowserError::LOST);
+        }
+        let Some(Value::Array(downloads)) = listing.get("downloads") else {
+            return Err(BrowserError::LOST);
+        };
+        let mut files = Vec::new();
+        let mut skipped = 0_i64;
+        for download in downloads {
+            match (download.get("name"), download.get("size")) {
+                (Some(Value::String(name)), Some(Value::Number(Number::Int(size)))) => {
+                    files.push(Value::Object(vec![
+                        ("name".to_owned(), Value::String(name.clone())),
+                        ("size".to_owned(), Value::Number(Number::Int(*size))),
+                    ]));
+                }
+                _ => skipped += 1,
+            }
+        }
+        Ok(Value::Object(vec![
+            ("files".to_owned(), Value::Array(files)),
+            ("refused".to_owned(), Value::Array(Vec::new())),
+            ("skipped".to_owned(), Value::Number(Number::Int(skipped))),
+        ]))
+    }
+
+    /// One listed download's exact bytes, through its single-use ticket, by `deadline`.
+    ///
+    /// # Errors
+    /// [`BrowserError::LOST`] when they could not be read whole.
+    pub async fn read(
+        &self,
+        lease: &Lease,
+        name: &str,
+        size: u64,
+        deadline: Option<Instant>,
+    ) -> Result<Vec<u8>, BrowserError> {
+        let end = deadline.unwrap_or_else(|| Instant::now() + CALL_SECONDS);
+        let listing = self
+            .structured(lease, "list_files", Value::Object(Vec::new()), end)
+            .await?;
+        let Some(Value::Array(downloads)) = listing.get("downloads") else {
+            return Err(BrowserError::LOST);
+        };
+        let id = downloads
+            .iter()
+            .find(|download| {
+                matches!(download.get("name"), Some(Value::String(listed)) if listed == name)
+            })
+            .and_then(|download| match download.get("id") {
+                Some(Value::Number(Number::Int(id))) => Some(*id),
+                _ => None,
+            })
+            .ok_or(BrowserError::LOST)?;
+        let arguments = Value::Object(vec![(
+            "download".to_owned(),
+            Value::Number(Number::Int(id)),
+        )]);
+        let ticket = self
+            .structured(lease, "save_download", arguments, end)
+            .await?;
+        let Some(Value::String(url)) = ticket.get("url") else {
+            return Err(BrowserError::LOST);
+        };
+        let path = url.find("/api/").map_or(url.as_str(), |at| &url[at..]);
+        let answer = self
+            .easi
+            .call(Method::GET, path, None, end)
+            .await
+            .map_err(|_| BrowserError::LOST)?;
+        if !answer.ok() || u64::try_from(answer.body.len()) != Ok(size) {
+            return Err(BrowserError::LOST);
+        }
+        Ok(answer.body)
+    }
+
+    /// A tool's structured answer.
+    async fn structured(
+        &self,
+        lease: &Lease,
+        tool: &str,
+        arguments: Value,
+        deadline: Instant,
+    ) -> Result<Value, BrowserError> {
+        let answer = self
+            .tool(&lease.session_id, tool, arguments, deadline)
+            .await
+            .map_err(|_| BrowserError::LOST)?;
+        if !answer.ok() {
+            return Err(BrowserError::LOST);
+        }
+        let result = answer.json().map_err(|_| BrowserError::LOST)?;
+        match result.get("structuredContent") {
+            Some(structured) => Ok(structured.clone()),
+            None => Ok(result),
         }
     }
 }

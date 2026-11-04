@@ -5,17 +5,15 @@
 //! view, which no one can watch. It ends by Save, Cancel, its 30-minute limit, or 10 minutes without the person
 //! connected to it.
 //!
-//! Save checks that one window is open, then fences the session: the person's control ends and its release must be
-//! proven before anything else acts, and the window count must still be one. Chromium rests so its stores commit, stops
-//! cleanly, and its profile streams through the capsule check into a sealed draft; a profile with a session at a known
-//! identity provider's sign-in host is refused. While it saves, the session stays registered: Cancel, the limit, the
-//! Team's deletion, or a reset still end it, and then nothing is kept. The Sign-in is committed only if the session was
-//! not ended meanwhile and its Team is still the same incarnation. Whatever happens, the Browser is released.
+//! Save fences the session: the person's control ends before anything else acts. Stopping the session then saves its
+//! profile on easi.run, which says whether that is durable. While it saves, the session stays registered: Cancel, the
+//! limit, the Team's deletion, or a reset still end it. The Sign-in is committed only if the session was not ended
+//! meanwhile and its Team is still the same incarnation. Whatever happens, the Browser is released.
 //!
 //! A session that began starting before its Team was deleted, its Sign-in deleted, or the Space reset is never
 //! registered: each end bumps an epoch that a starting session must still see unchanged once its Browser exists.
 //!
-//! A Supervisor's deletion is `deleted` only once the Sign-in's capsules are proven gone, no session of the Team is
+//! A Supervisor's deletion is `deleted` only once easi.run proves the Sign-in's profile gone, no session of the Team is
 //! running or starting, its Browser's removal was proven, and its completion is recorded; until then it is `pending`
 //! and Team keeps trying, across a restart too. Every step records its activity event (ADR-0120): starting and Saving
 //! delegate the Sign-in, so they refuse when the audit log cannot record them; Cancel and deletion protect it, so they
@@ -29,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use hyper::Method;
 use strict_json::Value;
 use team_core::audit::AuditSink;
 use team_core::entropy::{Entropy, token_hex};
@@ -38,8 +37,9 @@ use team_protocol::sign_in::{NOT_RUNNING, URL_INVALID, start_site};
 use tokio::time::{Instant, sleep};
 
 use super::audit::{self, Actor, Field, Lines, short};
+use super::easi::CALL_SECONDS;
 use super::runtime::{Acquire, Lease, Mode};
-use super::service::{BrowserService, language};
+use super::service::BrowserService;
 use super::sign_ins::{Checkout, Kind, SignInError, SignInStore};
 use super::view::View;
 
@@ -242,7 +242,7 @@ impl SignInSessions {
     /// A session's state line, never a URL path, page content, or input; Team's own when no request made it. A log
     /// that cannot record one never stops what the session does.
     async fn line(&self, actor: &Actor, lease: &Lease, state: &str) {
-        let detail = format!("{state}:container={}", short(&lease.container_id));
+        let detail = format!("{state}:session={}", short(&lease.session_id));
         let _ = audit::record(
             self.audit.as_ref(),
             actor,
@@ -279,7 +279,7 @@ impl SignInSessions {
     /// # Errors
     /// [`SignInError`] when the Sign-ins cannot be read.
     pub async fn current(&self, team_id: &str) -> Result<Option<Value>, SignInError> {
-        let current = self.store.current(team_id, self.service.runtime().image());
+        let current = self.store.current(team_id);
         self.record_expired().await;
         current
     }
@@ -293,7 +293,6 @@ impl SignInSessions {
         team_id: &str,
         actor: &Actor,
         url: &Value,
-        locale: Option<&str>,
         origin: &str,
     ) -> Result<Value, SessionError> {
         let site = start_site(url).ok_or(SessionError(URL_INVALID))?;
@@ -311,7 +310,6 @@ impl SignInSessions {
             team_id,
             actor,
             url,
-            locale,
             origin,
             site: &site,
             admission,
@@ -404,28 +402,43 @@ impl SignInSessions {
         self.activity(request.actor, request.team_id, failed).await;
     }
 
-    /// The checked-out Sign-in's capsule when this image wrote it; a refusal ends the start.
-    async fn restored(
-        &self,
-        request: &Start<'_>,
-        current: &str,
-        event: &str,
-        checkout: &Checkout,
-    ) -> Result<Option<super::sign_ins::Capsule>, SessionError> {
-        let image = self.service.runtime().image().unwrap_or_default();
-        match self.store.capsule(checkout, image) {
-            Ok(capsule) => Ok(capsule),
-            Err(error) => {
-                let failed = SessionError::from(error);
-                self.start_failed(request, event, checkout, current, failed.0)
-                    .await;
-                Err(failed)
-            }
+    /// The profile the checkout's Sign-in lives in: the one it has, or a new one, recorded before its Browser starts.
+    async fn profile(&self, checkout: &Checkout) -> Result<String, &'static str> {
+        match self.store.profile(checkout) {
+            Ok(Some(profile)) => return Ok(profile),
+            Ok(None) => {}
+            Err(error) => return Err(SessionError::from(error).0),
         }
+        let body = Value::Object(vec![(
+            "name".to_owned(),
+            Value::String(checkout.team_id.clone()),
+        )]);
+        let answer = self
+            .service
+            .runtime()
+            .easi()
+            .call(
+                Method::POST,
+                "/api/profiles",
+                Some(&body),
+                Instant::now() + CALL_SECONDS,
+            )
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        if !answer.ok() {
+            return Err(UNAVAILABLE);
+        }
+        let created = answer.json().map_err(|_| UNAVAILABLE)?;
+        let Some(Value::String(profile)) = created.get("id") else {
+            return Err(UNAVAILABLE);
+        };
+        self.store
+            .attach(checkout, profile)
+            .map_err(|error| SessionError::from(error).0)?;
+        Ok(profile.clone())
     }
 
-    /// Starts the person's Browser with the Team's Sign-in restored when this image wrote it, holds it, and builds the
-    /// session around it.
+    /// Starts the person's Browser on the Team's Sign-in, holds it, and builds the session around it.
     async fn launch(
         self: &Arc<Self>,
         request: &Start<'_>,
@@ -434,13 +447,19 @@ impl SignInSessions {
         checkout: Checkout,
     ) -> Result<Arc<Session>, SessionError> {
         let runtime = self.service.runtime();
-        let capsule = self.restored(request, current, event, &checkout).await?;
+        let profile = match self.profile(&checkout).await {
+            Ok(profile) => profile,
+            Err(code) => {
+                self.start_failed(request, event, &checkout, current, code)
+                    .await;
+                return Err(SessionError(code));
+            }
+        };
         let acquired = runtime
             .acquire(Acquire {
                 team_id: request.team_id,
-                language: language(request.locale),
                 mode: Mode::Person(request.url.to_owned()),
-                capsule: capsule.map(|capsule| Box::new(capsule) as super::runtime::Capsule),
+                profile: Some(&profile),
                 deadline: None,
                 stop: None,
             })
@@ -489,7 +508,7 @@ impl SignInSessions {
             "browser-sign-in",
             request.team_id,
             "view:",
-            format!(":container={}", short(&lease.container_id)),
+            format!(":session={}", short(&lease.session_id)),
         );
         let view = self
             .service
@@ -585,10 +604,9 @@ impl SignInSessions {
                 guard.sessions.remove(request.team_id);
             }
             if owned {
-                guard.residue.insert((
-                    request.team_id.to_owned(),
-                    session.lease.container_id.clone(),
-                ));
+                guard
+                    .residue
+                    .insert((request.team_id.to_owned(), session.lease.session_id.clone()));
             }
             owned
         };
@@ -637,7 +655,7 @@ impl SignInSessions {
             // Until its release proves the Browser gone, no deletion of the Sign-in it restored is complete.
             guard
                 .residue
-                .insert((team_id.to_owned(), session.lease.container_id.clone()));
+                .insert((team_id.to_owned(), session.lease.session_id.clone()));
             session
         };
         session.ended.stop();
@@ -708,6 +726,8 @@ impl SignInSessions {
         }
         let removed = self.release(&session.lease, actor, background).await;
         let _ = self.store.finish(&session.checkout);
+        // A first session keeps nothing: its profile goes with it.
+        self.remove_residue().await;
         removed
     }
 
@@ -780,7 +800,7 @@ impl SignInSessions {
         if self.service.runtime().release(lease).await.is_ok() {
             self.guard()
                 .residue
-                .remove(&(lease.team_id.clone(), lease.container_id.clone()));
+                .remove(&(lease.team_id.clone(), lease.session_id.clone()));
             return true;
         }
         let line_actor = if background {
@@ -791,7 +811,7 @@ impl SignInSessions {
         self.line(&line_actor, lease, "release-failed").await;
         self.guard()
             .residue
-            .insert((lease.team_id.clone(), lease.container_id.clone()));
+            .insert((lease.team_id.clone(), lease.session_id.clone()));
         tokio::spawn(Arc::clone(self).recover(lease.clone()));
         false
     }
@@ -803,7 +823,7 @@ impl SignInSessions {
             if self.service.runtime().recover().await {
                 self.guard()
                     .residue
-                    .remove(&(lease.team_id.clone(), lease.container_id.clone()));
+                    .remove(&(lease.team_id.clone(), lease.session_id.clone()));
                 self.line(&Actor::team(), &lease, "recovered").await;
                 return;
             }
@@ -840,11 +860,9 @@ fn started(session: &Session) -> Value {
     ])
 }
 
-/// Why a session ends now: its screen is lost, its limit passed, or its person left it alone too long.
+/// Why a session ends now: its limit passed, or its person left it alone too long.
 fn ending(session: &Session) -> Option<&'static str> {
-    if session.view.unavailable() {
-        Some("lost")
-    } else if session.started.elapsed() >= SESSION_SECONDS {
+    if session.started.elapsed() >= SESSION_SECONDS {
         Some("session-limit")
     } else if session.view.quiet_for() >= IDLE_SECONDS {
         Some("idle")
@@ -858,7 +876,6 @@ struct Start<'a> {
     team_id: &'a str,
     actor: &'a Actor,
     url: &'a str,
-    locale: Option<&'a str>,
     origin: &'a str,
     site: &'a str,
     // The Space's and the Team's epochs when it began.

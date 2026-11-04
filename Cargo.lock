@@ -2452,6 +2452,7 @@ dependencies = [
  "ring",
  "rusqlite",
  "rustix",
+ "rustls",
  "sha2",
  "strict-json",
  "subtle",
@@ -2470,6 +2471,7 @@ dependencies = [
  "team-storage",
  "tempfile",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

@@ -11,7 +11,7 @@ use super::{
 };
 use crate::testing::{Reply, Script, answer, base64, json, tool, tool_with};
 
-const WINDOW: &str = r#"{"pid": 20, "window_id": 7, "app_name": "Chromium-browser", "title": "about:blank - Chromium"}"#;
+const WINDOW: &str = r#"{"pid": 20, "window_id": 7, "app_name": "google-chrome", "title": "about:blank - Google Chrome"}"#;
 const LAPSED: &str = r#"{"status": "refused", "refusal": {"code": "browser_consent_required", "detail": {"reason": "consumer_profile_endpoint_requires_grant", "next_action": "browser_prepare", "next_call": {"tool": "browser_prepare", "arguments": {"pid": 99, "window_id": 99, "session": "other"}}}}}"#;
 const OK: &str = r#"{"status": "ok"}"#;
 const PREPARE: &str =
@@ -152,7 +152,7 @@ async fn opening_refuses_anything_but_one_exactly_bound_chromium_tab() {
         format!("[{WINDOW}, {WINDOW}]"),
         r#"["window"]"#.to_owned(),
         "null".to_owned(),
-        format!("[{}]", WINDOW.replace("Chromium-browser", "Xterm")),
+        format!("[{}]", WINDOW.replace("google-chrome", "Xterm")),
         format!("[{}]", WINDOW.replace(r#""pid": 20"#, r#""pid": "20""#)),
         format!(
             "[{}]",

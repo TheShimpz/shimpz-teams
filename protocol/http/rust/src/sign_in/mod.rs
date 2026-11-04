@@ -1,6 +1,6 @@
 //! A Team's Sign-in over the Team HTTP protocol (ADR-0117).
 //!
-//! Each Team has at most one Sign-in, shown by its state, the sites found in its saved cookies, and its times, never its
+//! Each Team has at most one Sign-in, shown by its state and its times, never its
 //! capsule. Every body and answer has one exact form.
 
 use std::sync::LazyLock;
@@ -27,8 +27,6 @@ pub const TIME_PATTERN: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z";
 pub const MAX_URL_CHARS: usize = 2_048;
 /// The longest Origin a request names.
 pub const MAX_ORIGIN_CHARS: usize = 255;
-/// The most sites a Sign-in shows.
-pub const MAX_SITES: usize = 64;
 /// The largest generation.
 pub const MAX_GENERATION: i64 = (1 << 31) - 1;
 /// A Sign-in's states, sorted.
@@ -41,10 +39,6 @@ pub const DELETIONS: [&str; 2] = ["deleted", "pending"];
 pub const NOT_RUNNING: &str = "sign-in-not-running";
 /// The sign-in URL is invalid.
 pub const URL_INVALID: &str = "sign-in-url-invalid";
-/// The session opened other windows.
-pub const WINDOWS: &str = "sign-in-windows";
-/// The session reached an identity provider.
-pub const IDENTITY_PROVIDER: &str = "sign-in-identity-provider";
 /// The session has nothing to save.
 pub const UNSAVED: &str = "sign-in-unsaved";
 /// The Sign-in is busy.
@@ -54,13 +48,11 @@ pub const CHANGED: &str = "sign-in-changed";
 /// The Team has no Sign-in.
 pub const ABSENT: &str = "sign-in-absent";
 
-const SIGN_IN_KEYS: [&str; 10] = [
+const SIGN_IN_KEYS: [&str; 8] = [
     "sign_in_id",
     "state",
     "generation",
     "team_incarnation",
-    "sites",
-    "sites_truncated",
     "created_at",
     "saved_at",
     "last_used_at",
@@ -187,17 +179,7 @@ pub fn canonical_started(value: &Value) -> Option<&Value> {
     .then_some(value)
 }
 
-fn sites(value: &Value) -> bool {
-    let Value::Array(items) = value else {
-        return false;
-    };
-    let names: Vec<&str> = items.iter().filter_map(canonical_site).collect();
-    names.len() == items.len()
-        && items.len() <= MAX_SITES
-        && names.windows(2).all(|pair| pair[0] < pair[1])
-}
-
-/// `canonical_sign_in`: the Team's Sign-in as Admin shows it, never its capsule.
+/// `canonical_sign_in`: the Team's Sign-in as Admin shows it.
 #[must_use]
 pub fn canonical_sign_in(value: &Value) -> Option<&Value> {
     let members = exact_object(value, &SIGN_IN_KEYS)?;
@@ -209,8 +191,6 @@ pub fn canonical_sign_in(value: &Value) -> Option<&Value> {
         && member(field(members, "state"), &STATES)
         && generation(field(members, "generation"))
         && incarnation(field(members, "team_incarnation"))
-        && sites(field(members, "sites"))
-        && is_bool(field(members, "sites_truncated"))
         && created <= saved
         && saved < expires
         && used >= created)

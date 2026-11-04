@@ -23,8 +23,6 @@ members = [
     "storage",
 ]
 exclude = [
-    "browser/egress",
-    "browser/image/host",
     "protocol/http/rust",
     "vendor/action-schema",
     "vendor/assistant-install/rust",

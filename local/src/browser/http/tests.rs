@@ -219,8 +219,6 @@ fn each_session_refusal_has_its_closed_answer() {
         ("sign-in-busy", 409),
         ("sign-in-changed", 409),
         ("sign-in-absent", 404),
-        ("sign-in-windows", 409),
-        ("sign-in-identity-provider", 409),
         ("sign-in-unsaved", 503),
         ("browser-busy", 409),
         ("browser-unavailable", 503),

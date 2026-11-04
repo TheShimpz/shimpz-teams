@@ -126,13 +126,8 @@ pub fn configuration(image: &str, report: &mut Report) -> Outcome {
                 &inspected,
                 &["Config", "Labels", "org.shimpz.local.profile"],
             ),
-            json::text(
-                &inspected,
-                &["Config", "Labels", "org.shimpz.local.browser-image"],
-            )
-            .is_some(),
         ),
-        (Some("team-local"), Some("local-v1"), true),
+        (Some("team-local"), Some("local-v1")),
     )?;
     let zoneinfo = format!("TZDIR=/{ZONEINFO}");
     report.check(

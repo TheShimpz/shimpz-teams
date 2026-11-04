@@ -1,9 +1,9 @@
 use strict_json::{Number, Value};
 
 use super::{
-    MAX_ORIGIN_CHARS, MAX_SITES, MAX_URL_CHARS, canonical_cancelled, canonical_current,
-    canonical_delete, canonical_deleted, canonical_origin, canonical_saved, canonical_session,
-    canonical_sign_in, canonical_site, canonical_start, canonical_started, start_site,
+    MAX_ORIGIN_CHARS, MAX_URL_CHARS, canonical_cancelled, canonical_current, canonical_delete,
+    canonical_deleted, canonical_origin, canonical_saved, canonical_session, canonical_sign_in,
+    canonical_site, canonical_start, canonical_started, start_site,
 };
 
 fn text(value: &str) -> Value {
@@ -171,11 +171,6 @@ fn sign_in() -> Value {
         ("state", text("ready")),
         ("generation", int(1)),
         ("team_incarnation", text(&"c".repeat(64))),
-        (
-            "sites",
-            Value::Array(vec![text("example.com"), text("linkedin.com")]),
-        ),
-        ("sites_truncated", Value::Bool(false)),
         ("created_at", text("2026-10-20T12:00:00Z")),
         ("saved_at", text("2026-10-20T12:00:00Z")),
         ("last_used_at", text("2026-10-20T12:00:00Z")),
@@ -184,30 +179,15 @@ fn sign_in() -> Value {
 }
 
 #[test]
-fn a_sign_in_shows_its_state_sorted_sites_and_ordered_times() {
+fn a_sign_in_shows_its_state_and_ordered_times() {
     let record = sign_in();
     assert_eq!(canonical_sign_in(&record), Some(&record));
-    let many = (0..=MAX_SITES)
-        .map(|index| text(&format!("s{index:03}.example.com")))
-        .collect();
     let refused = [
         ("sign_in_id", text("x")),
         ("state", text("checked-out")),
         ("state", Value::Array(vec![text("ready")])),
         ("generation", int(0)),
         ("team_incarnation", text("c")),
-        ("sites", text("example.com")),
-        (
-            "sites",
-            Value::Array(vec![text("linkedin.com"), text("example.com")]),
-        ),
-        (
-            "sites",
-            Value::Array(vec![text("example.com"), text("example.com")]),
-        ),
-        ("sites", Value::Array(vec![text("Example.com")])),
-        ("sites", Value::Array(many)),
-        ("sites_truncated", int(0)),
         ("created_at", text("2026-10-20")),
         ("saved_at", text("2026-10-19T12:00:00Z")),
         ("expires_at", text("2026-10-20T12:00:00Z")),

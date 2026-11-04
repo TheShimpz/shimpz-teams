@@ -8,19 +8,16 @@ use team_storage::private::instant_text;
 
 use super::{IDLE_SECONDS, LIFETIME_SECONDS, NEEDS_PERSON, READY};
 
-const KEYS: [&str; 14] = [
+const KEYS: [&str; 11] = [
     "team_id",
     "sign_in_id",
     "incarnation",
     "generation",
     "state",
-    "sites",
-    "sites_truncated",
     "created_at",
     "saved_at",
     "last_used_at",
-    "chunks",
-    "writer",
+    "profile",
     "checkout",
     "deleting",
 ];
@@ -125,13 +122,11 @@ pub struct Record {
     pub incarnation: String,
     pub generation: i64,
     pub state: String,
-    pub sites: Vec<String>,
-    pub sites_truncated: bool,
     pub created_at: f64,
     pub saved_at: f64,
     pub last_used_at: f64,
-    pub chunks: i64,
-    pub writer: String,
+    /// The easi.run profile that holds its logins, once one was created.
+    pub profile: String,
     pub checkout: Option<Checkout>,
     pub deleting: Option<Deleting>,
 }
@@ -193,13 +188,10 @@ impl Record {
             incarnation: incarnation.to_owned(),
             generation: 0,
             state: READY.to_owned(),
-            sites: Vec::new(),
-            sites_truncated: false,
             created_at: now,
             saved_at: now,
             last_used_at: now,
-            chunks: 0,
-            writer: String::new(),
+            profile: String::new(),
             checkout: None,
             deleting: None,
         }
@@ -210,25 +202,16 @@ impl Record {
         let value = strict_json::parse(plaintext).ok()?;
         let members = exact_object(&value, &KEYS)?;
         let get = |key| field(members, key);
-        let Value::Array(sites) = get("sites") else {
-            return None;
-        };
         let record = Self {
             team_id: text(get("team_id"))?,
             sign_in_id: text(get("sign_in_id"))?,
             incarnation: text(get("incarnation"))?,
             generation: integer(get("generation"))?,
             state: text(get("state")).filter(|state| state == READY || state == NEEDS_PERSON)?,
-            sites: sites.iter().map(text).collect::<Option<_>>()?,
-            sites_truncated: match get("sites_truncated") {
-                Value::Bool(truncated) => *truncated,
-                _ => return None,
-            },
             created_at: seconds(get("created_at"))?,
             saved_at: seconds(get("saved_at"))?,
             last_used_at: seconds(get("last_used_at"))?,
-            chunks: integer(get("chunks"))?,
-            writer: text(get("writer"))?,
+            profile: text(get("profile"))?,
             checkout: checkout(get("checkout")).ok()?,
             deleting: Deleting::parse(get("deleting")).ok()?,
         };
@@ -252,19 +235,10 @@ impl Record {
                 Value::Number(Number::Int(self.generation)),
             ),
             ("state".to_owned(), Value::String(self.state.clone())),
-            (
-                "sites".to_owned(),
-                Value::Array(self.sites.iter().cloned().map(Value::String).collect()),
-            ),
-            (
-                "sites_truncated".to_owned(),
-                Value::Bool(self.sites_truncated),
-            ),
             ("created_at".to_owned(), float(self.created_at)),
             ("saved_at".to_owned(), float(self.saved_at)),
             ("last_used_at".to_owned(), float(self.last_used_at)),
-            ("chunks".to_owned(), Value::Number(Number::Int(self.chunks))),
-            ("writer".to_owned(), Value::String(self.writer.clone())),
+            ("profile".to_owned(), Value::String(self.profile.clone())),
             (
                 "checkout".to_owned(),
                 self.checkout.as_ref().map_or(Value::Null, |held| {
@@ -294,7 +268,7 @@ impl Record {
             .is_some_and(|deleting| deleting.event_id == event_id)
     }
 
-    /// What a Supervisor sees of the Sign-in, never its capsule; `needs_person` when this Team cannot restore it.
+    /// What a Supervisor sees of the Sign-in; `needs_person` when this Team cannot restore it.
     pub fn public(&self, needs_person: bool) -> Value {
         let iso = |seconds: f64| {
             let whole = std::time::Duration::try_from_secs_f64(seconds)
@@ -321,14 +295,6 @@ impl Record {
             (
                 "team_incarnation".to_owned(),
                 Value::String(self.incarnation.clone()),
-            ),
-            (
-                "sites".to_owned(),
-                Value::Array(self.sites.iter().cloned().map(Value::String).collect()),
-            ),
-            (
-                "sites_truncated".to_owned(),
-                Value::Bool(self.sites_truncated),
             ),
             ("created_at".to_owned(), iso(self.created_at)),
             ("saved_at".to_owned(), iso(self.saved_at)),

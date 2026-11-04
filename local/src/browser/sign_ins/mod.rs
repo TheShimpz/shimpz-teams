@@ -1,26 +1,20 @@
-//! A Team's Sign-in: the sealed browser session a person saved their logins into (ADR-0117, 2026-10-20 amendment).
+//! A Team's Sign-in: the easi.run profile a person saved their logins into (ADR-0117, ADR-0126).
 //!
-//! Each Team has at most one Sign-in. Its capsule is kept as numbered chunk files, each sealed (AES-256-GCM) under a
-//! keyring apart from the state and bound to the Team, its incarnation (the Team network's id), the Sign-in, its
-//! generation, and the chunk's place, so a chunk never moves between capsules. Its record (state, sites found in its
-//! cookies, times, chunk count, writer image, open checkout, deletion fence) is sealed too, bound to the Team and the
-//! Sign-in, so neither the capsule nor its metadata can be altered without the key.
+//! Each Team has at most one Sign-in. easi.run keeps its logins, encrypted, as one profile; this store keeps which
+//! profile it is and its life. Its record (state, profile, times, open checkout, deletion fence) is sealed, bound to the
+//! Team and the Sign-in, so its metadata cannot be altered without the key.
 //!
-//! The Sign-in has one exclusive checkout at a time, recorded before its Browser starts. Only a Save commits: it writes
-//! the next generation with compare-and-swap on the checkout and the generation it restored, and leaves the Sign-in
-//! `ready`. Any other end of a checkout that restored a generation keeps that generation's bytes but marks it
-//! `needs-person`; the end of a Team's first checkout leaves no Sign-in. A stale end changes nothing. A Sign-in lives 30
-//! days from its last Save and 7 days unused; an expired one is deleted when read.
+//! The Sign-in has one exclusive checkout at a time, recorded before its Browser starts. Only a Save commits: it moves
+//! to the next generation with compare-and-swap on the checkout and the generation it restored, and leaves the Sign-in
+//! `ready`. Any other end of a checkout that restored a generation marks it `needs-person`; the end of a Team's first
+//! checkout leaves no Sign-in. A stale end changes nothing. A Sign-in expires 30 days from its last Save and 7 days
+//! unused; an expired one is deleted when read.
 //!
-//! A capsule restores only into the exact Browser image that wrote it; a person's checkout of a capsule another image
-//! wrote starts with no capsule, and such a Sign-in shows as needing a person.
-//!
-//! A Supervisor's deletion records a durable fence first, holding the deletion's activity metadata (ADR-0120), then
-//! removes every capsule and draft and proves them gone; the fenced record stays, as a tombstone no checkout passes,
-//! until its completion is recorded. A Team process starting holds no checkout and no Save, so it ends every open
-//! checkout as failed, removes what every fenced deletion left, and deletes every draft and capsule no record names.
+//! A Supervisor's deletion records a durable fence first, holding the deletion's activity metadata (ADR-0120); the
+//! fenced record stays, as a tombstone no checkout passes, until easi.run's deletion is proven and its completion
+//! recorded. A profile no record names is residue the sessions remove. A Team process starting holds no checkout and no
+//! Save, so it ends every open checkout as failed.
 
-mod draft;
 mod record;
 
 use std::collections::HashMap;
@@ -36,7 +30,6 @@ use team_protocol::sign_in::{ABSENT, BUSY, CHANGED, ID_RE, NOT_RUNNING};
 use team_storage::envelope::{Bounds, Envelope, Key};
 use team_storage::private::{self, Keyring, StateError};
 
-pub use draft::Draft;
 pub use record::Deleting;
 use record::{Checkout as Held, Record};
 
@@ -46,10 +39,6 @@ pub const SCHEMA: i64 = 2;
 pub const MAX_STATE_BYTES: usize = 1024 * 1024;
 /// The largest record plaintext.
 pub const MAX_RECORD_BYTES: usize = 8192;
-/// One capsule chunk's plaintext bound.
-pub const CHUNK_BYTES: usize = 1024 * 1024;
-/// The most chunks a capsule has.
-pub const MAX_CHUNKS: usize = 160;
 /// A Sign-in's life from its last Save.
 pub const LIFETIME_SECONDS: f64 = 30.0 * 24.0 * 3600.0;
 /// A Sign-in's life unused.
@@ -163,8 +152,6 @@ pub struct Pending {
 struct Fences {
     // Each Team's in-process fence: a Save writes and commits only if no deletion or reset came since it began.
     saves: HashMap<String, u64>,
-    // Each Team's generation whose publication is unknown: it needs a person until that is durably recorded.
-    quarantine: HashMap<String, i64>,
     // Expired Sign-ins deleted as they were read, for Team to record.
     expired: Vec<Expired>,
 }
@@ -177,15 +164,10 @@ pub(crate) struct Faults {
     pub write: Option<bool>,
     /// Every record read fails.
     pub records: bool,
-    /// Every directory removal leaves the directory in place.
-    pub remove: bool,
-    /// The state directory cannot be synchronized.
-    pub index_unsynced: bool,
 }
 
 /// Every Team's Sign-in on this Local.
 pub struct SignInStore {
-    root: PathBuf,
     index: PathBuf,
     keyring: Keyring,
     clock: Arc<dyn Clock>,
@@ -206,14 +188,6 @@ type Teams = Vec<(String, Value)>;
 
 fn record_aad(team_id: &str, sign_in_id: &str) -> Vec<u8> {
     format!("shimpz-sign-in-record\0{team_id}\0{sign_in_id}").into_bytes()
-}
-
-fn chunk_aad(checkout: &Checkout, generation: i64, index: usize) -> Vec<u8> {
-    format!(
-        "shimpz-sign-in-capsule\0{}\0{}\0{}\0{generation}\0{index}",
-        checkout.team_id, checkout.incarnation, checkout.sign_in_id
-    )
-    .into_bytes()
 }
 
 fn team_admitted(team_id: &str) -> Result<(), SignInError> {
@@ -238,7 +212,6 @@ impl SignInStore {
         let index = state.join("index.json");
         private::separate_paths(&index, key)?;
         Ok(Self {
-            root: state.to_path_buf(),
             index,
             keyring: Keyring::new(key.to_path_buf()),
             clock,
@@ -252,31 +225,6 @@ impl SignInStore {
     #[cfg(test)]
     fn faults(&self) -> MutexGuard<'_, Faults> {
         self.faults.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Deletes one directory and proves it gone; one already absent is no failure.
-    fn remove(&self, directory: &Path) -> Result<(), SignInError> {
-        // Only the store's own state is ever removed.
-        if !directory.starts_with(&self.root) {
-            return Err(SignInError::FAILED);
-        }
-        #[cfg(test)]
-        if self.faults().remove {
-            return if directory.symlink_metadata().is_ok() {
-                Err(SignInError::FAILED)
-            } else {
-                Ok(())
-            };
-        }
-        match std::fs::remove_dir_all(directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(SignInError::FAILED),
-        }
-        if directory.symlink_metadata().is_ok() {
-            return Err(SignInError::FAILED);
-        }
-        Ok(())
     }
 
     fn lock(&self) -> MutexGuard<'_, Fences> {
@@ -385,37 +333,8 @@ impl SignInStore {
             .collect()
     }
 
-    fn capsule_dir(&self, sign_in_id: &str, generation: i64) -> PathBuf {
-        self.root
-            .join("capsules")
-            .join(format!("{sign_in_id}-{generation}"))
-    }
-
-    fn drafts(&self, team_id: &str) -> PathBuf {
-        self.root.join("drafts").join(team_id)
-    }
-
     fn expired_now(&self, record: &Record) -> bool {
         record.generation != 0 && self.now() >= record.expires()
-    }
-
-    /// Records a generation whose publication was unknown as needing a person, durably; until then it stays held.
-    fn settle_quarantine(&self, fences: &mut Fences, team_id: &str) -> Result<(), SignInError> {
-        let Some(generation) = fences.quarantine.get(team_id).copied() else {
-            return Ok(());
-        };
-        let (teams, record) = self.record(team_id)?;
-        if let Some(mut record) = record
-            && record.generation == generation
-            && record.state != NEEDS_PERSON
-        {
-            NEEDS_PERSON.clone_into(&mut record.state);
-            if self.put(teams, &record).is_err() {
-                return Ok(());
-            }
-        }
-        fences.quarantine.remove(team_id);
-        Ok(())
     }
 
     /// Deletes an expired Sign-in and queues its record for Team once it is gone; whether it is.
@@ -446,14 +365,9 @@ impl SignInStore {
     ///
     /// # Errors
     /// [`SignInError`] when the store cannot be read.
-    pub fn current(
-        &self,
-        team_id: &str,
-        reader: Option<&str>,
-    ) -> Result<Option<Value>, SignInError> {
+    pub fn current(&self, team_id: &str) -> Result<Option<Value>, SignInError> {
         team_admitted(team_id)?;
         let mut fences = self.lock();
-        self.settle_quarantine(&mut fences, team_id)?;
         let (_teams, record) = self.record(team_id)?;
         let Some(record) =
             record.filter(|record| record.deleting.is_none() && record.generation != 0)
@@ -464,9 +378,7 @@ impl SignInStore {
             self.expire(&mut fences, team_id, &record)?;
             return Ok(None);
         }
-        let held = fences.quarantine.contains_key(team_id);
-        let needs_person = Some(record.writer.as_str()) != reader || held;
-        Ok(Some(record.public(needs_person)))
+        Ok(Some(record.public(false)))
     }
 
     /// Checks the Team's Sign-in out, durably, before its Browser starts; a first one has no generation yet.
@@ -481,7 +393,6 @@ impl SignInStore {
     ) -> Result<Checkout, SignInError> {
         team_admitted(team_id)?;
         let mut fences = self.lock();
-        self.settle_quarantine(&mut fences, team_id)?;
         let (mut teams, mut record) = self.record(team_id)?;
         if record
             .as_ref()
@@ -522,9 +433,9 @@ impl SignInStore {
         {
             return Err(SignInError::refused(BUSY));
         }
-        let needs_person = record.as_ref().is_some_and(|record| {
-            record.state == NEEDS_PERSON || fences.quarantine.contains_key(team_id)
-        });
+        let needs_person = record
+            .as_ref()
+            .is_some_and(|record| record.state == NEEDS_PERSON);
         if kind == Kind::Agent && needs_person {
             return Err(SignInError::refused(BUSY));
         }
@@ -570,38 +481,95 @@ impl SignInStore {
             .map(|record| (teams, record)))
     }
 
-    /// The checked-out generation's chunk count, for the `reader` image to restore; `None` for a first checkout and
-    /// for a person's checkout of a capsule another image wrote: they sign in anew.
+    /// The easi.run profile of a checkout's Sign-in; `None` before its first one was made.
     ///
     /// # Errors
-    /// [`SignInError`] `sign-in-not-running` once the checkout is stale, `sign-in-busy` for an agent's checkout of a
-    /// capsule another image wrote.
-    pub fn capsule(
-        &self,
-        checkout: &Checkout,
-        reader: &str,
-    ) -> Result<Option<Capsule>, SignInError> {
+    /// [`SignInError`] `sign-in-not-running` once the checkout is stale.
+    pub fn profile(&self, checkout: &Checkout) -> Result<Option<String>, SignInError> {
         let _fences = self.lock();
         let Some((_teams, record)) = self.held(checkout)? else {
             return Err(SignInError::refused(NOT_RUNNING));
         };
-        if checkout.generation == 0 {
-            return Ok(None);
+        Ok(Some(record.profile).filter(|profile| !profile.is_empty()))
+    }
+
+    /// Records the profile just made for a checkout's Sign-in, durably, before its Browser starts.
+    ///
+    /// # Errors
+    /// [`SignInError`] `sign-in-not-running` once the checkout is stale, or a store failure.
+    pub fn attach(&self, checkout: &Checkout, profile: &str) -> Result<(), SignInError> {
+        let _fences = self.lock();
+        let Some((teams, mut record)) = self.held(checkout)? else {
+            return Err(SignInError::refused(NOT_RUNNING));
+        };
+        profile.clone_into(&mut record.profile);
+        self.put(teams, &record)
+    }
+
+    /// Commits the next generation, only if the checkout is still current and `admitted`.
+    ///
+    /// # Errors
+    /// [`SignInError`] when the Save was revoked or the store failed.
+    pub fn commit(
+        &self,
+        checkout: &Checkout,
+        fence: u64,
+        admitted: impl FnOnce() -> bool,
+    ) -> Result<Value, SignInError> {
+        let fences = self.lock();
+        let revoked = fences.saves.get(&checkout.team_id).copied().unwrap_or(0) != fence;
+        let current = self.held(checkout)?;
+        let Some((teams, mut record)) = current.filter(|_| !revoked && admitted()) else {
+            return Err(SignInError::FAILED);
+        };
+        let now = self.now();
+        record.generation += 1;
+        READY.clone_into(&mut record.state);
+        record.saved_at = now;
+        record.last_used_at = now;
+        record.checkout = None;
+        self.put(teams, &record)?;
+        Ok(record.public(false))
+    }
+
+    /// The fence a Save started under: a deletion or reset moves it, and that Save then keeps nothing.
+    #[must_use]
+    pub fn save_fence(&self, team_id: &str) -> u64 {
+        self.lock().saves.get(team_id).copied().unwrap_or(0)
+    }
+
+    /// Every profile a Sign-in's record names, deleting or not.
+    ///
+    /// # Errors
+    /// [`SignInError`] when the store cannot be read.
+    pub fn named_profiles(&self) -> Result<Vec<String>, SignInError> {
+        let _fences = self.lock();
+        let mut named = Vec::new();
+        for (team_id, _) in self.state()? {
+            if let (_, Some(record)) = self.record(&team_id)?
+                && !record.profile.is_empty()
+            {
+                named.push(record.profile);
+            }
         }
-        if record.writer != reader {
-            return if checkout.kind == Kind::Person {
-                Ok(None)
-            } else {
-                Err(SignInError::refused(BUSY))
-            };
-        }
-        Ok(Some(Capsule {
-            key: self.key(false)?,
-            directory: self.capsule_dir(&checkout.sign_in_id, checkout.generation),
-            checkout: checkout.clone(),
-            chunks: usize::try_from(record.chunks).unwrap_or_default(),
-            next: 0,
-        }))
+        Ok(named)
+    }
+
+    /// The profile a fenced deletion must remove, once it is still fenced by `event_id`.
+    ///
+    /// # Errors
+    /// [`SignInError`] when the store cannot be read.
+    pub fn fenced_profile(
+        &self,
+        team_id: &str,
+        event_id: &str,
+    ) -> Result<Option<String>, SignInError> {
+        team_admitted(team_id)?;
+        let _fences = self.lock();
+        let (_teams, record) = self.record(team_id)?;
+        Ok(record
+            .filter(|record| record.fenced_by(event_id) && !record.profile.is_empty())
+            .map(|record| record.profile))
     }
 
     /// Ends a checkout without a Save: a restored generation now needs a person; a first one leaves nothing.
@@ -694,23 +662,6 @@ impl SignInStore {
         Ok(pending)
     }
 
-    /// Removes what the deletion `event_id` fenced, its capsules and drafts; whether nothing of it is left. A Sign-in
-    /// no longer fenced by it was already deleted, and one there now was started afterwards: it stays.
-    ///
-    /// # Errors
-    /// [`SignInError`] when the store cannot be read.
-    pub fn purge(&self, team_id: &str, event_id: &str) -> Result<bool, SignInError> {
-        team_admitted(team_id)?;
-        let _fences = self.lock();
-        let (_teams, record) = self.record(team_id)?;
-        match record {
-            Some(record) if record.fenced_by(event_id) => {
-                Ok(self.purge_record(team_id, Some(&record)))
-            }
-            _ => Ok(true),
-        }
-    }
-
     /// Drops the deletion `event_id`'s fenced record once its completion is recorded; whether it is gone.
     ///
     /// # Errors
@@ -726,15 +677,7 @@ impl SignInStore {
         Ok(!self.state()?.iter().any(|(team, _)| team == team_id))
     }
 
-    fn purge_record(&self, team_id: &str, record: Option<&Record>) -> bool {
-        let capsules = record.map_or_else(Vec::new, |record| self.capsules_of(&record.sign_in_id));
-        capsules
-            .iter()
-            .chain(std::iter::once(&self.drafts(team_id)))
-            .all(|directory| self.remove(directory).is_ok())
-    }
-
-    /// Deletes the Team's Sign-in for its own lifecycle: capsules, drafts, and record; whether nothing is left. A
+    /// Deletes the Team's Sign-in for its own lifecycle, its record; its profile is then residue the sessions remove; whether nothing is left. A
     /// Supervisor's deletion under way keeps its fenced record until its completion is recorded.
     fn delete(&self, fences: &mut Fences, team_id: &str) -> Result<bool, SignInError> {
         let (teams, record) = self.record(team_id)?;
@@ -746,10 +689,6 @@ impl SignInStore {
             }
             None => None,
         };
-        // From the durable fence on, nothing checks the held generation out; the hold goes only once it is gone.
-        if !self.purge_record(team_id, record.as_ref()) {
-            return Ok(false);
-        }
         let supervisor = record
             .as_ref()
             .and_then(|record| record.deleting.as_ref())
@@ -760,24 +699,7 @@ impl SignInStore {
                 self.write(Self::without(teams, team_id))?;
             }
         }
-        fences.quarantine.remove(team_id);
         Ok(supervisor || !self.state()?.iter().any(|(team, _)| team == team_id))
-    }
-
-    fn capsules_of(&self, sign_in_id: &str) -> Vec<PathBuf> {
-        let Ok(entries) = std::fs::read_dir(self.root.join("capsules")) else {
-            return Vec::new();
-        };
-        entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| name.rsplit_once('-'))
-                    .is_some_and(|(owner, _)| owner == sign_in_id)
-            })
-            .collect()
     }
 
     /// A deleted Team's Sign-in goes with it, fencing a Save under way; whether nothing is left.
@@ -790,7 +712,7 @@ impl SignInStore {
         self.delete(&mut fences, team_id)
     }
 
-    /// A Space reset: every Sign-in and every capsule is deleted, and every Save under way fenced. Only the fenced
+    /// A Space reset: every Sign-in is deleted, and every Save under way fenced. Only the fenced
     /// records of Supervisor deletions under way stay, holding nothing but their activity metadata.
     ///
     /// # Errors
@@ -813,8 +735,6 @@ impl SignInStore {
             .into_iter()
             .map(|pending| pending.team_id)
             .collect();
-        self.remove(&self.root.join("capsules"))?;
-        self.remove(&self.root.join("drafts"))?;
         if !pending.is_empty() {
             let kept = teams
                 .into_iter()
@@ -830,7 +750,7 @@ impl SignInStore {
     }
 
     /// At Team startup: ends every open checkout as failed and removes what every fenced deletion left; a
-    /// Supervisor's deletion keeps its fenced record. Then every draft and every capsule no record names is deleted.
+    /// Supervisor's deletion keeps its fenced record.  names is deleted.
     ///
     /// # Errors
     /// [`SignInError`] when the store cannot be read or cleaned.
@@ -839,10 +759,7 @@ impl SignInStore {
             let (_teams, record) = self.record(&team_id)?;
             let Some(record) = record else { continue };
             match (&record.deleting, &record.checkout) {
-                (Some(deleting), _) if !deleting.event_id.is_empty() => {
-                    let _fences = self.lock();
-                    self.purge_record(&team_id, Some(&record));
-                }
+                (Some(deleting), _) if !deleting.event_id.is_empty() => {}
                 (Some(_), _) => {
                     let mut fences = self.lock();
                     self.delete(&mut fences, &team_id)?;
@@ -858,88 +775,7 @@ impl SignInStore {
                 (None, None) => {}
             }
         }
-        self.sweep()
-    }
-
-    /// Deletes every draft, and every capsule no record names.
-    fn sweep(&self) -> Result<(), SignInError> {
-        let _fences = self.lock();
-        let mut named = Vec::new();
-        for (team_id, _) in self.state()? {
-            if let (_, Some(record)) = self.record(&team_id)? {
-                named.push(format!("{}-{}", record.sign_in_id, record.generation));
-            }
-        }
-        self.remove(&self.root.join("drafts"))?;
-        let Ok(entries) = std::fs::read_dir(self.root.join("capsules")) else {
-            return Ok(());
-        };
-        for entry in entries.filter_map(Result::ok) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !named.contains(&name) {
-                self.remove(&entry.path())?;
-            }
-        }
         Ok(())
-    }
-
-    /// The next generation's capsule, sealed chunk by chunk as it arrives; nothing is kept until it commits.
-    ///
-    /// # Errors
-    /// [`SignInError`] `sign-in-not-running` once the checkout is stale.
-    pub fn draft(self: &Arc<Self>, checkout: &Checkout) -> Result<Draft, SignInError> {
-        let fences = self.lock();
-        if self.held(checkout)?.is_none() {
-            return Err(SignInError::refused(NOT_RUNNING));
-        }
-        let fence = fences.saves.get(&checkout.team_id).copied().unwrap_or(0);
-        drop(fences);
-        Ok(Draft::new(Arc::clone(self), checkout.clone(), fence))
-    }
-}
-
-/// A checked-out generation's capsule, chunk by chunk, each authenticated as it is read.
-pub struct Capsule {
-    key: Key,
-    directory: PathBuf,
-    checkout: Checkout,
-    chunks: usize,
-    next: usize,
-}
-
-impl std::fmt::Debug for Capsule {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Capsule")
-            .field("chunks", &self.chunks)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Iterator for Capsule {
-    type Item = Result<Vec<u8>, super::runtime::CapsuleUnreadable>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next >= self.chunks {
-            return None;
-        }
-        let index = self.next;
-        self.next += 1;
-        let path = self.directory.join(format!("{index:05}.chunk"));
-        let sealed = private::read_private(&path, (CHUNK_BYTES + 12 + 16) as u64)
-            .ok()
-            .flatten();
-        Some(
-            sealed
-                .and_then(|sealed| {
-                    draft::open_chunk(
-                        &self.key,
-                        &sealed,
-                        &chunk_aad(&self.checkout, self.checkout.generation, index),
-                    )
-                })
-                .ok_or(super::runtime::CapsuleUnreadable),
-        )
     }
 }
 
