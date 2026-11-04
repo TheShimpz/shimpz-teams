@@ -8,6 +8,9 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use sha2::{Digest, Sha256};
 use strict_json::Value;
 use team_core::future::BoxFuture;
 use team_protocol::browser_view::{self, BUSY, INVALID_UPGRADE, NOT_RUNNING, UNAVAILABLE};
@@ -140,10 +143,11 @@ impl BrowserGroup {
             .viewer()
             .await
             .map_err(|_| view_problem(Refused(UNAVAILABLE)))?;
+        let digest = STANDARD.encode(Sha256::digest(&body));
         Ok(Answer::Binary {
-            media_type: "text/javascript",
+            media_type: "application/octet-stream",
             body,
-            headers: Vec::new(),
+            headers: vec![("Repr-Digest", format!("sha-256=:{digest}:"))],
         })
     }
 

@@ -39,8 +39,8 @@ pub const PORT: u16 = 9443;
 pub const LOOPBACK_PORT: u16 = 39443;
 /// The admin's container, whose certificate Team pins.
 pub const ADMIN_CONTAINER: &str = "easi-run-admin-1";
-/// The most one answer may hold: the largest file a task may keep comes through a ticket's own read.
-pub const MAX_ANSWER_BYTES: usize = 16 * 1024 * 1024;
+/// The most one answer may hold: above the largest file a task may keep, which comes through a ticket's read.
+pub const MAX_ANSWER_BYTES: usize = 32 * 1024 * 1024;
 /// The bound of a call that names none: login, listings, and profile changes.
 pub const CALL_SECONDS: Duration = Duration::from_secs(30);
 /// The most idle connections kept open to the admin.

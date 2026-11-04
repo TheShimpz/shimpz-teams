@@ -1,8 +1,7 @@
 //! The Space's one Browser session on easi.run (ADR-0117, ADR-0126).
 //!
-//! One Browser exists per Space at a time. Before creating one, Team proves from easi.run's own listing that no session
-//! is left. A creation or call whose answer was lost leaves its outcome unknown, so nothing replaces that session until
-//! it is proven gone. A failed or unproven removal keeps every later task refused until a cleanup proves the Space
+//! One Browser exists per Space at a time. Before creating one, Team removes whatever easi.run still lists. A creation or
+//! call whose answer was lost leaves its outcome unknown, so nothing replaces that session until it is proven gone. A failed or unproven removal keeps every later task refused until a cleanup proves the Space
 //! clean again. Team is easi.run's one administrator, so every session listed is Team's.
 
 mod agent;
@@ -228,9 +227,8 @@ impl BrowserRuntime {
         if self.dirty() {
             self.clean().await?;
         }
-        if !self.listed().await?.is_empty() {
-            return Err(BrowserError::BUSY);
-        }
+        // The slot is held and Team is the one administrator: whatever is listed is what a lost creation left.
+        self.remove_listed().await?;
         self.keep_downloads().await?;
         let answer = self.created(request).await?;
         if !answer.ok() {
@@ -393,6 +391,22 @@ impl BrowserRuntime {
         let outcome = self.clean().await.is_ok();
         self.free_slot();
         outcome
+    }
+
+    /// Removes what a lost creation added after the last cleanup, while no task holds the Browser.
+    pub async fn sweep(&self) {
+        if self.take_slot() {
+            let _ = self.remove_listed().await;
+            self.free_slot();
+        }
+    }
+
+    async fn remove_listed(&self) -> Result<(), BrowserError> {
+        for session in self.listed().await? {
+            let id = listed_id(&session).ok_or(BrowserError::UNAVAILABLE)?;
+            self.remove(id).await?;
+        }
+        Ok(())
     }
 
     /// Removes every session easi.run lists, once a lost creation can no longer add one, and proves none is left.

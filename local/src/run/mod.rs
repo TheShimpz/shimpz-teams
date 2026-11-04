@@ -39,6 +39,8 @@ use host::{Stores, host_seams, hostname};
 /// Where the controller listens.
 const LISTEN: &str = "0.0.0.0:7077";
 /// How often the Routine watchdog runs (`local/routine/watchdog.py`).
+/// How long a stopping Team gives easi.run to end the Browser, within its own stop grace.
+const BROWSER_STOP: Duration = Duration::from_secs(10);
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Runs `command`; `serve` builds the controller over the host seams `adapt` returns.
@@ -219,6 +221,9 @@ async fn run_controller(controller: Composed) -> Result<(), Startup> {
     )?;
     controller.server.serve(listener, terminated()).await;
     stop.stop();
+    // No Browser outlives Team when it can help it; the next start removes one that did.
+    let browsers = controller.sessions.service().runtime();
+    let _ = tokio::time::timeout(BROWSER_STOP, browsers.clean()).await;
     let _ = updater.await;
     drop(watchdog);
     let _closed = controller.audit.close();

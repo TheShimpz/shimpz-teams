@@ -265,19 +265,15 @@ impl SignInSessions {
     async fn sweep_residue(self: Arc<Self>) {
         loop {
             sleep(RESIDUE_SECONDS).await;
+            self.service.runtime().sweep().await;
             self.remove_residue().await;
         }
     }
 
     /// Removes every profile easi.run lists that no Sign-in names: what an ended first sign-in, a deleted Team, or an
-    /// expiry left. Nothing is removed while a session may be making one.
+    /// expiry left.
     pub(super) async fn remove_residue(&self) {
-        if !self.guard().starting.is_empty() {
-            return;
-        }
-        let Ok(named) = self.store.named_profiles() else {
-            return;
-        };
+        let _looking = self.profiles.lock().await;
         let answer = self
             .service
             .runtime()
@@ -293,6 +289,10 @@ impl SignInSessions {
             return;
         };
         let Some(Value::Array(profiles)) = body.get("profiles") else {
+            return;
+        };
+        // Read after the listing, under the lock: every profile listed that is any Sign-in's is named here.
+        let Ok(named) = self.store.named_profiles() else {
             return;
         };
         for listed in profiles {

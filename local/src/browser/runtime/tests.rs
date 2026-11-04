@@ -124,6 +124,18 @@ async fn a_session_left_by_an_earlier_team_process_is_removed_before_anything_ru
 }
 
 #[tokio::test]
+async fn whatever_a_lost_creation_left_goes_before_the_next_browser_and_with_the_sweep() {
+    let case = Case::new();
+    assert!(case.runtime.startup().await);
+    case.fake.leave_session("late");
+    case.runtime.sweep().await;
+    assert_eq!(case.fake.state().sessions, Vec::<String>::new());
+    case.fake.leave_session("later");
+    let lease = case.agent("team_1").await.expect("a Browser");
+    assert_eq!(case.fake.state().sessions, [lease.session_id]);
+}
+
+#[tokio::test]
 async fn a_removal_not_proven_keeps_the_space_refusing_until_a_cleanup_proves_it() {
     let case = Case::new();
     let lease = case.agent("team_1").await.expect("a Browser");

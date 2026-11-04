@@ -152,6 +152,9 @@ pub struct SignInSessions {
     audit: Arc<dyn AuditSink>,
     entropy: Arc<dyn Entropy>,
     guard: Mutex<Guarded>,
+    // Held while a profile is made and recorded, and while residue is looked for: a profile is never taken for residue
+    // between the two.
+    profiles: tokio::sync::Mutex<()>,
     // Set once the Browsers a previous Team process left are proven gone; until then no deletion completes.
     cleaned: AtomicBool,
 }
@@ -184,6 +187,7 @@ impl SignInSessions {
             audit: parts.audit,
             entropy: parts.entropy,
             guard: Mutex::new(Guarded::default()),
+            profiles: tokio::sync::Mutex::new(()),
             cleaned: AtomicBool::new(false),
         }
     }
@@ -409,6 +413,7 @@ impl SignInSessions {
             Ok(None) => {}
             Err(error) => return Err(SessionError::from(error).0),
         }
+        let _making = self.profiles.lock().await;
         let body = Value::Object(vec![(
             "name".to_owned(),
             Value::String(checkout.team_id.clone()),
