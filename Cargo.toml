@@ -1,7 +1,7 @@
 # The Team controller in Rust (ADR-0123, plan phase R7). Each crate replaces the Python package of the responsibility
 # directory it lives in; `local/` holds the `shimpz-team` binary and is the only crate that reaches Docker or serves
 # HTTP. The standalone crates below are excluded: each keeps its own lock file and lanes (the Team HTTP protocol, the
-# vendored strict JSON reader, the Browser egress profile built into `shimpz-egress`, and the Browser image's host).
+# vendored strict JSON reader).
 [workspace]
 resolver = "3"
 members = [

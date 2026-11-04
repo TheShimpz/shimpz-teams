@@ -20,7 +20,6 @@ path = "src/main.rs"
 testing = ["team-core/testing", "team-install/testing"]
 
 [dependencies]
-aes-gcm.workspace = true
 assistant-protocol.workspace = true
 base64.workspace = true
 bollard.workspace = true
@@ -53,6 +52,7 @@ tokio-rustls.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
+aes-gcm.workspace = true
 team-core = { workspace = true, features = ["testing"] }
 team-inference = { workspace = true, features = ["testing"] }
 team-prepare = { workspace = true, features = ["testing"] }

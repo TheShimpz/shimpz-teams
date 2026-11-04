@@ -59,6 +59,8 @@ const COMPACT: Options = Options {
 pub enum EasiError {
     /// The admin could not be reached, or the connection failed before an answer: the outcome is unknown.
     Lost,
+    /// No easi.run is installed here: no session of Team's can exist.
+    Absent,
     /// The answer was not what easi.run's API answers.
     Invalid,
     /// An installation enrolled with a password Team does not hold, or one asking for a second step.
@@ -73,6 +75,7 @@ impl EasiError {
     pub const fn cause(self) -> &'static str {
         match self {
             Self::Lost => "easi-lost",
+            Self::Absent => "easi-absent",
             Self::Invalid => "easi-invalid",
             Self::Foreign => "easi-foreign",
             Self::State => "easi-state",

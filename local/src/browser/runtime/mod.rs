@@ -334,6 +334,10 @@ impl BrowserRuntime {
             )
             .await;
         self.reachable.store(answered.is_ok(), Ordering::SeqCst);
+        // An installation that is not there, or not Team's, runs nothing of Team's.
+        if matches!(answered, Err(EasiError::Absent | EasiError::Foreign)) {
+            return Ok(Vec::new());
+        }
         let answer = answered.map_err(|_| BrowserError::UNAVAILABLE)?;
         if !answer.ok() {
             return Err(BrowserError::UNAVAILABLE);

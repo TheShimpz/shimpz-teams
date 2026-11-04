@@ -124,6 +124,27 @@ async fn a_session_left_by_an_earlier_team_process_is_removed_before_anything_ru
 }
 
 #[tokio::test]
+async fn with_no_easi_run_installed_a_cleanup_succeeds_and_no_browser_starts() {
+    let case = Case::new();
+    case.fake.state().faults.insert("absent");
+    assert!(case.runtime.startup().await);
+    assert_eq!(case.runtime.clean().await, Ok(()));
+    assert!(case.runtime.previous_gone());
+    assert_eq!(
+        case.agent("team_1").await.err(),
+        Some(BrowserError::UNAVAILABLE)
+    );
+}
+
+#[tokio::test]
+async fn an_unreachable_easi_run_proves_nothing() {
+    let case = Case::new();
+    case.fake.state().faults.insert("unreachable");
+    assert!(!case.runtime.startup().await);
+    assert!(case.runtime.clean().await.is_err());
+}
+
+#[tokio::test]
 async fn whatever_a_lost_creation_left_goes_before_the_next_browser_and_with_the_sweep() {
     let case = Case::new();
     assert!(case.runtime.startup().await);

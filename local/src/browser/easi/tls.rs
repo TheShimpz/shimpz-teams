@@ -20,7 +20,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
 use super::{ADMIN_CONTAINER, Connection, Dial, EasiError, HOST_NAME, PORT};
-use crate::docker::DockerEngine;
+use crate::docker::{DockerEngine, DockerError};
 
 const CERTIFICATE_PATH: &str = "/var/lib/admin/tls-cert.pem";
 /// The most a certificate's tar answer may hold.
@@ -130,7 +130,10 @@ impl PinnedDial {
             .docker
             .get_archive(&self.container, CERTIFICATE_PATH, MAX_CERTIFICATE_BYTES)
             .await
-            .map_err(|_| EasiError::Lost)?;
+            .map_err(|error| match error {
+                DockerError::NotFound => EasiError::Absent,
+                _ => EasiError::Lost,
+            })?;
         der(&archive.tar).ok_or(EasiError::Invalid)
     }
 

@@ -40,7 +40,7 @@ pub(crate) struct State {
     pub(crate) next: usize,
     pub(crate) downloads: Vec<(String, Vec<u8>)>,
     pub(crate) streams: usize,
-    /// How the admin fails: `unreachable`, `refuse-start`, `keep-stopped`, `profile-residue`, `listing-invalid`, and
+    /// How the admin fails: `unreachable`, `absent`, `refuse-start`, `keep-stopped`, `profile-residue`, `listing-invalid`, and
     /// `lapse-login`.
     pub(crate) faults: HashSet<&'static str>,
     /// The next stop of a session with a saved profile reports this on it.
@@ -413,6 +413,9 @@ impl Dial for Fake {
         Box::pin(async move {
             if self.state().faults.contains("unreachable") {
                 return Err(EasiError::Lost);
+            }
+            if self.state().faults.contains("absent") {
+                return Err(EasiError::Absent);
             }
             let (near, far) = duplex(1 << 20);
             let fake = self.clone();
